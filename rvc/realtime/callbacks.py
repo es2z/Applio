@@ -38,6 +38,7 @@ class AudioCallbacks:
         vad_sensitivity: int = 3,
         vad_frame_ms: int = 30,
         sid: int = 0,
+        hybrid_blend_ratio: float = 0.5,
         # device: str = "cuda",
     ):
         self.pass_through = pass_through
@@ -56,6 +57,7 @@ class AudioCallbacks:
             vad_sensitivity,
             vad_frame_ms,
             sid,
+            hybrid_blend_ratio,
             # device,
         )
         self.audio = Audio(

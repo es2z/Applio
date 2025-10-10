@@ -15,7 +15,7 @@ from rvc.realtime.utils.torch import circular_write
 from rvc.configs.config import Config
 from rvc.infer.pipeline import Autotune, AudioProcessor
 from rvc.lib.algorithm.synthesizers import Synthesizer
-from rvc.lib.predictors.f0 import FCPE, RMVPE, SWIFT
+from rvc.lib.predictors.f0 import FCPE, RMVPE, SWIFT, CREPE
 from rvc.lib.utils import load_embedding, HubertModelWithFinalProj
 
 
@@ -63,6 +63,7 @@ class RealtimeVoiceConverter:
             self.version = self.cpt.get("version", "v1")
             self.text_enc_hidden_dim = 768 if self.version == "v2" else 256
             self.vocoder = self.cpt.get("vocoder", "HiFi-GAN")
+            print(f"[Realtime] Loading model with vocoder: {self.vocoder}")
             self.net_g = Synthesizer(
                 *self.cpt["config"],
                 use_f0=self.use_f0,
@@ -98,6 +99,7 @@ class Realtime_Pipeline:
         big_npy=None,
         f0_method: str = "rmvpe",
         sid: int = 0,
+        hybrid_blend_ratio: float = 0.5,
     ):
         self.vc = vc
         self.hubert_model = hubert_model
@@ -106,6 +108,7 @@ class Realtime_Pipeline:
         self.use_f0 = vc.use_f0
         self.version = vc.version
         self.f0_method = f0_method
+        self.hybrid_blend_ratio = hybrid_blend_ratio
         self.sample_rate = 16000
         self.tgt_sr = vc.tgt_sr
         self.window = 160
@@ -117,6 +120,7 @@ class Realtime_Pipeline:
         self.autotune = Autotune()
         self.resamplers = {}
         self.f0_model = None
+        self.f0_model_secondary = None
 
     def get_f0(
         self,
@@ -167,6 +171,48 @@ class Realtime_Pipeline:
                 x.shape[0] // self.window,
                 confidence_threshold=0.887,
             )
+        elif self.f0_method == "crepe-tiny":
+            if self.f0_model is None:
+                self.f0_model = CREPE(
+                    device=self.device,
+                    sample_rate=self.sample_rate,
+                    hop_size=self.window,
+                )
+            f0 = self.f0_model.get_f0(
+                x,
+                self.f0_min,
+                self.f0_max,
+                x.shape[0] // self.window,
+                model="tiny",
+            )
+        elif self.f0_method == "hybrid(rmvpe/crepe-tiny)":
+            # Initialize both models if not already done
+            if self.f0_model is None:
+                self.f0_model = RMVPE(
+                    device=self.device,
+                    sample_rate=self.sample_rate,
+                    hop_size=self.window,
+                )
+            if self.f0_model_secondary is None:
+                self.f0_model_secondary = CREPE(
+                    device=self.device,
+                    sample_rate=self.sample_rate,
+                    hop_size=self.window,
+                )
+
+            # Get F0 from both models
+            f0_rmvpe = self.f0_model.get_f0(x, filter_radius=0.03)
+            f0_crepe = self.f0_model_secondary.get_f0(
+                x,
+                self.f0_min,
+                self.f0_max,
+                x.shape[0] // self.window,
+                model="tiny",
+            )
+
+            # Blend the two F0 predictions
+            # hybrid_blend_ratio: 0.0 = full rmvpe, 1.0 = full crepe-tiny
+            f0 = (1.0 - self.hybrid_blend_ratio) * f0_rmvpe + self.hybrid_blend_ratio * f0_crepe
 
         # f0 adjustments
         if f0_autotune is True:
@@ -370,6 +416,7 @@ def create_pipeline(
     embedder_model_custom: str = None,
     # device: str = "cuda",
     sid: int = 0,
+    hybrid_blend_ratio: float = 0.5,
 ):
     """
     Initialize real-time voice conversion pipeline.
@@ -396,6 +443,7 @@ def create_pipeline(
         big_npy,
         f0_method,
         sid,
+        hybrid_blend_ratio,
     )
 
     return pipeline

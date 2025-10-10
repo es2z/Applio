@@ -30,6 +30,7 @@ class Realtime:
         vad_sensitivity: int = 3,
         vad_frame_ms: int = 30,
         sid: int = 0,
+        hybrid_blend_ratio: float = 0.5,
         # device: str = "cuda",
     ):
         self.sample_rate = SAMPLE_RATE
@@ -62,6 +63,7 @@ class Realtime:
             embedder_model_custom,
             # device,
             sid,
+            hybrid_blend_ratio,
         )
         self.device = self.pipeline.device
         # Resampling of inputs and outputs.
@@ -242,6 +244,7 @@ class VoiceChanger:
         vad_sensitivity: int = 3,
         vad_frame_ms: int = 30,
         sid: int = 0,
+        hybrid_blend_ratio: float = 0.5,
         # device: str = "cuda",
     ):
         self.block_frame = read_chunk_size * 128
@@ -260,6 +263,7 @@ class VoiceChanger:
             vad_sensitivity,
             vad_frame_ms,
             sid,
+            hybrid_blend_ratio,
             # device
         )
         self.device = self.vc_model.device
