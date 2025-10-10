@@ -396,6 +396,7 @@ def start_realtime(
     volume_envelope: float,
     protect: float,
     f0_method: str,
+    hybrid_blend_ratio: float,
     pth_path: str,
     index_path: str,
     sid: int,
@@ -479,6 +480,7 @@ def start_realtime(
         vad_sensitivity=3,
         vad_frame_ms=30,
         sid=sid,
+        hybrid_blend_ratio=hybrid_blend_ratio,
     )
 
     audio_manager = callbacks.audio
@@ -822,12 +824,32 @@ def realtime_tab():
                         interactive=True,
                     )
                     f0_method = gr.Radio(
-                        choices=["rmvpe", "fcpe", "swift"],
+                        choices=[
+                            "rmvpe",
+                            "fcpe",
+                            "swift",
+                            "crepe-tiny",
+                            "crepe-full",
+                            "hybrid(rmvpe/crepe-tiny)",
+                            "hybrid(rmvpe/crepe-full)",
+                        ],
                         value="swift",
                         label=i18n("Pitch extraction algorithm"),
                         info=i18n(
-                            "Pitch extraction algorithm to use for the audio conversion. The default algorithm is rmvpe, which is recommended for most cases."
+                            "Pitch extraction algorithm to use for the audio conversion. The default algorithm is rmvpe, which is recommended for most cases. CREPE: tiny (fast) or full (accurate)."
                         ),
+                        interactive=True,
+                    )
+                    hybrid_blend_ratio = gr.Slider(
+                        minimum=0.0,
+                        maximum=1.0,
+                        value=0.5,
+                        step=0.05,
+                        label=i18n("Hybrid Blend Ratio"),
+                        info=i18n(
+                            "Blend ratio for hybrid mode. 0 = full rmvpe, 1 = full CREPE. Only used when hybrid mode is selected."
+                        ),
+                        visible=False,
                         interactive=True,
                     )
                     embedder_model = gr.Radio(
@@ -966,7 +988,10 @@ def realtime_tab():
                 return {"visible": True, "__type__": "update"}
             return {"visible": False, "__type__": "update"}
 
-        
+        def toggle_hybrid_blend_slider(f0_method):
+            if f0_method.startswith("hybrid("):
+                return {"visible": True, "__type__": "update"}
+            return {"visible": False, "__type__": "update"}
 
         refresh_devices_button.click(
             fn=refresh_devices,
@@ -989,6 +1014,12 @@ def realtime_tab():
             fn=toggle_visible_embedder_custom,
             inputs=[embedder_model],
             outputs=[embedder_custom],
+        )
+
+        f0_method.change(
+            fn=toggle_hybrid_blend_slider,
+            inputs=[f0_method],
+            outputs=[hybrid_blend_ratio],
         )
 
         move_files_button.click(
@@ -1027,6 +1058,7 @@ def realtime_tab():
                 volume_envelope,
                 protect,
                 f0_method,
+                hybrid_blend_ratio,
                 model_file,
                 index_file,
                 sid,
