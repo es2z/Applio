@@ -141,6 +141,9 @@ class CREPE_ONNX:
         if not isinstance(x, np.ndarray):
             x = x.cpu().numpy() if torch.is_tensor(x) else np.array(x)
 
+        # Ensure audio is float32
+        x = x.astype(np.float32)
+
         # Calculate precision in milliseconds based on hop_size
         # hop_size is in samples at sample_rate
         precision = (self.hop_size / self.sample_rate) * 1000  # convert to ms
@@ -158,23 +161,27 @@ class CREPE_ONNX:
             decoder=onnxcrepe.decode.weighted_argmax,
         )
 
-        # Apply median filter
-        f0 = onnxcrepe.filter.median(f0, 3)
+        # Apply median filter on periodicity first
         pd = onnxcrepe.filter.median(pd, 3)
+
+        # Apply median filter on f0
+        f0 = onnxcrepe.filter.median(f0, 3)
+
+        # Apply mean filter for smoother results (like torchcrepe does)
+        f0 = onnxcrepe.filter.mean(f0, 3)
 
         # Zero out low confidence predictions
         f0[pd < 0.1] = 0
         f0 = f0.squeeze()
 
-        # Resize to match expected length
+        # Ensure f0 is the correct length
         if len(f0) != p_len:
-            from scipy.interpolate import interp1d
             if len(f0) > 0:
-                old_indices = np.linspace(0, 1, len(f0))
-                new_indices = np.linspace(0, 1, p_len)
-                f = interp1d(old_indices, f0, kind='linear', fill_value=0, bounds_error=False)
-                f0 = f(new_indices)
+                # Use numpy's interp which is simpler and handles edges better
+                x_old = np.linspace(0, len(f0) - 1, len(f0))
+                x_new = np.linspace(0, len(f0) - 1, p_len)
+                f0 = np.interp(x_new, x_old, f0)
             else:
-                f0 = np.zeros(p_len)
+                f0 = np.zeros(p_len, dtype=np.float32)
 
         return f0.astype(np.float32)
