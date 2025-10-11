@@ -15,7 +15,7 @@ from rvc.realtime.utils.torch import circular_write
 from rvc.configs.config import Config
 from rvc.infer.pipeline import Autotune, AudioProcessor
 from rvc.lib.algorithm.synthesizers import Synthesizer
-from rvc.lib.predictors.f0 import FCPE, RMVPE, SWIFT, CREPE, CREPE_ONNX
+from rvc.lib.predictors.f0 import FCPE, RMVPE, SWIFT, CREPE, CREPE_ONNX, MANGIO_CREPE
 from rvc.lib.utils import load_embedding, HubertModelWithFinalProj
 
 
@@ -205,6 +205,23 @@ class Realtime_Pipeline:
                     x.shape[0] // self.window,
                     model=model_size,
                 )
+        elif self.f0_method.startswith("mangio-crepe-"):
+            # Extract model size from method name (e.g., "mangio-crepe-tiny" -> "tiny")
+            model_size = self.f0_method.replace("mangio-crepe-", "")
+
+            if self.f0_model is None:
+                self.f0_model = MANGIO_CREPE(
+                    device=self.device,
+                    sample_rate=self.sample_rate,
+                    hop_size=self.window,
+                )
+            f0 = self.f0_model.get_f0(
+                x,
+                self.f0_min,
+                self.f0_max,
+                x.shape[0] // self.window,
+                model=model_size,
+            )
         elif self.f0_method.startswith("hybrid(rmvpe/crepe-"):
             # Extract model size from method name (e.g., "hybrid(rmvpe/crepe-tiny)" -> "tiny")
             model_size = self.f0_method.replace("hybrid(rmvpe/crepe-", "").replace(")", "")
@@ -262,6 +279,47 @@ class Realtime_Pipeline:
             # Blend the two F0 predictions
             # hybrid_blend_ratio: 0.0 = full rmvpe, 1.0 = full crepe
             f0 = (1.0 - self.hybrid_blend_ratio) * f0_rmvpe + self.hybrid_blend_ratio * f0_crepe
+
+        elif self.f0_method.startswith("hybrid(rmvpe/mangio-crepe-"):
+            # Extract model size from method name (e.g., "hybrid(rmvpe/mangio-crepe-tiny)" -> "tiny")
+            model_size = self.f0_method.replace("hybrid(rmvpe/mangio-crepe-", "").replace(")", "")
+
+            # Initialize RMVPE model
+            if self.f0_model is None:
+                self.f0_model = RMVPE(
+                    device=self.device,
+                    sample_rate=self.sample_rate,
+                    hop_size=self.window,
+                )
+
+            # Initialize MANGIO_CREPE model
+            if self.f0_model_secondary is None:
+                self.f0_model_secondary = MANGIO_CREPE(
+                    device=self.device,
+                    sample_rate=self.sample_rate,
+                    hop_size=self.window,
+                )
+
+            # Get F0 from both models
+            expected_len = x.shape[0] // self.window
+            f0_rmvpe = self.f0_model.get_f0(x, filter_radius=0.03)
+
+            f0_mangio_crepe = self.f0_model_secondary.get_f0(
+                x,
+                self.f0_min,
+                self.f0_max,
+                expected_len,
+                model=model_size,
+            )
+
+            # Ensure both f0 arrays have the same length
+            min_len = min(len(f0_rmvpe), len(f0_mangio_crepe), expected_len)
+            f0_rmvpe = f0_rmvpe[:min_len]
+            f0_mangio_crepe = f0_mangio_crepe[:min_len]
+
+            # Blend the two F0 predictions
+            # hybrid_blend_ratio: 0.0 = full rmvpe, 1.0 = full mangio-crepe
+            f0 = (1.0 - self.hybrid_blend_ratio) * f0_rmvpe + self.hybrid_blend_ratio * f0_mangio_crepe
 
         # f0 adjustments
         if f0_autotune is True:

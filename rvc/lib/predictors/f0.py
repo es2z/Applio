@@ -67,7 +67,7 @@ class MANGIO_CREPE:
         self.sample_rate = sample_rate
         self.hop_size = hop_size
 
-    def get_f0(self, x, f0_min=50, f0_max=1100, p_len=None):
+    def get_f0(self, x, f0_min=50, f0_max=1100, p_len=None, model="full"):
         if p_len is None:
             p_len = x.shape[0] // self.hop_size
 
@@ -94,7 +94,7 @@ class MANGIO_CREPE:
             self.hop_size,
             f0_min,
             f0_max,
-            model="full",
+            model=model,
             batch_size=self.hop_size * 2,
             device=self.device,
             pad=True
