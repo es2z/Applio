@@ -18,7 +18,7 @@ import rvc.lib.zluda
 
 from rvc.lib.utils import load_audio_16k, load_embedding
 from rvc.train.extract.preparing_files import generate_config, generate_filelist
-from rvc.lib.predictors.f0 import CREPE, FCPE, RMVPE
+from rvc.lib.predictors.f0 import CREPE, FCPE, RMVPE, MANGIO_CREPE
 from rvc.configs.config import Config
 
 # Load config
@@ -40,6 +40,10 @@ class FeatureInput:
             self.model = CREPE(
                 device=self.device, sample_rate=self.sample_rate, hop_size=self.hop_size
             )
+        elif f0_method == "mangio-crepe":
+            self.model = MANGIO_CREPE(
+                device=self.device, sample_rate=self.sample_rate, hop_size=self.hop_size
+            )
         elif f0_method == "rmvpe":
             self.model = RMVPE(
                 device=self.device, sample_rate=self.sample_rate, hop_size=self.hop_size
@@ -55,6 +59,8 @@ class FeatureInput:
             f0 = self.model.get_f0(x, self.f0_min, self.f0_max, p_len, "full")
         elif self.f0_method == "crepe-tiny":
             f0 = self.model.get_f0(x, self.f0_min, self.f0_max, p_len, "tiny")
+        elif self.f0_method == "mangio-crepe":
+            f0 = self.model.get_f0(x, self.f0_min, self.f0_max, p_len)
         elif self.f0_method == "rmvpe":
             f0 = self.model.get_f0(x, filter_radius=0.03)
         elif self.f0_method == "fcpe":

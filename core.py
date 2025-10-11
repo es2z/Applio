@@ -1885,6 +1885,7 @@ def parse_arguments():
         choices=[
             "crepe",
             "crepe-tiny",
+            "mangio-crepe",
             "rmvpe",
             "fcpe",
         ],

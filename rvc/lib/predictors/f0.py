@@ -61,6 +61,58 @@ class CREPE:
         return f0
 
 
+class MANGIO_CREPE:
+    def __init__(self, device, sample_rate=16000, hop_size=160):
+        self.device = device
+        self.sample_rate = sample_rate
+        self.hop_size = hop_size
+
+    def get_f0(self, x, f0_min=50, f0_max=1100, p_len=None):
+        if p_len is None:
+            p_len = x.shape[0] // self.hop_size
+
+        if not isinstance(x, np.ndarray):
+            x = x.cpu().numpy() if torch.is_tensor(x) else np.array(x)
+
+        # Normalize audio (mangio-crepe specific)
+        x = x.astype(np.float32)
+        x /= np.quantile(np.abs(x), 0.999)
+
+        # Convert to tensor and move to device
+        audio = torch.from_numpy(x).to(self.device, copy=True)
+        audio = torch.unsqueeze(audio, dim=0)
+
+        # Handle multi-channel audio
+        if audio.ndim == 2 and audio.shape[0] > 1:
+            audio = torch.mean(audio, dim=0, keepdim=True).detach()
+        audio = audio.detach()
+
+        # Predict using torchcrepe (mangio-crepe uses default decoder)
+        pitch = torchcrepe.predict(
+            audio,
+            self.sample_rate,
+            self.hop_size,
+            f0_min,
+            f0_max,
+            model="full",
+            batch_size=self.hop_size * 2,
+            device=self.device,
+            pad=True
+        )
+
+        # Resize the pitch for final f0
+        source = np.array(pitch.squeeze(0).cpu().float().numpy())
+        source[source < 0.001] = np.nan
+        target = np.interp(
+            np.arange(0, len(source) * p_len, len(source)) / p_len,
+            np.arange(0, len(source)),
+            source
+        )
+        f0 = np.nan_to_num(target)
+
+        return f0
+
+
 class FCPE:
     def __init__(self, device, sample_rate=16000, hop_size=160):
         self.device = device
