@@ -70,8 +70,9 @@ def _apply_weights(logits, bins):
         weights = onnxcrepe.convert.bins_to_cents(np.arange(360))
         _apply_weights.weights = weights[None, :, None]
 
-    # Convert to probabilities (ReLU)
-    probs = np.maximum(0, logits)
+    # Convert to probabilities (sigmoid - matching torchcrepe implementation)
+    # Using sigmoid instead of ReLU to match the behavior of torchcrepe
+    probs = 1 / (1 + np.exp(-logits))
 
     # Apply weights
     cents = (_apply_weights.weights * probs).sum(axis=1) / probs.sum(axis=1)

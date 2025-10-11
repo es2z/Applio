@@ -50,9 +50,11 @@ class CREPE:
             batch_size=batch_size,
             device=self.device,
             return_periodicity=True,
+            decoder=torchcrepe.decode.weighted_argmax,
         )
+        # Apply median filter to both f0 and periodicity (matching reference implementation)
+        f0 = torchcrepe.filter.median(f0, 3)
         pd = torchcrepe.filter.median(pd, 3)
-        f0 = torchcrepe.filter.mean(f0, 3)
         f0[pd < 0.1] = 0
         f0 = f0[0].cpu().numpy()
 
@@ -149,6 +151,7 @@ class CREPE_ONNX:
         precision = (self.hop_size / self.sample_rate) * 1000  # convert to ms
 
         # Use onnxcrepe.predict for proper CREPE ONNX inference
+        # Use weighted_argmax decoder (same as reference RVC project)
         f0, pd = onnxcrepe.predict(
             self.session,
             x,
@@ -161,16 +164,14 @@ class CREPE_ONNX:
             decoder=onnxcrepe.decode.weighted_argmax,
         )
 
-        # Apply median filter on periodicity first
-        pd = onnxcrepe.filter.median(pd, 3)
-
-        # Apply median filter on f0
+        # Apply filtering (matching reference RVC project):
+        # 1. Apply median filter on f0
         f0 = onnxcrepe.filter.median(f0, 3)
 
-        # Apply mean filter for smoother results (like torchcrepe does)
-        f0 = onnxcrepe.filter.mean(f0, 3)
+        # 2. Apply median filter on periodicity
+        pd = onnxcrepe.filter.median(pd, 3)
 
-        # Zero out low confidence predictions
+        # 3. Zero out low confidence predictions
         f0[pd < 0.1] = 0
         f0 = f0.squeeze()
 
