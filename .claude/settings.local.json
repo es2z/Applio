@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(env/python.exe -c \"import onnxruntime; print(onnxruntime.__version__)\")",
+      "Bash(env/python.exe:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

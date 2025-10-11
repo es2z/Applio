@@ -22,3 +22,5 @@ rvc/models
 env
 venv
 .venv
+assets/config.json
+assets/config.json
