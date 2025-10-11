@@ -87,8 +87,8 @@ class MANGIO_CREPE:
             audio = torch.mean(audio, dim=0, keepdim=True).detach()
         audio = audio.detach()
 
-        # Predict using torchcrepe (mangio-crepe uses default decoder)
-        pitch = torchcrepe.predict(
+        # Predict using torchcrepe with periodicity (Applio improvement)
+        pitch, pd = torchcrepe.predict(
             audio,
             self.sample_rate,
             self.hop_size,
@@ -97,10 +97,17 @@ class MANGIO_CREPE:
             model=model,
             batch_size=self.hop_size * 2,
             device=self.device,
-            pad=True
+            pad=True,
+            return_periodicity=True,
         )
 
-        # Resize the pitch for final f0
+        # Apply periodicity filter (Applio improvement for noise reduction)
+        pd = torchcrepe.filter.median(pd, 3)
+        pitch = torchcrepe.filter.median(pitch, 3)
+        # かなり強めに設定
+        pitch[pd < 0.16] = 0
+
+        # Resize the pitch for final f0 (mangio-crepe specific)
         source = np.array(pitch.squeeze(0).cpu().float().numpy())
         source[source < 0.001] = np.nan
         target = np.interp(
