@@ -321,6 +321,51 @@ class Realtime_Pipeline:
             # hybrid_blend_ratio: 0.0 = full rmvpe, 1.0 = full mangio-crepe
             f0 = (1.0 - self.hybrid_blend_ratio) * f0_rmvpe + self.hybrid_blend_ratio * f0_mangio_crepe
 
+        elif self.f0_method.startswith("hybrid(crepe-tiny/mangio-crepe-tiny)"):
+            # Initialize CREPE model for tiny
+            if self.f0_model is None:
+                self.f0_model = CREPE(
+                    device=self.device,
+                    sample_rate=self.sample_rate,
+                    hop_size=self.window,
+                )
+
+            # Initialize MANGIO_CREPE model
+            if self.f0_model_secondary is None:
+                self.f0_model_secondary = MANGIO_CREPE(
+                    device=self.device,
+                    sample_rate=self.sample_rate,
+                    hop_size=self.window,
+                )
+
+            # Get F0 from both models
+            expected_len = x.shape[0] // self.window
+
+            f0_crepe = self.f0_model.get_f0(
+                x,
+                self.f0_min,
+                self.f0_max,
+                expected_len,
+                model="tiny",
+            )
+
+            f0_mangio_crepe = self.f0_model_secondary.get_f0(
+                x,
+                self.f0_min,
+                self.f0_max,
+                expected_len,
+                model="tiny",
+            )
+
+            # Ensure both f0 arrays have the same length
+            min_len = min(len(f0_crepe), len(f0_mangio_crepe), expected_len)
+            f0_crepe = f0_crepe[:min_len]
+            f0_mangio_crepe = f0_mangio_crepe[:min_len]
+
+            # Blend the two F0 predictions
+            # hybrid_blend_ratio: 0.0 = full crepe-tiny, 1.0 = full mangio-crepe-tiny
+            f0 = (1.0 - self.hybrid_blend_ratio) * f0_crepe + self.hybrid_blend_ratio * f0_mangio_crepe
+
         # f0 adjustments
         if f0_autotune is True:
             f0 = self.autotune.autotune_f0(f0, f0_autotune_strength)

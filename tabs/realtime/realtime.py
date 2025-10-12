@@ -842,6 +842,7 @@ def realtime_tab():
                             "hybrid(rmvpe/crepe-full)",
                             "hybrid(rmvpe/mangio-crepe-tiny)",
                             "hybrid(rmvpe/mangio-crepe-full)",
+                            "hybrid(crepe-tiny/mangio-crepe-tiny)",
                         ],
                         value="swift",
                         label=i18n("Pitch extraction algorithm"),
