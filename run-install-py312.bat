@@ -1,14 +1,17 @@
 @echo off
 setlocal enabledelayedexpansion
-title Applio Installer
+title Applio Installer (Python 3.12)
 
-echo Welcome to the Applio Installer!
+echo Welcome to the Applio Installer (Python 3.12 Edition)!
+echo.
+echo This version uses Python 3.12 for improved performance.
+echo Recommended for users seeking better speed and stability.
 echo.
 
 set "INSTALL_DIR=%cd%"
 set "MINICONDA_DIR=%UserProfile%\Miniconda3"
 set "ENV_DIR=%INSTALL_DIR%\env"
-set "MINICONDA_URL=https://repo.anaconda.com/miniconda/Miniconda3-py311_25.5.1-1-Windows-x86_64.exe"
+set "MINICONDA_URL=https://repo.anaconda.com/miniconda/Miniconda3-py312_25.5.1-1-Windows-x86_64.exe"
 set "CONDA_EXE=%MINICONDA_DIR%\Scripts\conda.exe"
 
 set "startTime=%TIME%"
@@ -42,7 +45,7 @@ set /a seconds = elapsed %% 60
 echo Installation time: %hours% hours, %minutes% minutes, %seconds% seconds.
 echo.
 
-echo Applio has been installed successfully!
+echo Applio has been installed successfully with Python 3.12!
 echo To start Applio, please run 'run-applio.bat'.
 echo.
 pause
@@ -74,8 +77,8 @@ echo.
 exit /b 0
 
 :create_conda_env
-echo Creating Conda environment...
-call "%MINICONDA_DIR%\_conda.exe" create --no-shortcuts -y -k --prefix "%ENV_DIR%" python=3.11
+echo Creating Conda environment with Python 3.12...
+call "%MINICONDA_DIR%\_conda.exe" create --no-shortcuts -y -k --prefix "%ENV_DIR%" python=3.12
 if errorlevel 1 goto :error
 echo Conda environment created successfully.
 echo.
@@ -92,10 +95,11 @@ exit /b 0
 :install_dependencies
 echo Installing dependencies...
 echo This will install PyTorch 2.8.0 with CUDA 12.8 support and all required packages.
+echo Using Python 3.12 for enhanced performance.
 echo.
 call "%MINICONDA_DIR%\condabin\conda.bat" activate "%ENV_DIR%" || goto :error
 uv pip install --upgrade setuptools || goto :error
-uv pip install -r "%INSTALL_DIR%\requirements.txt" --extra-index-url https://download.pytorch.org/whl/cu128 --index-strategy unsafe-best-match || goto :error
+uv pip install -r "%INSTALL_DIR%\requirementspy312.txt" --extra-index-url https://download.pytorch.org/whl/cu128 --index-strategy unsafe-best-match || goto :error
 call "%MINICONDA_DIR%\condabin\conda.bat" deactivate
 echo Dependencies installation complete.
 echo.
