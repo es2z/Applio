@@ -1,0 +1,71 @@
+# Core dependencies
+pip>=24.2; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+wheel
+PyYAML
+numpy>=2.1.2,<3
+requests>=2.31.0,<2.32.0
+tqdm
+wget
+
+# Audio processing
+ffmpeg-python>=0.2.0
+faiss-cpu>=1.10.0
+librosa>=0.11.0
+scipy>=1.14.1
+soundfile>=0.13.0
+noisereduce
+pedalboard>=0.9.6
+stftpitchshift
+soxr
+
+# Python 3.13 で標準から削除されたモジュールの代替（librosa/audioread対策）
+standard-aifc; python_version >= '3.13'
+standard-sunau; python_version >= '3.13'
+standard-chunk; python_version >= '3.13'
+
+# Machine learning and deep learning
+omegaconf>=2.0.6
+# numba は 3.13 対応版(>=0.61.0)を統一
+numba>=0.61.0
+
+# --- PyTorch (各OS向けに分岐) ---
+# macOS (Metal/MPS)
+torch==2.8.*; sys_platform == 'darwin'
+torchaudio==2.8.*; sys_platform == 'darwin'
+torchvision==0.23.*; sys_platform == 'darwin'
+
+# Windows / Linux (CUDA ビルド)
+# ※ pip の追加インデックスが必要な場合があります（下記メモ参照）
+torch==2.8+cu128; sys_platform == 'linux' or sys_platform == 'win32'
+torchaudio==2.8+cu128; sys_platform == 'linux' or sys_platform == 'win32'
+torchvision==0.23+cu128; sys_platform == 'linux' or sys_platform == 'win32'
+
+# Pitch/F0 関連
+torchcrepe==0.0.23
+torchfcpe
+swift_f0
+einops
+
+# Transformers 系
+# tokenizers/safetensors の 3.13 対応を担保するため緩めに下限指定
+transformers>=4.44.2,<5
+tokenizers>=0.21.0
+safetensors>=0.4.3
+
+# Visualization and UI
+matplotlib>=3.10,<3.11
+tensorboard
+gradio==5.23.1
+
+# Miscellaneous utilities
+certifi>=2024.07.04
+antlr4-python3-runtime>=4.8
+tensorboardX
+edge-tts>=7.2.0
+pypresence
+beautifulsoup4
+sounddevice
+# webrtcvad は 3.13 では wheels フォークを使用
+webrtcvad; python_version < '3.13'
+webrtcvad-wheels; python_version >= '3.13'
+loudness

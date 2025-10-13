@@ -1,5 +1,6 @@
 
 assets/config.json
+config.json
 *.exe
 *.pt
 *.onnx
@@ -17,7 +18,7 @@ assets/config.json
 *.png
 *.safetensors
 !requirements.txt
-!requirementspy312.txt
+!requirementspy313.txt
 
 assets/audios
 assets/datasets
