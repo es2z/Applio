@@ -107,10 +107,22 @@ class AudioCallbacks:
                 )
 
             return audio, vol, perf, None
-        except RuntimeError as error:
+        except Exception as error:
             import traceback
 
-            print(f"An error occurred during real-time voice conversion: {error}")
-            print(traceback.format_exc())
+            # Track consecutive errors
+            if not hasattr(self, '_error_count'):
+                self._error_count = 0
+                self._last_error_type = None
 
-            return np.zeros(1, dtype=np.float32), 0, [0, 0, 0], None
+            error_type = type(error).__name__
+            self._error_count += 1
+
+            # Only log every 10th occurrence of the same error to avoid spam
+            if self._last_error_type != error_type or self._error_count % 10 == 1:
+                print(f"[Voice Conversion Error] {error_type}: {error} (count: {self._error_count})")
+                print(traceback.format_exc())
+                self._last_error_type = error_type
+
+            # Return silence with same length as input
+            return np.zeros(len(received_data), dtype=np.float32), 0, [0, 0, 0], None

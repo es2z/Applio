@@ -179,6 +179,13 @@ class Audio:
         self.proposed_pitch = proposed_pitch
         self.proposed_pitch_threshold = proposed_pitch_threshold
 
+        # Auto-reconnect settings
+        self.auto_reconnect_enabled = True
+        self.consecutive_errors = 0
+        self.max_consecutive_errors = 50  # Trigger reconnect after 50 consecutive errors
+        self.reconnect_in_progress = False
+        self.last_stream_params = None  # Store parameters for reconnection
+
     def get_input_audio_device(self, index: int):
         audioinput, _ = list_audio_device()
         serverAudioDevice = [x for x in audioinput if x.index == index]
@@ -219,6 +226,14 @@ class Audio:
         self, indata: np.ndarray, outdata: np.ndarray, frames, times, status
     ):
         try:
+            # Check for buffer overflow/underflow
+            if status:
+                print(f"[Audio Stream Warning] {status}")
+                self.consecutive_errors += 1
+            else:
+                # Reset error count on successful processing
+                self.consecutive_errors = 0
+
             out_wav = self.process_data_with_time(indata)
 
             output_channels = outdata.shape[1]
@@ -229,12 +244,25 @@ class Audio:
                 np.repeat(out_wav, output_channels).reshape(-1, output_channels)
                 * self.output_audio_gain
             )
+
+            # Check if we need to reconnect
+            self._check_and_reconnect()
+
         except Exception as error:
+            self.consecutive_errors += 1
             print(f"An error occurred while running the audio stream: {error}")
             print(traceback.format_exc())
+            # Output silence on error to avoid glitches
+            outdata[:] = 0
+            # Check if we need to reconnect
+            self._check_and_reconnect()
 
     def audio_queue(self, outdata: np.ndarray, frames, times, status):
         try:
+            # Check for buffer overflow/underflow
+            if status:
+                print(f"[Monitor Stream Warning] {status}")
+
             mon_wav = self.mon_queue.get()
 
             while self.mon_queue.qsize() > 0:
@@ -248,6 +276,8 @@ class Audio:
         except Exception as error:
             print(f"An error occurred while running the audio queue: {error}")
             print(traceback.format_exc())
+            # Output silence on error
+            outdata[:] = 0
 
     def input_callback(self, indata: np.ndarray, frames, times, status):
         """
@@ -255,16 +285,45 @@ class Audio:
         Processes the input audio and puts it in the queue for the output stream.
         """
         try:
+            # Check for buffer overflow/underflow
+            if status:
+                print(f"[Input Stream Warning] {status}")
+                self.consecutive_errors += 1
+            else:
+                # Reset error count on successful processing
+                self.consecutive_errors = 0
+
             out_wav = self.process_data_with_time(indata)
 
             if self.use_monitor:
                 self.mon_queue.put(out_wav)
 
             # Put processed audio into queue for output stream
+            # Clear old data if queue is getting too large to reduce latency
+            if self.io_queue.qsize() > 2:
+                print(f"[Input] Queue size too large ({self.io_queue.qsize()}), clearing old data")
+                while self.io_queue.qsize() > 1:
+                    try:
+                        self.io_queue.get_nowait()
+                    except:
+                        break
+
             self.io_queue.put(out_wav)
+
+            # Check if we need to reconnect
+            self._check_and_reconnect()
+
         except Exception as error:
+            self.consecutive_errors += 1
             print(f"An error occurred in input callback: {error}")
             print(traceback.format_exc())
+            # Put silence in queue to maintain synchronization
+            try:
+                self.io_queue.put(np.zeros(indata.shape[0], dtype=np.float32))
+            except:
+                pass
+            # Check if we need to reconnect
+            self._check_and_reconnect()
 
     def output_callback(self, outdata: np.ndarray, frames, times, status):
         """
@@ -272,13 +331,34 @@ class Audio:
         Gets processed audio from the queue and outputs it.
         """
         try:
+            # Check for buffer overflow/underflow
+            if status:
+                print(f"[Output Stream Warning] {status}")
+                self.consecutive_errors += 1
+
             # Get processed audio from queue with timeout to avoid blocking indefinitely
             try:
-                out_wav = self.io_queue.get(timeout=0.1)
+                out_wav = self.io_queue.get(timeout=0.05)
             except:
-                # Queue is empty, output silence
+                # Queue is empty - this shouldn't happen often
+                # Output silence and log warning
+                if not hasattr(self, '_queue_empty_count'):
+                    self._queue_empty_count = 0
+                self._queue_empty_count += 1
+
+                # Only log every 10th occurrence to avoid spam
+                if self._queue_empty_count % 10 == 1:
+                    print(f"[Output] Queue empty (count: {self._queue_empty_count}), outputting silence")
+
+                # Increment error count for empty queue
+                self.consecutive_errors += 1
                 outdata[:] = 0
                 return
+
+            # Reset empty count and error count on successful get
+            if hasattr(self, '_queue_empty_count'):
+                self._queue_empty_count = 0
+            self.consecutive_errors = 0
 
             # Clear old data from queue to reduce latency
             while self.io_queue.qsize() > 0:
@@ -290,8 +370,11 @@ class Audio:
                 * self.output_audio_gain
             )
         except Exception as error:
+            self.consecutive_errors += 1
             print(f"An error occurred in output callback: {error}")
             print(traceback.format_exc())
+            # Output silence on error
+            outdata[:] = 0
 
     def run_audio_stream(
         self,
@@ -393,8 +476,132 @@ class Audio:
             )
             self.monitor.start()
 
+    def _check_and_reconnect(self):
+        """
+        Check if we need to trigger auto-reconnect based on consecutive errors.
+        """
+        if not self.auto_reconnect_enabled or self.reconnect_in_progress:
+            return
+
+        if self.consecutive_errors >= self.max_consecutive_errors:
+            print(f"\n[Auto-Reconnect] Detected {self.consecutive_errors} consecutive errors. Attempting to reconnect...")
+            self.reconnect_in_progress = True
+            self._attempt_reconnect()
+
+    def _attempt_reconnect(self):
+        """
+        Attempt to reconnect the audio streams.
+        """
+        import threading
+        import time
+
+        def reconnect_worker():
+            try:
+                print("[Auto-Reconnect] Stopping current streams...")
+                # Close current streams (but keep last_stream_params)
+                if self.stream is not None:
+                    try:
+                        self.stream.close()
+                    except:
+                        pass
+                    self.stream = None
+
+                if self.input_stream is not None:
+                    try:
+                        self.input_stream.close()
+                    except:
+                        pass
+                    self.input_stream = None
+
+                if self.output_stream is not None:
+                    try:
+                        self.output_stream.close()
+                    except:
+                        pass
+                    self.output_stream = None
+
+                if self.monitor is not None:
+                    try:
+                        self.monitor.close()
+                    except:
+                        pass
+                    self.monitor = None
+
+                # Clear queues
+                while not self.io_queue.empty():
+                    try:
+                        self.io_queue.get_nowait()
+                    except:
+                        break
+
+                while not self.mon_queue.empty():
+                    try:
+                        self.mon_queue.get_nowait()
+                    except:
+                        break
+
+                # Wait a bit before reconnecting
+                time.sleep(0.5)
+
+                # Attempt to restart streams with saved parameters
+                if self.last_stream_params is not None:
+                    print("[Auto-Reconnect] Restarting streams with saved parameters...")
+                    params = self.last_stream_params
+
+                    # Determine if we should use separate streams
+                    use_separate_streams = params.get('use_separate_streams', False)
+
+                    try:
+                        if use_separate_streams:
+                            self.run_audio_stream_separate(
+                                params['block_frame'],
+                                params['input_device_id'],
+                                params['output_device_id'],
+                                params['output_monitor_id'],
+                                params['input_max_channel'],
+                                params['output_max_channel'],
+                                params['output_monitor_max_channel'],
+                                params['input_extra_setting'],
+                                params['output_extra_setting'],
+                                params['output_monitor_extra_setting'],
+                            )
+                        else:
+                            self.run_audio_stream(
+                                params['block_frame'],
+                                params['input_device_id'],
+                                params['output_device_id'],
+                                params['output_monitor_id'],
+                                params['input_max_channel'],
+                                params['output_max_channel'],
+                                params['output_monitor_max_channel'],
+                                params['input_extra_setting'],
+                                params['output_extra_setting'],
+                                params['output_monitor_extra_setting'],
+                            )
+
+                        # Reset error counter on successful reconnect
+                        self.consecutive_errors = 0
+                        print("[Auto-Reconnect] Successfully reconnected streams!")
+
+                    except Exception as e:
+                        print(f"[Auto-Reconnect] Failed to reconnect: {e}")
+                        print(traceback.format_exc())
+                else:
+                    print("[Auto-Reconnect] No saved parameters found. Cannot reconnect.")
+
+            except Exception as e:
+                print(f"[Auto-Reconnect] Error during reconnection: {e}")
+                print(traceback.format_exc())
+            finally:
+                self.reconnect_in_progress = False
+
+        # Run reconnection in a separate thread to avoid blocking the audio callback
+        reconnect_thread = threading.Thread(target=reconnect_worker, daemon=True)
+        reconnect_thread.start()
+
     def stop(self):
         self.running = False
+        self.auto_reconnect_enabled = False  # Disable auto-reconnect when explicitly stopping
 
         if self.stream is not None:
             self.stream.close()
@@ -534,6 +741,25 @@ class Audio:
                 print(f"[Different host APIs] Using separate input/output streams: {input_host} -> {output_host}")
 
         try:
+            # Save parameters for auto-reconnect
+            self.last_stream_params = {
+                'block_frame': block_frame,
+                'input_device_id': input_device_id,
+                'output_device_id': output_device_id,
+                'output_monitor_id': output_monitor_id,
+                'input_max_channel': input_channels,
+                'output_max_channel': output_channels,
+                'output_monitor_max_channel': monitor_channels,
+                'input_extra_setting': input_extra_setting,
+                'output_extra_setting': output_extra_setting,
+                'output_monitor_extra_setting': output_monitor_extra_setting,
+                'use_separate_streams': use_separate_streams,
+            }
+
+            # Enable auto-reconnect
+            self.auto_reconnect_enabled = True
+            self.consecutive_errors = 0
+
             if use_separate_streams:
                 self.run_audio_stream_separate(
                     block_frame,
