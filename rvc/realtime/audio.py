@@ -300,7 +300,8 @@ class Audio:
 
             # Put processed audio into queue for output stream
             # Clear old data if queue is getting too large to reduce latency
-            if self.io_queue.qsize() > 2:
+            # Increased threshold from 2 to 3 for Python 3.13 + NumPy 2.x to allow more buffering
+            if self.io_queue.qsize() > 3:
                 print(f"[Input] Queue size too large ({self.io_queue.qsize()}), clearing old data")
                 while self.io_queue.qsize() > 1:
                     try:
@@ -337,8 +338,9 @@ class Audio:
                 self.consecutive_errors += 1
 
             # Get processed audio from queue with timeout to avoid blocking indefinitely
+            # Increased timeout from 0.05s to 0.1s to accommodate Python 3.13 + NumPy 2.x processing time
             try:
-                out_wav = self.io_queue.get(timeout=0.05)
+                out_wav = self.io_queue.get(timeout=0.1)
             except:
                 # Queue is empty - this shouldn't happen often
                 # Output silence and log warning
@@ -346,8 +348,8 @@ class Audio:
                     self._queue_empty_count = 0
                 self._queue_empty_count += 1
 
-                # Only log every 10th occurrence to avoid spam
-                if self._queue_empty_count % 10 == 1:
+                # Only log every 50th occurrence to avoid spam (increased from 10 to reduce log noise)
+                if self._queue_empty_count % 50 == 1:
                     print(f"[Output] Queue empty (count: {self._queue_empty_count}), outputting silence")
 
                 # Increment error count for empty queue
