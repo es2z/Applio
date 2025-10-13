@@ -7,7 +7,6 @@ import json
 import regex as re
 import shutil
 import torch
-import yaml
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
@@ -17,6 +16,7 @@ from rvc.realtime.audio import list_audio_device
 from rvc.realtime.core import AUDIO_SAMPLE_RATE
 
 from assets.i18n.i18n import I18nAuto
+from tabs.realtime.template import RealtimeTemplateManager
 
 i18n = I18nAuto()
 
@@ -265,68 +265,6 @@ def refresh_embedders_folders():
     ]
     return custom_embedders
 
-
-# Template management functions
-def get_template_list():
-    """Get list of available template names"""
-    if not os.path.exists(TEMPLATE_FOLDER):
-        return []
-    templates = [
-        os.path.splitext(f)[0]
-        for f in os.listdir(TEMPLATE_FOLDER)
-        if f.endswith(".yaml")
-    ]
-    return sorted(templates)
-
-
-def validate_template_name(name, existing_templates, current_name=None):
-    """Validate template name and return error message if invalid"""
-    if not name or not name.strip():
-        return "Template name cannot be empty."
-
-    name = name.strip()
-
-    # Check for forbidden characters (Windows + Unix)
-    forbidden_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*']
-    for char in forbidden_chars:
-        if char in name:
-            return f"Template name cannot contain forbidden character: {char}"
-
-    # Check for duplicate names (excluding current name for overwrite)
-    if current_name:
-        check_list = [t for t in existing_templates if t != current_name]
-    else:
-        check_list = existing_templates
-
-    if name in check_list:
-        return f"Template name '{name}' already exists."
-
-    return None
-
-
-def save_template(name, template_data):
-    """Save template to YAML file"""
-    os.makedirs(TEMPLATE_FOLDER, exist_ok=True)
-    template_path = os.path.join(TEMPLATE_FOLDER, f"{name}.yaml")
-    with open(template_path, 'w', encoding='utf-8') as f:
-        yaml.dump(template_data, f, allow_unicode=True, sort_keys=False)
-
-
-def load_template(name):
-    """Load template from YAML file"""
-    template_path = os.path.join(TEMPLATE_FOLDER, f"{name}.yaml")
-    if not os.path.exists(template_path):
-        return None
-    with open(template_path, 'r', encoding='utf-8') as f:
-        return yaml.safe_load(f)
-
-
-def delete_template(name):
-    """Delete template file"""
-    template_path = os.path.join(TEMPLATE_FOLDER, f"{name}.yaml")
-    if os.path.exists(template_path):
-        os.remove(template_path)
-
 names = get_files("model")
 default_weight = names[0] if names else None
 
@@ -336,7 +274,6 @@ interactive_false = gr.update(interactive=False)
 running, callbacks, audio_manager = False, None, None
 
 CONFIG_PATH = os.path.join(now_dir, "assets", "config.json")
-TEMPLATE_FOLDER = os.path.join(now_dir, "RealTimeTemplate")
 
 def save_realtime_settings(
     input_device, output_device, monitor_device, model_file, index_file
@@ -623,6 +560,9 @@ def realtime_tab():
     # Load saved settings
     saved_settings = load_realtime_settings()
 
+    # Initialize template manager
+    template_manager = RealtimeTemplateManager()
+
     with gr.Blocks() as ui:
         with gr.Row():
             start_button = gr.Button(i18n("Start"), variant="primary")
@@ -642,7 +582,7 @@ def realtime_tab():
             with gr.Row():
                 template_dropdown = gr.Dropdown(
                     label=i18n("Template"),
-                    choices=get_template_list(),
+                    choices=template_manager.get_template_list(),
                     value=None,
                     interactive=True,
                     scale=3,
@@ -683,6 +623,7 @@ def realtime_tab():
                                     saved_settings["input_device"], input_devices
                                 ),
                                 interactive=True,
+                                allow_custom_value=True,
                             )
                             input_audio_gain = gr.Slider(
                                 minimum=0,
@@ -717,6 +658,7 @@ def realtime_tab():
                                     saved_settings["output_device"], output_devices
                                 ),
                                 interactive=True,
+                                allow_custom_value=True,
                             )
                             output_audio_gain = gr.Slider(
                                 minimum=0,
@@ -756,6 +698,7 @@ def realtime_tab():
                                 saved_settings["monitor_device"], output_devices
                             ),
                             interactive=True,
+                            allow_custom_value=True,
                         )
                         monitor_audio_gain = gr.Slider(
                             minimum=0,
@@ -1250,118 +1193,35 @@ def realtime_tab():
             )
 
         # Template functions
-        def collect_current_settings(
-            inp_device, inp_gain, inp_asio, out_device, out_gain, out_asio,
-            use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
-            mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
-            speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
-            emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
-        ):
-            """Collect all current settings into a dictionary for template saving"""
-            return {
-                "audioTab": {
-                    "input": {
-                        "device": inp_device or "",
-                        "gain": inp_gain,
-                        "asio_channel": inp_asio,
-                    },
-                    "output": {
-                        "device": out_device or "",
-                        "gain": out_gain,
-                        "asio_channel": out_asio,
-                    },
-                    "monitor": {
-                        "enabled": use_mon,
-                        "device": mon_device or "",
-                        "gain": mon_gain,
-                        "asio_channel": mon_asio,
-                    },
-                    "exclusive_mode": excl_mode,
-                    "vad_enabled": vad_en,
-                },
-                "modelTab": {
-                    "voice": {
-                        "model_path": mdl_file or "",
-                        "index_path": idx_file or "",
-                    },
-                    "inference": {
-                        "f0_method": f0_meth,
-                        "embedder_model": emb_model,
-                        "embedder_model_custom": emb_custom or "",
-                        "autotune": atune,
-                        "autotune_strength": atune_str,
-                        "proposed_pitch": prop_pitch,
-                        "proposed_pitch_threshold": prop_pitch_thresh,
-                        "speaker_id": speaker_id,
-                    },
-                    "parameterValues": {
-                        "pitch": ptch,
-                        "index_rate": idx_rate,
-                        "volume_envelope": vol_env,
-                        "protect": prot,
-                        "hybrid_blend_ratio": hybrid_ratio,
-                    },
-                },
-                "performanceTab": {
-                    "chunk_size": chnk_size,
-                    "crossfade_overlap_size": cross_fade,
-                    "extra_convert_size": extra_conv,
-                    "silence_threshold": silent_thresh,
-                },
-            }
-
         def apply_template_settings(template_name):
             """Load and apply template settings"""
             if not template_name:
                 gr.Warning("Please select a template first.")
-                return [gr.update()] * 30  # Return updates for all components
+                return [gr.update()] * 30
 
-            template_data = load_template(template_name)
+            template_data = template_manager.load_template(template_name)
             if not template_data:
                 gr.Warning(f"Template '{template_name}' not found.")
                 return [gr.update()] * 30
 
-            audio = template_data.get("audioTab", {})
-            model = template_data.get("modelTab", {})
-            perf = template_data.get("performanceTab", {})
+            # Check if devices exist in current device list
+            audio_tab = template_data.get("audioTab", {})
+            input_dev = audio_tab.get("input", {}).get("device", "")
+            output_dev = audio_tab.get("output", {}).get("device", "")
+            monitor_dev = audio_tab.get("monitor", {}).get("device", "")
 
-            # Return updates for all UI components
-            return (
-                # Audio tab
-                gr.update(value=audio.get("input", {}).get("device", "")),
-                gr.update(value=audio.get("input", {}).get("gain", 100)),
-                gr.update(value=audio.get("input", {}).get("asio_channel", -1)),
-                gr.update(value=audio.get("output", {}).get("device", "")),
-                gr.update(value=audio.get("output", {}).get("gain", 100)),
-                gr.update(value=audio.get("output", {}).get("asio_channel", -1)),
-                gr.update(value=audio.get("monitor", {}).get("enabled", False)),
-                gr.update(value=audio.get("monitor", {}).get("device", "")),
-                gr.update(value=audio.get("monitor", {}).get("gain", 100)),
-                gr.update(value=audio.get("monitor", {}).get("asio_channel", -1)),
-                gr.update(value=audio.get("exclusive_mode", True)),
-                gr.update(value=audio.get("vad_enabled", True)),
-                # Model tab
-                gr.update(value=model.get("voice", {}).get("model_path", "")),
-                gr.update(value=model.get("voice", {}).get("index_path", "")),
-                gr.update(value=model.get("inference", {}).get("autotune", False)),
-                gr.update(value=model.get("inference", {}).get("autotune_strength", 1)),
-                gr.update(value=model.get("inference", {}).get("proposed_pitch", False)),
-                gr.update(value=model.get("inference", {}).get("proposed_pitch_threshold", 155.0)),
-                gr.update(value=model.get("inference", {}).get("speaker_id", 0)),
-                gr.update(value=model.get("parameterValues", {}).get("pitch", 0)),
-                gr.update(value=model.get("parameterValues", {}).get("index_rate", 0.75)),
-                gr.update(value=model.get("parameterValues", {}).get("volume_envelope", 1)),
-                gr.update(value=model.get("parameterValues", {}).get("protect", 0.5)),
-                gr.update(value=model.get("inference", {}).get("f0_method", "swift")),
-                gr.update(value=model.get("parameterValues", {}).get("hybrid_blend_ratio", 0.5)),
-                gr.update(value=model.get("inference", {}).get("embedder_model", "contentvec")),
-                gr.update(value=model.get("inference", {}).get("embedder_model_custom", "")),
-                # Performance tab
-                gr.update(value=perf.get("chunk_size", 512)),
-                gr.update(value=perf.get("crossfade_overlap_size", 0.05)),
-                gr.update(value=perf.get("extra_convert_size", 0.5)),
-                gr.update(value=perf.get("silence_threshold", -90)),
-            )
+            missing_devices = []
+            if input_dev and input_dev not in input_devices:
+                missing_devices.append(f"Input: {input_dev}")
+            if output_dev and output_dev not in output_devices:
+                missing_devices.append(f"Output: {output_dev}")
+            if monitor_dev and monitor_dev not in output_devices:
+                missing_devices.append(f"Monitor: {monitor_dev}")
+
+            if missing_devices:
+                gr.Info(f"Template loaded. Note: Some devices are not currently available:\n" + "\n".join(missing_devices))
+
+            return template_manager.extract_settings_to_gradio_updates(template_data)
 
         def on_apply_template(template_name):
             """Apply template without confirmation"""
@@ -1405,7 +1265,7 @@ def realtime_tab():
                 )
 
             new_name = new_name.strip() if new_name else ""
-            existing_templates = get_template_list()
+            existing_templates = template_manager.get_template_list()
 
             if operation_state.startswith("overwrite:"):
                 # Overwrite existing template
@@ -1414,55 +1274,55 @@ def realtime_tab():
                 if not new_name:
                     new_name = current_name
 
-                error = validate_template_name(new_name, existing_templates, current_name)
+                error = template_manager.validate_template_name(new_name, existing_templates, current_name)
                 if error:
                     gr.Warning(error)
                     return gr.update(), gr.update(), operation_state
 
                 # If name changed, delete old template
                 if new_name != current_name:
-                    delete_template(current_name)
+                    template_manager.delete_template(current_name)
 
                 # Save current settings
-                settings = collect_current_settings(
+                settings = template_manager.create_settings_dict(
                     inp_device, inp_gain, inp_asio, out_device, out_gain, out_asio,
                     use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
                     mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
                     speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
                     emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
                 )
-                save_template(new_name, settings)
+                template_manager.save_template(new_name, settings)
                 gr.Info(f"Template '{new_name}' saved successfully.")
 
                 # Hide modal and refresh dropdown
                 return (
                     gr.update(visible=False),
-                    gr.update(choices=get_template_list(), value=new_name),
+                    gr.update(choices=template_manager.get_template_list(), value=new_name),
                     "",
                 )
 
             elif operation_state == "add":
                 # Add new template
-                error = validate_template_name(new_name, existing_templates)
+                error = template_manager.validate_template_name(new_name, existing_templates)
                 if error:
                     gr.Warning(error)
                     return gr.update(), gr.update(), operation_state
 
                 # Save current settings
-                settings = collect_current_settings(
+                settings = template_manager.create_settings_dict(
                     inp_device, inp_gain, inp_asio, out_device, out_gain, out_asio,
                     use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
                     mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
                     speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
                     emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
                 )
-                save_template(new_name, settings)
+                template_manager.save_template(new_name, settings)
                 gr.Info(f"Template '{new_name}' created successfully.")
 
                 # Hide modal and refresh dropdown
                 return (
                     gr.update(visible=False),
-                    gr.update(choices=get_template_list(), value=new_name),
+                    gr.update(choices=template_manager.get_template_list(), value=new_name),
                     "",
                 )
 
@@ -1478,11 +1338,11 @@ def realtime_tab():
                 gr.Warning("Please select a template first.")
                 return gr.update()
 
-            delete_template(template_name)
+            template_manager.delete_template(template_name)
             gr.Info(f"Template '{template_name}' deleted successfully.")
 
             # Refresh template list
-            new_list = get_template_list()
+            new_list = template_manager.get_template_list()
             return gr.update(choices=new_list, value=new_list[0] if new_list else None)
 
         model_file.change(fn=save_model_file, inputs=[model_file], outputs=[])
