@@ -638,13 +638,10 @@ class Audio:
         """
         self.stop()
 
-<<<<<<< HEAD
-=======
         # NOTE: Not calling sd._terminate() and sd._initialize() here.
         # Re-initialization can invalidate device indices obtained before calling start(),
         # and self.stop() already properly closes all streams.
 
->>>>>>> 98f810ef (input WASAPI-> output WDM-KSに対応めっちゃ遅延減ったやったー)
         input_audio_device, output_audio_device = self.get_input_audio_device(
             input_device_id
         ), self.get_output_audio_device(output_device_id)
