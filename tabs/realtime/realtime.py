@@ -7,6 +7,7 @@ import json
 import regex as re
 import shutil
 import torch
+import yaml
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
@@ -264,6 +265,68 @@ def refresh_embedders_folders():
     ]
     return custom_embedders
 
+
+# Template management functions
+def get_template_list():
+    """Get list of available template names"""
+    if not os.path.exists(TEMPLATE_FOLDER):
+        return []
+    templates = [
+        os.path.splitext(f)[0]
+        for f in os.listdir(TEMPLATE_FOLDER)
+        if f.endswith(".yaml")
+    ]
+    return sorted(templates)
+
+
+def validate_template_name(name, existing_templates, current_name=None):
+    """Validate template name and return error message if invalid"""
+    if not name or not name.strip():
+        return "Template name cannot be empty."
+
+    name = name.strip()
+
+    # Check for forbidden characters (Windows + Unix)
+    forbidden_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*']
+    for char in forbidden_chars:
+        if char in name:
+            return f"Template name cannot contain forbidden character: {char}"
+
+    # Check for duplicate names (excluding current name for overwrite)
+    if current_name:
+        check_list = [t for t in existing_templates if t != current_name]
+    else:
+        check_list = existing_templates
+
+    if name in check_list:
+        return f"Template name '{name}' already exists."
+
+    return None
+
+
+def save_template(name, template_data):
+    """Save template to YAML file"""
+    os.makedirs(TEMPLATE_FOLDER, exist_ok=True)
+    template_path = os.path.join(TEMPLATE_FOLDER, f"{name}.yaml")
+    with open(template_path, 'w', encoding='utf-8') as f:
+        yaml.dump(template_data, f, allow_unicode=True, sort_keys=False)
+
+
+def load_template(name):
+    """Load template from YAML file"""
+    template_path = os.path.join(TEMPLATE_FOLDER, f"{name}.yaml")
+    if not os.path.exists(template_path):
+        return None
+    with open(template_path, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f)
+
+
+def delete_template(name):
+    """Delete template file"""
+    template_path = os.path.join(TEMPLATE_FOLDER, f"{name}.yaml")
+    if os.path.exists(template_path):
+        os.remove(template_path)
+
 names = get_files("model")
 default_weight = names[0] if names else None
 
@@ -273,6 +336,7 @@ interactive_false = gr.update(interactive=False)
 running, callbacks, audio_manager = False, None, None
 
 CONFIG_PATH = os.path.join(now_dir, "assets", "config.json")
+TEMPLATE_FOLDER = os.path.join(now_dir, "RealTimeTemplate")
 
 def save_realtime_settings(
     input_device, output_device, monitor_device, model_file, index_file
@@ -572,6 +636,35 @@ def realtime_tab():
             value=False,
             interactive=True,
         )
+
+        # Template Section
+        with gr.Accordion(i18n("Templates"), open=False):
+            with gr.Row():
+                template_dropdown = gr.Dropdown(
+                    label=i18n("Template"),
+                    choices=get_template_list(),
+                    value=None,
+                    interactive=True,
+                    scale=3,
+                )
+                apply_template_button = gr.Button(i18n("Apply"), scale=1)
+                overwrite_template_button = gr.Button(i18n("Overwrite"), scale=1)
+                delete_template_button = gr.Button(i18n("Delete"), scale=1)
+                add_template_button = gr.Button(i18n("Add"), scale=1)
+
+            # Hidden components for template name input
+            with gr.Row(visible=False) as template_name_input_row:
+                template_name_input = gr.Textbox(
+                    label=i18n("Template Name"),
+                    placeholder=i18n("Enter template name"),
+                    interactive=True,
+                    scale=3,
+                )
+                template_save_button = gr.Button(i18n("OK"), scale=1, variant="primary")
+                template_cancel_button = gr.Button(i18n("Cancel"), scale=1)
+
+            # Hidden state to track current operation
+            template_operation_state = gr.State(value="")
 
         with gr.Tabs():
             with gr.TabItem(i18n("Audio Settings")):
@@ -1156,6 +1249,242 @@ def realtime_tab():
                 gr.update(choices=output_choices),
             )
 
+        # Template functions
+        def collect_current_settings(
+            inp_device, inp_gain, inp_asio, out_device, out_gain, out_asio,
+            use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
+            mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
+            speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
+            emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
+        ):
+            """Collect all current settings into a dictionary for template saving"""
+            return {
+                "audioTab": {
+                    "input": {
+                        "device": inp_device or "",
+                        "gain": inp_gain,
+                        "asio_channel": inp_asio,
+                    },
+                    "output": {
+                        "device": out_device or "",
+                        "gain": out_gain,
+                        "asio_channel": out_asio,
+                    },
+                    "monitor": {
+                        "enabled": use_mon,
+                        "device": mon_device or "",
+                        "gain": mon_gain,
+                        "asio_channel": mon_asio,
+                    },
+                    "exclusive_mode": excl_mode,
+                    "vad_enabled": vad_en,
+                },
+                "modelTab": {
+                    "voice": {
+                        "model_path": mdl_file or "",
+                        "index_path": idx_file or "",
+                    },
+                    "inference": {
+                        "f0_method": f0_meth,
+                        "embedder_model": emb_model,
+                        "embedder_model_custom": emb_custom or "",
+                        "autotune": atune,
+                        "autotune_strength": atune_str,
+                        "proposed_pitch": prop_pitch,
+                        "proposed_pitch_threshold": prop_pitch_thresh,
+                        "speaker_id": speaker_id,
+                    },
+                    "parameterValues": {
+                        "pitch": ptch,
+                        "index_rate": idx_rate,
+                        "volume_envelope": vol_env,
+                        "protect": prot,
+                        "hybrid_blend_ratio": hybrid_ratio,
+                    },
+                },
+                "performanceTab": {
+                    "chunk_size": chnk_size,
+                    "crossfade_overlap_size": cross_fade,
+                    "extra_convert_size": extra_conv,
+                    "silence_threshold": silent_thresh,
+                },
+            }
+
+        def apply_template_settings(template_name):
+            """Load and apply template settings"""
+            if not template_name:
+                gr.Warning("Please select a template first.")
+                return [gr.update()] * 30  # Return updates for all components
+
+            template_data = load_template(template_name)
+            if not template_data:
+                gr.Warning(f"Template '{template_name}' not found.")
+                return [gr.update()] * 30
+
+            audio = template_data.get("audioTab", {})
+            model = template_data.get("modelTab", {})
+            perf = template_data.get("performanceTab", {})
+
+            # Return updates for all UI components
+            return (
+                # Audio tab
+                gr.update(value=audio.get("input", {}).get("device", "")),
+                gr.update(value=audio.get("input", {}).get("gain", 100)),
+                gr.update(value=audio.get("input", {}).get("asio_channel", -1)),
+                gr.update(value=audio.get("output", {}).get("device", "")),
+                gr.update(value=audio.get("output", {}).get("gain", 100)),
+                gr.update(value=audio.get("output", {}).get("asio_channel", -1)),
+                gr.update(value=audio.get("monitor", {}).get("enabled", False)),
+                gr.update(value=audio.get("monitor", {}).get("device", "")),
+                gr.update(value=audio.get("monitor", {}).get("gain", 100)),
+                gr.update(value=audio.get("monitor", {}).get("asio_channel", -1)),
+                gr.update(value=audio.get("exclusive_mode", True)),
+                gr.update(value=audio.get("vad_enabled", True)),
+                # Model tab
+                gr.update(value=model.get("voice", {}).get("model_path", "")),
+                gr.update(value=model.get("voice", {}).get("index_path", "")),
+                gr.update(value=model.get("inference", {}).get("autotune", False)),
+                gr.update(value=model.get("inference", {}).get("autotune_strength", 1)),
+                gr.update(value=model.get("inference", {}).get("proposed_pitch", False)),
+                gr.update(value=model.get("inference", {}).get("proposed_pitch_threshold", 155.0)),
+                gr.update(value=model.get("inference", {}).get("speaker_id", 0)),
+                gr.update(value=model.get("parameterValues", {}).get("pitch", 0)),
+                gr.update(value=model.get("parameterValues", {}).get("index_rate", 0.75)),
+                gr.update(value=model.get("parameterValues", {}).get("volume_envelope", 1)),
+                gr.update(value=model.get("parameterValues", {}).get("protect", 0.5)),
+                gr.update(value=model.get("inference", {}).get("f0_method", "swift")),
+                gr.update(value=model.get("parameterValues", {}).get("hybrid_blend_ratio", 0.5)),
+                gr.update(value=model.get("inference", {}).get("embedder_model", "contentvec")),
+                gr.update(value=model.get("inference", {}).get("embedder_model_custom", "")),
+                # Performance tab
+                gr.update(value=perf.get("chunk_size", 512)),
+                gr.update(value=perf.get("crossfade_overlap_size", 0.05)),
+                gr.update(value=perf.get("extra_convert_size", 0.5)),
+                gr.update(value=perf.get("silence_threshold", -90)),
+            )
+
+        def on_apply_template(template_name):
+            """Apply template without confirmation"""
+            if not template_name:
+                gr.Warning("Please select a template first.")
+                return [gr.update()] * 30
+
+            return apply_template_settings(template_name)
+
+        def on_overwrite_template(template_name):
+            """Show modal for overwrite with current template name"""
+            if not template_name:
+                gr.Warning("Please select a template first.")
+                return gr.update(visible=False), gr.update(value=""), "overwrite"
+
+            # Show modal with current template name pre-filled
+            return (
+                gr.update(visible=True),
+                gr.update(value=template_name),
+                f"overwrite:{template_name}",
+            )
+
+        def on_add_template():
+            """Show modal for adding new template"""
+            return gr.update(visible=True), gr.update(value=""), "add"
+
+        def on_template_save(
+            operation_state, new_name,
+            inp_device, inp_gain, inp_asio, out_device, out_gain, out_asio,
+            use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
+            mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
+            speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
+            emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
+        ):
+            """Handle save button in modal"""
+            if not operation_state:
+                return (
+                    gr.update(visible=False),
+                    gr.update(),
+                    "",
+                )
+
+            new_name = new_name.strip() if new_name else ""
+            existing_templates = get_template_list()
+
+            if operation_state.startswith("overwrite:"):
+                # Overwrite existing template
+                current_name = operation_state.split(":", 1)[1]
+
+                if not new_name:
+                    new_name = current_name
+
+                error = validate_template_name(new_name, existing_templates, current_name)
+                if error:
+                    gr.Warning(error)
+                    return gr.update(), gr.update(), operation_state
+
+                # If name changed, delete old template
+                if new_name != current_name:
+                    delete_template(current_name)
+
+                # Save current settings
+                settings = collect_current_settings(
+                    inp_device, inp_gain, inp_asio, out_device, out_gain, out_asio,
+                    use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
+                    mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
+                    speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
+                    emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
+                )
+                save_template(new_name, settings)
+                gr.Info(f"Template '{new_name}' saved successfully.")
+
+                # Hide modal and refresh dropdown
+                return (
+                    gr.update(visible=False),
+                    gr.update(choices=get_template_list(), value=new_name),
+                    "",
+                )
+
+            elif operation_state == "add":
+                # Add new template
+                error = validate_template_name(new_name, existing_templates)
+                if error:
+                    gr.Warning(error)
+                    return gr.update(), gr.update(), operation_state
+
+                # Save current settings
+                settings = collect_current_settings(
+                    inp_device, inp_gain, inp_asio, out_device, out_gain, out_asio,
+                    use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
+                    mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
+                    speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
+                    emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
+                )
+                save_template(new_name, settings)
+                gr.Info(f"Template '{new_name}' created successfully.")
+
+                # Hide modal and refresh dropdown
+                return (
+                    gr.update(visible=False),
+                    gr.update(choices=get_template_list(), value=new_name),
+                    "",
+                )
+
+            return gr.update(visible=False), gr.update(), ""
+
+        def on_template_cancel():
+            """Handle cancel button in modal"""
+            return gr.update(visible=False), ""
+
+        def on_delete_template(template_name):
+            """Delete template (using JavaScript confirm would be better, but using direct delete for now)"""
+            if not template_name:
+                gr.Warning("Please select a template first.")
+                return gr.update()
+
+            delete_template(template_name)
+            gr.Info(f"Template '{template_name}' deleted successfully.")
+
+            # Refresh template list
+            new_list = get_template_list()
+            return gr.update(choices=new_list, value=new_list[0] if new_list else None)
+
         model_file.change(fn=save_model_file, inputs=[model_file], outputs=[])
 
         index_file.change(fn=save_index_file, inputs=[index_file], outputs=[])
@@ -1169,4 +1498,107 @@ def realtime_tab():
                 output_audio_device,
                 monitor_output_device,
             ],
+        )
+
+        # Template button event handlers
+        apply_template_button.click(
+            fn=on_apply_template,
+            inputs=[template_dropdown],
+            outputs=[
+                input_audio_device,
+                input_audio_gain,
+                input_asio_channels,
+                output_audio_device,
+                output_audio_gain,
+                output_asio_channels,
+                use_monitor_device,
+                monitor_output_device,
+                monitor_audio_gain,
+                monitor_asio_channels,
+                exclusive_mode,
+                vad_enabled,
+                model_file,
+                index_file,
+                autotune,
+                autotune_strength,
+                proposed_pitch,
+                proposed_pitch_threshold,
+                sid,
+                pitch,
+                index_rate,
+                volume_envelope,
+                protect,
+                f0_method,
+                hybrid_blend_ratio,
+                embedder_model,
+                embedder_model_custom,
+                chunk_size,
+                cross_fade_overlap_size,
+                extra_convert_size,
+                silent_threshold,
+            ],
+        )
+
+        overwrite_template_button.click(
+            fn=on_overwrite_template,
+            inputs=[template_dropdown],
+            outputs=[template_name_input_row, template_name_input, template_operation_state],
+        )
+
+        add_template_button.click(
+            fn=on_add_template,
+            inputs=[],
+            outputs=[template_name_input_row, template_name_input, template_operation_state],
+        )
+
+        delete_template_button.click(
+            fn=on_delete_template,
+            inputs=[template_dropdown],
+            outputs=[template_dropdown],
+        )
+
+        template_save_button.click(
+            fn=on_template_save,
+            inputs=[
+                template_operation_state,
+                template_name_input,
+                input_audio_device,
+                input_audio_gain,
+                input_asio_channels,
+                output_audio_device,
+                output_audio_gain,
+                output_asio_channels,
+                use_monitor_device,
+                monitor_output_device,
+                monitor_audio_gain,
+                monitor_asio_channels,
+                exclusive_mode,
+                vad_enabled,
+                model_file,
+                index_file,
+                autotune,
+                autotune_strength,
+                proposed_pitch,
+                proposed_pitch_threshold,
+                sid,
+                pitch,
+                index_rate,
+                volume_envelope,
+                protect,
+                f0_method,
+                hybrid_blend_ratio,
+                embedder_model,
+                embedder_model_custom,
+                chunk_size,
+                cross_fade_overlap_size,
+                extra_convert_size,
+                silent_threshold,
+            ],
+            outputs=[template_name_input_row, template_dropdown, template_operation_state],
+        )
+
+        template_cancel_button.click(
+            fn=on_template_cancel,
+            inputs=[],
+            outputs=[template_name_input_row, template_operation_state],
         )
