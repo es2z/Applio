@@ -185,6 +185,8 @@ class Audio:
         self.max_consecutive_errors = 50  # Trigger reconnect after 50 consecutive errors
         self.reconnect_in_progress = False
         self.last_stream_params = None  # Store parameters for reconnection
+        self.reconnect_success = False  # Flag to indicate successful reconnection
+        self.last_error = None  # Store last error message for UI display
 
     def get_input_audio_device(self, index: int):
         audioinput, _ = list_audio_device()
@@ -583,9 +585,12 @@ class Audio:
 
                         # Reset error counter on successful reconnect
                         self.consecutive_errors = 0
+                        self.reconnect_success = True  # Set flag for UI to detect
+                        self.last_error = None  # Clear error
                         print("[Auto-Reconnect] Successfully reconnected streams!")
 
                     except Exception as e:
+                        self.last_error = f"Reconnect failed: {e}"
                         print(f"[Auto-Reconnect] Failed to reconnect: {e}")
                         print(traceback.format_exc())
                 else:
@@ -604,6 +609,8 @@ class Audio:
     def stop(self):
         self.running = False
         self.auto_reconnect_enabled = False  # Disable auto-reconnect when explicitly stopping
+        self.reconnect_success = False  # Reset reconnect flag
+        self.last_error = None  # Clear error
 
         if self.stream is not None:
             self.stream.close()
@@ -755,9 +762,11 @@ class Audio:
                 'use_separate_streams': use_separate_streams,
             }
 
-            # Enable auto-reconnect
+            # Enable auto-reconnect and reset status flags
             self.auto_reconnect_enabled = True
             self.consecutive_errors = 0
+            self.reconnect_success = False
+            self.last_error = None
 
             if use_separate_streams:
                 self.run_audio_stream_separate(

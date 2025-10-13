@@ -251,7 +251,7 @@ def tts_tab():
             pitch = gr.Slider(
                 minimum=-24,
                 maximum=24,
-                step=1,
+                step=0.01,
                 label=i18n("Pitch"),
                 info=i18n(
                     "Set the pitch of the audio, the higher the value, the higher the pitch."

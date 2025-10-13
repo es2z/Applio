@@ -500,7 +500,24 @@ def start_realtime(
 
     while running and callbacks is not None and audio_manager is not None:
         time.sleep(0.1)
-        if hasattr(audio_manager, "latency"):
+
+        # Check for reconnection status
+        if hasattr(audio_manager, "reconnect_success") and audio_manager.reconnect_success:
+            # Reconnection succeeded - update UI and reset flag
+            audio_manager.reconnect_success = False
+            yield "Reconnected successfully! Realtime is ready!", interactive_false, interactive_true
+            time.sleep(0.5)  # Show message briefly
+        elif hasattr(audio_manager, "last_error") and audio_manager.last_error:
+            # Reconnection failed - show error but keep stop button enabled
+            error_msg = audio_manager.last_error
+            audio_manager.last_error = None  # Clear error after displaying once
+            yield f"Error: {error_msg}", interactive_false, interactive_true
+            time.sleep(1.0)  # Show error message for 1 second
+        elif hasattr(audio_manager, "reconnect_in_progress") and audio_manager.reconnect_in_progress:
+            # Reconnection in progress
+            yield "Reconnecting...", interactive_false, interactive_true
+        elif hasattr(audio_manager, "latency"):
+            # Normal operation - show latency
             yield f"Latency: {audio_manager.latency:.2f} ms", interactive_false, interactive_true
 
     return gr.update(), gr.update(), gr.update()
@@ -508,14 +525,28 @@ def start_realtime(
 
 def stop_realtime():
     global running, callbacks, audio_manager
-    if running and audio_manager is not None and callbacks is not None:
-        audio_manager.stop()
-        running = False
-        if hasattr(audio_manager, "latency"):
-            del audio_manager.latency
+
+    # Always attempt to stop if running flag is True, regardless of other states
+    if running:
+        running = False  # Set flag first to stop the main loop
+
+        # Stop audio manager if it exists
+        if audio_manager is not None:
+            try:
+                audio_manager.stop()
+            except Exception as e:
+                print(f"Error stopping audio manager: {e}")
+
+            if hasattr(audio_manager, "latency"):
+                try:
+                    del audio_manager.latency
+                except:
+                    pass
+
+        # Clean up references
         audio_manager = callbacks = None
 
-        return gr.update(value="Stopping..."), gr.update(), gr.update()
+        return gr.update(value="Stopping..."), interactive_true, interactive_false
     else:
         return "Realtime pipeline not found!", interactive_true, interactive_false
 
@@ -821,7 +852,7 @@ def realtime_tab():
                     pitch = gr.Slider(
                         minimum=-24,
                         maximum=24,
-                        step=1,
+                        step=0.01,
                         label=i18n("Pitch"),
                         info=i18n(
                             "Set the pitch of the audio, the higher the value, the higher the pitch."
