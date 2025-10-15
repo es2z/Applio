@@ -104,8 +104,7 @@ class MANGIO_CREPE:
         # Apply periodicity filter (Applio improvement for noise reduction)
         pd = torchcrepe.filter.median(pd, 3)
         pitch = torchcrepe.filter.median(pitch, 3)
-        # かなり強めに設定
-        pitch[pd < 0.16] = 0
+        pitch[pd < 0.1] = 0
 
         # Resize the pitch for final f0 (mangio-crepe specific)
         source = np.array(pitch.squeeze(0).cpu().float().numpy())

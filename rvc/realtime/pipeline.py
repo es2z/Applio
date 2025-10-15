@@ -114,7 +114,8 @@ class Realtime_Pipeline:
         self.window = 160
         self.model_window = self.tgt_sr // 100
         self.f0_min = 50.0
-        self.f0_max = 1100.0
+        self.f0_max = 1680.0
+        # self.f0_max = 1100.0
         self.device = vc.config.device
         self.sid = torch.tensor([sid], device=self.device, dtype=torch.int64)
         self.autotune = Autotune()
