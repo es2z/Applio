@@ -216,16 +216,28 @@ Applio-3.5.0/
 - Run with `run-applio-amd.bat` for AMD acceleration
 - Requires patching based on HIP version (5.7, 6.1, or 6.2)
 
-## Modified Files (Recent Changes)
+## Fork-Specific Features
 
-Based on git status and system reminders:
-- `assets/config.json` - Real-time device configuration modified
-- `rvc/infer/infer.py` - Recent edits to inference pipeline
-- `rvc/realtime/pipeline.py` - Latency optimizations for WASAPI/WDM-KS
+This is a personal fork with the following customizations:
 
-Recent commits mention:
-- Input WASAPI → output WDM-KS configuration for latency reduction
-- Various fixes and optimizations
+### Python 3.13 + Torch 2.8 Support
+- Upgraded from Python 3.11/3.12 + Torch 2.7.1 to Python 3.13 + Torch 2.8
+- Installation script: `run-install-py313.bat` for Python 3.13 environment
+- Note: mangio-crepe implementation may differ slightly from upstream
+
+### Training Tab Enhancements
+- Added `mangio-crepe` as a pitch adjustment algorithm option
+
+### Realtime Tab Enhancements
+- **Template System**: Save/load device connections, model settings, and parameter values
+- **WDM-KS Support**: Can use WDM-KS audio API for output
+  - Enables mixed API usage (e.g., WASAPI input → WDM-KS output)
+  - Improves latency in certain configurations
+- **Extended F0 Methods**:
+  - CREPE variants: `crepe-tiny`, `crepe-small`, `crepe-medium`, `crepe-full`
+  - Mangio-CREPE variants: `mangio-crepe-tiny`, `mangio-crepe-full`
+  - Hybrid combinations: `hybrid[rmvpe+crepe]`, `hybrid[rmvpe+mangio-crepe]`, `hybrid[crepe+mangio-crepe]`
+  - Hybrid blending ratios are adjustable
 
 ## Common Pitfalls
 
