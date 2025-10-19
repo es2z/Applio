@@ -15,7 +15,7 @@ from rvc.realtime.utils.torch import circular_write
 from rvc.configs.config import Config
 from rvc.infer.pipeline import Autotune, AudioProcessor
 from rvc.lib.algorithm.synthesizers import Synthesizer
-from rvc.lib.predictors.f0 import FCPE, RMVPE, SWIFT, CREPE, CREPE_ONNX, MANGIO_CREPE
+from rvc.lib.predictors.f0 import FCPE, RMVPE, SWIFT, CREPE, MANGIO_CREPE
 from rvc.lib.utils import load_embedding, HubertModelWithFinalProj
 
 
@@ -176,36 +176,20 @@ class Realtime_Pipeline:
             # Extract model size from method name (e.g., "crepe-tiny" -> "tiny")
             model_size = self.f0_method.replace("crepe-", "")
 
-            # Use ONNX models for small, medium, large; torchcrepe for tiny, full
-            if model_size in ["small", "medium", "large"]:
-                if self.f0_model is None:
-                    model_path = os.path.join(now_dir, "assets", "crepe_models", f"crepe_{model_size}.onnx")
-                    self.f0_model = CREPE_ONNX(
-                        device=self.device,
-                        model_path=model_path,
-                        sample_rate=self.sample_rate,
-                        hop_size=self.window,
-                    )
-                f0 = self.f0_model.get_f0(
-                    x,
-                    self.f0_min,
-                    self.f0_max,
-                    x.shape[0] // self.window,
+            # Use torchcrepe for tiny and full
+            if self.f0_model is None:
+                self.f0_model = CREPE(
+                    device=self.device,
+                    sample_rate=self.sample_rate,
+                    hop_size=self.window,
                 )
-            else:  # tiny or full - use torchcrepe
-                if self.f0_model is None:
-                    self.f0_model = CREPE(
-                        device=self.device,
-                        sample_rate=self.sample_rate,
-                        hop_size=self.window,
-                    )
-                f0 = self.f0_model.get_f0(
-                    x,
-                    self.f0_min,
-                    self.f0_max,
-                    x.shape[0] // self.window,
-                    model=model_size,
-                )
+            f0 = self.f0_model.get_f0(
+                x,
+                self.f0_min,
+                self.f0_max,
+                x.shape[0] // self.window,
+                model=model_size,
+            )
         elif self.f0_method.startswith("mangio-crepe-"):
             # Extract model size from method name (e.g., "mangio-crepe-tiny" -> "tiny")
             model_size = self.f0_method.replace("mangio-crepe-", "")
@@ -223,150 +207,6 @@ class Realtime_Pipeline:
                 x.shape[0] // self.window,
                 model=model_size,
             )
-        elif self.f0_method.startswith("hybrid(rmvpe/crepe-"):
-            # Extract model size from method name (e.g., "hybrid(rmvpe/crepe-tiny)" -> "tiny")
-            model_size = self.f0_method.replace("hybrid(rmvpe/crepe-", "").replace(")", "")
-
-            # Initialize RMVPE model
-            if self.f0_model is None:
-                self.f0_model = RMVPE(
-                    device=self.device,
-                    sample_rate=self.sample_rate,
-                    hop_size=self.window,
-                )
-
-            # Initialize CREPE model (ONNX for small/medium/large, torchcrepe for tiny/full)
-            if self.f0_model_secondary is None:
-                if model_size in ["small", "medium", "large"]:
-                    model_path = os.path.join(now_dir, "assets", "crepe_models", f"crepe_{model_size}.onnx")
-                    self.f0_model_secondary = CREPE_ONNX(
-                        device=self.device,
-                        model_path=model_path,
-                        sample_rate=self.sample_rate,
-                        hop_size=self.window,
-                    )
-                else:
-                    self.f0_model_secondary = CREPE(
-                        device=self.device,
-                        sample_rate=self.sample_rate,
-                        hop_size=self.window,
-                    )
-
-            # Get F0 from both models
-            expected_len = x.shape[0] // self.window
-            f0_rmvpe = self.f0_model.get_f0(x, filter_radius=0.03)
-
-            if model_size in ["small", "medium", "large"]:
-                f0_crepe = self.f0_model_secondary.get_f0(
-                    x,
-                    self.f0_min,
-                    self.f0_max,
-                    expected_len,
-                )
-            else:
-                f0_crepe = self.f0_model_secondary.get_f0(
-                    x,
-                    self.f0_min,
-                    self.f0_max,
-                    expected_len,
-                    model=model_size,
-                )
-
-            # Ensure both f0 arrays have the same length
-            min_len = min(len(f0_rmvpe), len(f0_crepe), expected_len)
-            f0_rmvpe = f0_rmvpe[:min_len]
-            f0_crepe = f0_crepe[:min_len]
-
-            # Blend the two F0 predictions
-            # hybrid_blend_ratio: 0.0 = full rmvpe, 1.0 = full crepe
-            f0 = (1.0 - self.hybrid_blend_ratio) * f0_rmvpe + self.hybrid_blend_ratio * f0_crepe
-
-        elif self.f0_method.startswith("hybrid(rmvpe/mangio-crepe-"):
-            # Extract model size from method name (e.g., "hybrid(rmvpe/mangio-crepe-tiny)" -> "tiny")
-            model_size = self.f0_method.replace("hybrid(rmvpe/mangio-crepe-", "").replace(")", "")
-
-            # Initialize RMVPE model
-            if self.f0_model is None:
-                self.f0_model = RMVPE(
-                    device=self.device,
-                    sample_rate=self.sample_rate,
-                    hop_size=self.window,
-                )
-
-            # Initialize MANGIO_CREPE model
-            if self.f0_model_secondary is None:
-                self.f0_model_secondary = MANGIO_CREPE(
-                    device=self.device,
-                    sample_rate=self.sample_rate,
-                    hop_size=self.window,
-                )
-
-            # Get F0 from both models
-            expected_len = x.shape[0] // self.window
-            f0_rmvpe = self.f0_model.get_f0(x, filter_radius=0.03)
-
-            f0_mangio_crepe = self.f0_model_secondary.get_f0(
-                x,
-                self.f0_min,
-                self.f0_max,
-                expected_len,
-                model=model_size,
-            )
-
-            # Ensure both f0 arrays have the same length
-            min_len = min(len(f0_rmvpe), len(f0_mangio_crepe), expected_len)
-            f0_rmvpe = f0_rmvpe[:min_len]
-            f0_mangio_crepe = f0_mangio_crepe[:min_len]
-
-            # Blend the two F0 predictions
-            # hybrid_blend_ratio: 0.0 = full rmvpe, 1.0 = full mangio-crepe
-            f0 = (1.0 - self.hybrid_blend_ratio) * f0_rmvpe + self.hybrid_blend_ratio * f0_mangio_crepe
-
-        elif self.f0_method.startswith("hybrid(crepe-tiny/mangio-crepe-tiny)"):
-            # Initialize CREPE model for tiny
-            if self.f0_model is None:
-                self.f0_model = CREPE(
-                    device=self.device,
-                    sample_rate=self.sample_rate,
-                    hop_size=self.window,
-                )
-
-            # Initialize MANGIO_CREPE model
-            if self.f0_model_secondary is None:
-                self.f0_model_secondary = MANGIO_CREPE(
-                    device=self.device,
-                    sample_rate=self.sample_rate,
-                    hop_size=self.window,
-                )
-
-            # Get F0 from both models
-            expected_len = x.shape[0] // self.window
-
-            f0_crepe = self.f0_model.get_f0(
-                x,
-                self.f0_min,
-                self.f0_max,
-                expected_len,
-                model="tiny",
-            )
-
-            f0_mangio_crepe = self.f0_model_secondary.get_f0(
-                x,
-                self.f0_min,
-                self.f0_max,
-                expected_len,
-                model="tiny",
-            )
-
-            # Ensure both f0 arrays have the same length
-            min_len = min(len(f0_crepe), len(f0_mangio_crepe), expected_len)
-            f0_crepe = f0_crepe[:min_len]
-            f0_mangio_crepe = f0_mangio_crepe[:min_len]
-
-            # Blend the two F0 predictions
-            # hybrid_blend_ratio: 0.0 = full crepe-tiny, 1.0 = full mangio-crepe-tiny
-            f0 = (1.0 - self.hybrid_blend_ratio) * f0_crepe + self.hybrid_blend_ratio * f0_mangio_crepe
-
         # f0 adjustments
         if f0_autotune is True:
             f0 = self.autotune.autotune_f0(f0, f0_autotune_strength)

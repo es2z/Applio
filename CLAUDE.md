@@ -234,10 +234,9 @@ This is a personal fork with the following customizations:
   - Enables mixed API usage (e.g., WASAPI input → WDM-KS output)
   - Improves latency in certain configurations
 - **Extended F0 Methods**:
-  - CREPE variants: `crepe-tiny`, `crepe-small`, `crepe-medium`, `crepe-full`
+  - CREPE variants: `crepe-tiny`, `crepe-full`
   - Mangio-CREPE variants: `mangio-crepe-tiny`, `mangio-crepe-full`
-  - Hybrid combinations: `hybrid[rmvpe+crepe]`, `hybrid[rmvpe+mangio-crepe]`, `hybrid[crepe+mangio-crepe]`
-  - Hybrid blending ratios are adjustable
+  - Hybrid support infrastructure is preserved for future enhancements
 
 ## Common Pitfalls
 
