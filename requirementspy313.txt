@@ -41,7 +41,7 @@ torchaudio==2.8+cu128; sys_platform == 'linux' or sys_platform == 'win32'
 torchvision==0.23+cu128; sys_platform == 'linux' or sys_platform == 'win32'
 
 # Pitch/F0 関連
-torchcrepe==0.0.23
+torchcrepe @ https://github.com/es2z/torchcrepe_plus/releases/download/release1_(Improved_version_of_ver0.0.24)/torchcrepe-0.0.25-py3-none-any.whl
 torchfcpe
 swift_f0
 einops
