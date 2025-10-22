@@ -191,6 +191,12 @@ class Audio:
         # Stable mode settings
         self.stable_mode = False  # Will be set in start() method
 
+        # Track consecutive silent outputs for queue management
+        # Note: silence detection is done in core.py, this just tracks output
+        self.consecutive_silent_outputs = 0
+        self.silent_output_threshold_to_stop_adding = 10  # Stop adding to queue after 10 silent outputs
+        self.silent_output_threshold_to_clear_queue = 30  # Clear queue after 30 silent outputs
+
     def get_input_audio_device(self, index: int):
         audioinput, _ = list_audio_device()
         serverAudioDevice = [x for x in audioinput if x.index == index]
@@ -300,6 +306,15 @@ class Audio:
 
             out_wav = self.process_data_with_time(indata)
 
+            # Check if the output is silence (all values near zero)
+            # Silence detection is done in core.py, this just checks output
+            is_silent_output = np.abs(out_wav).max() < 1e-5
+
+            if is_silent_output:
+                self.consecutive_silent_outputs += 1
+            else:
+                self.consecutive_silent_outputs = 0
+
             if self.use_monitor:
                 self.mon_queue.put(out_wav)
 
@@ -308,15 +323,36 @@ class Audio:
             # Use higher threshold in stable mode to allow more buffering when extra_infer_size is large
             max_queue_size = 6 if self.stable_mode else 3
             min_queue_size = 2 if self.stable_mode else 1
-            if self.io_queue.qsize() > max_queue_size:
-                print(f"[Input] Queue size too large ({self.io_queue.qsize()}), clearing old data")
-                while self.io_queue.qsize() > min_queue_size:
-                    try:
-                        self.io_queue.get_nowait()
-                    except:
-                        break
 
-            self.io_queue.put(out_wav)
+            # Silent output handling strategy:
+            # 1. Stop adding silence after threshold to let queue drain naturally
+            # 2. Clear queue only after extended silent output (audio completely stopped)
+            if is_silent_output and self.consecutive_silent_outputs > self.silent_output_threshold_to_stop_adding:
+                # Stop adding silence to queue to allow natural draining
+                # Output callback will continue to output remaining data
+
+                # If silent output continues for a very long time, clear the queue
+                # This prevents stale data from playing when new audio starts
+                if self.consecutive_silent_outputs > self.silent_output_threshold_to_clear_queue:
+                    # Clear queue only after extended silent output (audio completely finished)
+                    while not self.io_queue.empty():
+                        try:
+                            self.io_queue.get_nowait()
+                        except:
+                            break
+                # Don't add silence to queue
+                pass
+            else:
+                # Normal operation: add data to queue and manage queue size
+                if self.io_queue.qsize() > max_queue_size:
+                    print(f"[Input] Queue size too large ({self.io_queue.qsize()}), clearing old data")
+                    while self.io_queue.qsize() > min_queue_size:
+                        try:
+                            self.io_queue.get_nowait()
+                        except:
+                            break
+
+                self.io_queue.put(out_wav)
 
             # Check if we need to reconnect
             self._check_and_reconnect()
@@ -375,10 +411,9 @@ class Audio:
                 self._queue_empty_count = 0
             self.consecutive_errors = 0
 
-            # Clear old data from queue to reduce latency
-            while self.io_queue.qsize() > 0:
-                out_wav = self.io_queue.get()
-
+            # Simply output the data from queue without discarding
+            # Latency management is handled in input callback by limiting queue size
+            # This ensures all audio data is output properly, including the last frames
             output_channels = outdata.shape[1]
             outdata[:] = (
                 np.repeat(out_wav, output_channels).reshape(-1, output_channels)

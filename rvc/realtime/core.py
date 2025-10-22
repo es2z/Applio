@@ -45,6 +45,10 @@ class Realtime:
         self.window_size = self.sample_rate // 100
         self.dtype = torch.float32  # torch.float16 if config.is_half else torch.float32
 
+        # Track consecutive silence for buffer flushing
+        self.consecutive_silence_frames = 0
+        self.silence_threshold_for_flush = 30  # Flush buffers after 30 consecutive silent frames
+
         self.vad = (
             VADProcessor(
                 sensitivity_mode=vad_sensitivity,
@@ -128,6 +132,20 @@ class Realtime:
             self.convert_feature_size_16k + 1, dtype=self.dtype, device=self.device
         )
 
+    def flush_buffers(self):
+        """
+        Flush all buffers to prevent old audio data from mixing with new audio.
+        Should be called after extended silence.
+        """
+        if self.audio_buffer is not None:
+            self.audio_buffer.zero_()
+        if self.convert_buffer is not None:
+            self.convert_buffer.zero_()
+        if self.pitch_buffer is not None:
+            self.pitch_buffer.zero_()
+        if self.pitchf_buffer is not None:
+            self.pitchf_buffer.zero_()
+
     def inference(
         self,
         audio_input: np.ndarray,
@@ -152,57 +170,21 @@ class Realtime:
         vol_t = torch.sqrt(torch.square(self.audio_buffer).mean())
         vol = max(vol_t.item(), 0)
 
+        # Check for silence using VAD or volume threshold
+        is_input_silent = False
         if self.vad is not None:
             is_speech = self.vad.is_speech(audio_input_16k.cpu().numpy().copy())
             if not is_speech:
-                # Busy wait to keep power manager happy and clocks stable. Running pipeline on-demand seems to lag when the delay between
-                # voice changer activation is too high.
-                # https://forums.developer.nvidia.com/t/why-kernel-calculate-speed-got-slower-after-waiting-for-a-while/221059/9
-                self.pipeline.voice_conversion(
-                    self.convert_buffer,
-                    self.pitch_buffer,
-                    self.pitchf_buffer,
-                    f0_up_key,
-                    index_rate,
-                    self.convert_feature_size_16k,
-                    self.silence_front,
-                    self.skip_head,
-                    self.return_length,
-                    protect,
-                    volume_envelope,
-                    f0_autotune,
-                    f0_autotune_strength,
-                    proposed_pitch,
-                    proposed_pitch_threshold,
-                )
-                return None, vol
+                is_input_silent = True
+        elif vol < self.input_sensitivity:
+            is_input_silent = True
 
-        if vol < self.input_sensitivity:
-            # Busy wait to keep power manager happy and clocks stable. Running pipeline on-demand seems to lag when the delay between
-            # voice changer activation is too high.
-            # https://forums.developer.nvidia.com/t/why-kernel-calculate-speed-got-slower-after-waiting-for-a-while/221059/9
-            self.pipeline.voice_conversion(
-                self.convert_buffer,
-                self.pitch_buffer,
-                self.pitchf_buffer,
-                f0_up_key,
-                index_rate,
-                self.convert_feature_size_16k,
-                self.silence_front,
-                self.skip_head,
-                self.return_length,
-                protect,
-                volume_envelope,
-                f0_autotune,
-                f0_autotune_strength,
-                proposed_pitch,
-                proposed_pitch_threshold,
-            )
-
-            return None, vol
-
+        # Always update buffers and run processing, even if input is silent
+        # This ensures we process and output the last remaining audio data
+        circular_write(audio_input_16k, self.audio_buffer)
         circular_write(audio_input_16k, self.convert_buffer)
 
+        # Always run pipeline processing
         audio_model = self.pipeline.voice_conversion(
             self.convert_buffer,
             self.pitch_buffer,
@@ -221,6 +203,28 @@ class Realtime:
             proposed_pitch_threshold,
         )
 
+        # Check if output is actually silent (processing complete)
+        is_output_silent = audio_model is None or torch.abs(audio_model).max() < 1e-6
+
+        # Track silence for buffer flushing
+        # IMPORTANT: Only count silence when BOTH input AND output are silent
+        if is_input_silent and is_output_silent:
+            self.consecutive_silence_frames += 1
+            # Flush all buffers after extended silence to ensure clean state
+            # This prevents old data in circular buffers from mixing with new audio
+            if self.consecutive_silence_frames >= self.silence_threshold_for_flush:
+                self.flush_buffers()
+        else:
+            # Reset silence counter when any speech/audio detected
+            self.consecutive_silence_frames = 0
+
+        # Return None only if BOTH input is silent AND output is silent (complete)
+        if is_output_silent:
+            # Output is truly silent - no more audio to process
+            return None, vol
+
+        # Output still has audio data (previous audio still being processed)
+        # Continue outputting even if input is silent
         audio_out: torch.Tensor = self.resample_out(audio_model * torch.sqrt(vol_t))
         return audio_out, vol
 
@@ -324,6 +328,13 @@ class VoiceChanger:
         )
 
         if audio is None:
+            # Flush sola_buffer when Realtime class has flushed its buffers
+            # Check if we're in extended silence state
+            if hasattr(self.vc_model, 'consecutive_silence_frames'):
+                if self.vc_model.consecutive_silence_frames >= self.vc_model.silence_threshold_for_flush:
+                    if self.sola_buffer is not None:
+                        self.sola_buffer.zero_()
+
             # In case there's an actual silence - send full block with zeros
             return np.zeros(block_size, dtype=np.float32), vol
 
