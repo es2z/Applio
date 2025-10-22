@@ -1,9 +1,9 @@
 import os
 import sys
 import gradio as gr
-import json
 from assets.i18n.i18n import I18nAuto
 from assets.discord_presence import RPCManager
+from rvc.configs.config_utils import load_config, update_config
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
@@ -13,17 +13,12 @@ config_file = os.path.join(now_dir, "assets", "config.json")
 
 
 def load_config_presence():
-    with open(config_file, "r", encoding="utf8") as file:
-        config = json.load(file)
-        return config["discord_presence"]
+    config = load_config(config_file)
+    return config.get("discord_presence", True)
 
 
 def save_config(value):
-    with open(config_file, "r", encoding="utf8") as file:
-        config = json.load(file)
-        config["discord_presence"] = value
-    with open(config_file, "w", encoding="utf8") as file:
-        json.dump(config, file, indent=2)
+    update_config(config_file, {"discord_presence": value})
 
 
 def presence_tab():

@@ -1,10 +1,10 @@
 import os, sys, shutil
-import json
 import gradio as gr
 import zipfile
 import subprocess
 
 from assets.i18n.i18n import I18nAuto
+from rvc.configs.config_utils import load_config, update_config
 
 i18n = I18nAuto()
 
@@ -21,20 +21,12 @@ current_folders = os.listdir(plugins_path)
 
 
 def get_existing_folders():
-    if os.path.exists(json_file_path):
-        with open(json_file_path, "r") as file:
-            config = json.load(file)
-            return config["plugins"]
-    else:
-        return []
+    config = load_config(json_file_path)
+    return config.get("plugins", [])
 
 
 def save_existing_folders(existing_folders):
-    with open(json_file_path, "r") as file:
-        config = json.load(file)
-        config["plugins"] = existing_folders
-    with open(json_file_path, "w") as file:
-        json.dump(config, file, indent=2)
+    update_config(json_file_path, {"plugins": existing_folders})
 
 
 def save_plugin_dropbox(dropbox):

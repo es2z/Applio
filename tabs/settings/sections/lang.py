@@ -1,7 +1,7 @@
 import os, sys
-import json
 import gradio as gr
 from assets.i18n.i18n import I18nAuto
+from rvc.configs.config_utils import load_config, update_nested_config
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
@@ -12,29 +12,23 @@ config_file = os.path.join(now_dir, "assets", "config.json")
 
 
 def get_language_settings():
-    with open(config_file, "r", encoding="utf8") as file:
-        config = json.load(file)
+    config = load_config(config_file)
+    lang_config = config.get("lang", {})
 
-    if config["lang"]["override"] == False:
+    if not lang_config.get("override", False):
         return "Language automatically detected in the system"
     else:
-        return config["lang"]["selected_lang"]
+        return lang_config.get("selected_lang", "en_US")
 
 
 def save_lang_settings(selected_language):
-    with open(config_file, "r", encoding="utf8") as file:
-        config = json.load(file)
-
     if selected_language == "Language automatically detected in the system":
-        config["lang"]["override"] = False
+        updates = {"override": False}
     else:
-        config["lang"]["override"] = True
-        config["lang"]["selected_lang"] = selected_language
+        updates = {"override": True, "selected_lang": selected_language}
 
+    update_nested_config(config_file, "lang", updates)
     gr.Info("Language have been saved. Restart Applio to apply the changes.")
-
-    with open(config_file, "w", encoding="utf8") as file:
-        json.dump(config, file, indent=2)
 
 
 def lang_tab():

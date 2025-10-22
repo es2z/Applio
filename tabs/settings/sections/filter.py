@@ -1,8 +1,8 @@
 import os
 import sys
-import json
 import gradio as gr
 from assets.i18n.i18n import I18nAuto
+from rvc.configs.config_utils import load_config, update_config
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
@@ -21,17 +21,12 @@ def get_filter_trigger():
 
 
 def load_config_filter():
-    with open(config_file, "r", encoding="utf8") as f:
-        cfg = json.load(f)
+    cfg = load_config(config_file)
     return bool(cfg.get("model_index_filter", False))
 
 
 def save_config_filter(val: bool):
-    with open(config_file, "r", encoding="utf8") as f:
-        cfg = json.load(f)
-    cfg["model_index_filter"] = bool(val)
-    with open(config_file, "w", encoding="utf8") as f:
-        json.dump(cfg, f, indent=2)
+    update_config(config_file, {"model_index_filter": bool(val)})
 
 
 def filter_tab():

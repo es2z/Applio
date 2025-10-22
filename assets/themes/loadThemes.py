@@ -5,6 +5,10 @@ import gradio as gr
 import sys
 
 now_dir = os.getcwd()
+sys.path.append(now_dir)
+
+from rvc.configs.config_utils import load_config, update_nested_config
+
 folder = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
     "assets",
@@ -56,22 +60,17 @@ def select_theme(name):
     selected_file = f"{name}.py"
     full_path = os.path.join(folder, selected_file)
 
-    config_data = read_json_file(config_file)
-
     if not os.path.exists(full_path):
-        config_data["theme"]["file"] = None
-        config_data["theme"]["class"] = name
+        theme_data = {"file": None, "class": name}
     else:
         class_found = get_class(full_path)
         if class_found:
-            config_data["theme"]["file"] = selected_file
-            config_data["theme"]["class"] = class_found
+            theme_data = {"file": selected_file, "class": class_found}
         else:
             print(f"Theme class not found in {selected_file}.")
             return
 
-    with open(config_file, "w", encoding="utf8") as json_file:
-        json.dump(config_data, json_file, indent=2)
+    update_nested_config(config_file, "theme", theme_data)
 
     message = f"Theme {name} successfully selected. Restart the application."
     print(message)

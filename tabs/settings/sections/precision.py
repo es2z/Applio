@@ -1,34 +1,27 @@
 import os
 import sys
-import json
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 
 import gradio as gr
 from assets.i18n.i18n import I18nAuto
+from rvc.configs.config_utils import load_config, update_config
 
 i18n = I18nAuto()
 
+CONFIG_PATH = os.path.join(now_dir, "assets", "config.json")
+
 
 def set_precision(precision: str):
-    with open(os.path.join(now_dir, "assets", "config.json"), "r") as f:
-        config = json.load(f)
-
-    config["precision"] = precision
-
-    with open(os.path.join(now_dir, "assets", "config.json"), "w") as f:
-        json.dump(config, f, indent=4)
-
+    update_config(CONFIG_PATH, {"precision": precision})
     print(f"Precision set to {precision}.")
     return f"Precision set to {precision}."
 
 
 def get_precision():
-    with open(os.path.join(now_dir, "assets", "config.json"), "r") as f:
-        config = json.load(f)
-
-    return config["precision"] if "precision" in config else None
+    config = load_config(CONFIG_PATH)
+    return config.get("precision", None)
 
 
 def precision_tab():

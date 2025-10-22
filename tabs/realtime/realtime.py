@@ -14,6 +14,7 @@ sys.path.append(now_dir)
 from rvc.realtime.callbacks import AudioCallbacks
 from rvc.realtime.audio import list_audio_device
 from rvc.realtime.core import AUDIO_SAMPLE_RATE
+from rvc.configs.config_utils import load_config, save_config, update_nested_config
 
 from assets.i18n.i18n import I18nAuto
 from tabs.realtime.template import RealtimeTemplateManager
@@ -278,59 +279,49 @@ CONFIG_PATH = os.path.join(now_dir, "assets", "config.json")
 def save_realtime_settings(
     input_device, output_device, monitor_device, model_file, index_file
 ):
-    """Save realtime settings to config.json"""
+    """Save realtime settings to config.json (thread-safe)"""
     try:
-        if os.path.exists(CONFIG_PATH):
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                config = json.load(f)
-        else:
-            config = {}
-
-        if "realtime" not in config:
-            config["realtime"] = {}
+        updates = {}
 
         # Only save non-None values, preserve existing values for None inputs
         if input_device is not None:
-            config["realtime"]["input_device"] = input_device or ""
+            updates["input_device"] = input_device or ""
         if output_device is not None:
-            config["realtime"]["output_device"] = output_device or ""
+            updates["output_device"] = output_device or ""
         if monitor_device is not None:
-            config["realtime"]["monitor_device"] = monitor_device or ""
+            updates["monitor_device"] = monitor_device or ""
         if model_file is not None:
-            config["realtime"]["model_file"] = model_file or ""
+            updates["model_file"] = model_file or ""
         if index_file is not None:
-            config["realtime"]["index_file"] = index_file or ""
+            updates["index_file"] = index_file or ""
 
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
+        if updates:
+            update_nested_config(CONFIG_PATH, "realtime", updates)
     except Exception as e:
         print(f"Error saving realtime settings: {e}")
 
 
 def load_realtime_settings():
-    """Load realtime settings from config.json"""
+    """Load realtime settings from config.json (thread-safe)"""
     try:
-        if os.path.exists(CONFIG_PATH):
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                config = json.load(f)
-                realtime_config = config.get("realtime", {})
-                return {
-                    "input_device": realtime_config.get("input_device", ""),
-                    "output_device": realtime_config.get("output_device", ""),
-                    "monitor_device": realtime_config.get("monitor_device", ""),
-                    "model_file": realtime_config.get("model_file", ""),
-                    "index_file": realtime_config.get("index_file", ""),
-                }
+        config = load_config(CONFIG_PATH)
+        realtime_config = config.get("realtime", {})
+        return {
+            "input_device": realtime_config.get("input_device", ""),
+            "output_device": realtime_config.get("output_device", ""),
+            "monitor_device": realtime_config.get("monitor_device", ""),
+            "model_file": realtime_config.get("model_file", ""),
+            "index_file": realtime_config.get("index_file", ""),
+        }
     except Exception as e:
         print(f"Error loading realtime settings: {e}")
-
-    return {
-        "input_device": "",
-        "output_device": "",
-        "monitor_device": "",
-        "model_file": "",
-        "index_file": "",
-    }
+        return {
+            "input_device": "",
+            "output_device": "",
+            "monitor_device": "",
+            "model_file": "",
+            "index_file": "",
+        }
 
 
 def get_safe_dropdown_value(saved_value, choices, fallback_value=None):
@@ -1243,9 +1234,13 @@ def realtime_tab():
 
             # Check if devices exist in current device list
             audio_tab = template_data.get("audioTab", {})
+            model_tab = template_data.get("modelTab", {})
+
             input_dev = audio_tab.get("input", {}).get("device", "")
             output_dev = audio_tab.get("output", {}).get("device", "")
             monitor_dev = audio_tab.get("monitor", {}).get("device", "")
+            model_file = model_tab.get("voice", {}).get("model_path", "")
+            index_file = model_tab.get("voice", {}).get("index_path", "")
 
             missing_devices = []
             if input_dev and input_dev not in input_devices:
@@ -1257,6 +1252,15 @@ def realtime_tab():
 
             if missing_devices:
                 gr.Info(f"Template loaded. Note: Some devices are not currently available:\n" + "\n".join(missing_devices))
+
+            # Save all realtime settings at once (prevents race condition from individual .change() events)
+            update_nested_config(CONFIG_PATH, "realtime", {
+                "input_device": input_dev or "",
+                "output_device": output_dev or "",
+                "monitor_device": monitor_dev or "",
+                "model_file": model_file or "",
+                "index_file": index_file or "",
+            })
 
             return template_manager.extract_settings_to_gradio_updates(template_data)
 
