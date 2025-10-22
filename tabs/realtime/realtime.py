@@ -407,6 +407,7 @@ def start_realtime(
     proposed_pitch_threshold: float,
     embedder_model: str,
     embedder_model_custom: str = None,
+    stable_mode: bool = False,
 ):
     global running, callbacks, audio_manager
     running = True
@@ -494,6 +495,7 @@ def start_realtime(
         asio_output_channel=output_asio_channels,
         asio_output_monitor_channel=monitor_asio_channels,
         read_chunk_size=read_chunk_size,
+        stable_mode=stable_mode,
     )
 
     yield "Realtime is ready!", interactive_false, interactive_true
@@ -598,6 +600,14 @@ def realtime_tab():
         with gr.Row():
             start_button = gr.Button(i18n("Start"), variant="primary")
             stop_button = gr.Button(i18n("Stop"), interactive=False)
+            stable_mode = gr.Checkbox(
+                label=i18n("Stable Mode (Increases Latency)"),
+                info=i18n(
+                    "Enable for more stable processing with larger buffer sizes. Recommended when using large extra conversion size values."
+                ),
+                value=False,
+                interactive=True,
+            )
         latency_info = gr.Label(label=i18n("Status"), value="Realtime not started.")
         terms_checkbox = gr.Checkbox(
             label=i18n("I agree to the terms of use"),
@@ -1141,6 +1151,7 @@ def realtime_tab():
                 proposed_pitch_threshold,
                 embedder_model,
                 embedder_model_custom,
+                stable_mode,
             ],
             outputs=[latency_info, start_button, stop_button],
         )
@@ -1223,12 +1234,12 @@ def realtime_tab():
             """Load and apply template settings"""
             if not template_name:
                 gr.Warning("Please select a template first.")
-                return [gr.update()] * 30
+                return [gr.update()] * 31
 
             template_data = template_manager.load_template(template_name)
             if not template_data:
                 gr.Warning(f"Template '{template_name}' not found.")
-                return [gr.update()] * 30
+                return [gr.update()] * 31
 
             # Check if devices exist in current device list
             audio_tab = template_data.get("audioTab", {})
@@ -1253,7 +1264,7 @@ def realtime_tab():
             """Apply template without confirmation"""
             if not template_name:
                 gr.Warning("Please select a template first.")
-                return [gr.update()] * 30
+                return [gr.update()] * 31
 
             return apply_template_settings(template_name)
 
@@ -1280,7 +1291,8 @@ def realtime_tab():
             use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
             mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
             speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
-            emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
+            emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh,
+            stable_md
         ):
             """Handle save button in modal"""
             if not operation_state:
@@ -1315,7 +1327,8 @@ def realtime_tab():
                     use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
                     mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
                     speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
-                    emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
+                    emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh,
+                    stable_md
                 )
                 template_manager.save_template(new_name, settings)
                 gr.Info(f"Template '{new_name}' saved successfully.")
@@ -1340,7 +1353,8 @@ def realtime_tab():
                     use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
                     mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
                     speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
-                    emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
+                    emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh,
+                    stable_md
                 )
                 template_manager.save_template(new_name, settings)
                 gr.Info(f"Template '{new_name}' created successfully.")
@@ -1403,6 +1417,7 @@ def realtime_tab():
                 monitor_asio_channels,
                 exclusive_mode,
                 vad_enabled,
+                stable_mode,
                 model_file,
                 index_file,
                 autotune,
@@ -1479,6 +1494,7 @@ def realtime_tab():
                 cross_fade_overlap_size,
                 extra_convert_size,
                 silent_threshold,
+                stable_mode,
             ],
             outputs=[template_name_input_row, template_dropdown, template_operation_state],
         )

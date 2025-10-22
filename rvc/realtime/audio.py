@@ -182,11 +182,14 @@ class Audio:
         # Auto-reconnect settings
         self.auto_reconnect_enabled = True
         self.consecutive_errors = 0
-        self.max_consecutive_errors = 50  # Trigger reconnect after 50 consecutive errors
+        self.max_consecutive_errors = 150  # Trigger reconnect after 150 consecutive errors (increased from 50 for stability with large extra_infer_size)
         self.reconnect_in_progress = False
         self.last_stream_params = None  # Store parameters for reconnection
         self.reconnect_success = False  # Flag to indicate successful reconnection
         self.last_error = None  # Store last error message for UI display
+
+        # Stable mode settings
+        self.stable_mode = False  # Will be set in start() method
 
     def get_input_audio_device(self, index: int):
         audioinput, _ = list_audio_device()
@@ -302,10 +305,12 @@ class Audio:
 
             # Put processed audio into queue for output stream
             # Clear old data if queue is getting too large to reduce latency
-            # Increased threshold from 2 to 3 for Python 3.13 + NumPy 2.x to allow more buffering
-            if self.io_queue.qsize() > 3:
+            # Use higher threshold in stable mode to allow more buffering when extra_infer_size is large
+            max_queue_size = 6 if self.stable_mode else 3
+            min_queue_size = 2 if self.stable_mode else 1
+            if self.io_queue.qsize() > max_queue_size:
                 print(f"[Input] Queue size too large ({self.io_queue.qsize()}), clearing old data")
-                while self.io_queue.qsize() > 1:
+                while self.io_queue.qsize() > min_queue_size:
                     try:
                         self.io_queue.get_nowait()
                     except:
@@ -340,9 +345,10 @@ class Audio:
                 self.consecutive_errors += 1
 
             # Get processed audio from queue with timeout to avoid blocking indefinitely
-            # Increased timeout from 0.05s to 0.1s to accommodate Python 3.13 + NumPy 2.x processing time
+            # Use longer timeout in stable mode to accommodate large extra_infer_size processing time
+            timeout_val = 0.5 if self.stable_mode else 0.1
             try:
-                out_wav = self.io_queue.get(timeout=0.1)
+                out_wav = self.io_queue.get(timeout=timeout_val)
             except:
                 # Queue is empty - this shouldn't happen often
                 # Output silence and log warning
@@ -350,12 +356,17 @@ class Audio:
                     self._queue_empty_count = 0
                 self._queue_empty_count += 1
 
-                # Only log every 50th occurrence to avoid spam (increased from 10 to reduce log noise)
+                # Only log every 50th occurrence to avoid spam
                 if self._queue_empty_count % 50 == 1:
                     print(f"[Output] Queue empty (count: {self._queue_empty_count}), outputting silence")
 
                 # Increment error count for empty queue
-                self.consecutive_errors += 1
+                # In stable mode, only count every 3rd time to be more tolerant
+                if self.stable_mode:
+                    if self._queue_empty_count % 3 == 0:
+                        self.consecutive_errors += 1
+                else:
+                    self.consecutive_errors += 1
                 outdata[:] = 0
                 return
 
@@ -392,10 +403,12 @@ class Audio:
         input_extra_setting,
         output_extra_setting,
         output_monitor_extra_setting,
+        latency_mode: str = "low",
     ):
+        # Use latency_mode to balance between responsiveness and stability
         self.stream = sd.Stream(
             callback=self.audio_stream_callback,
-            latency="low",
+            latency=latency_mode,
             dtype=np.float32,
             device=(input_device_id, output_device_id),
             blocksize=block_frame,
@@ -429,6 +442,7 @@ class Audio:
         input_extra_setting,
         output_extra_setting,
         output_monitor_extra_setting,
+        latency_mode: str = "low",
     ):
         """
         Run audio with separate input and output streams.
@@ -441,9 +455,10 @@ class Audio:
         The output stream retrieves processed audio from the queue and outputs it.
         """
         # Create input stream
+        # Use latency_mode to balance between responsiveness and stability
         self.input_stream = sd.InputStream(
             callback=self.input_callback,
-            latency="low",
+            latency=latency_mode,
             dtype=np.float32,
             device=input_device_id,
             blocksize=block_frame,
@@ -453,9 +468,10 @@ class Audio:
         )
 
         # Create output stream
+        # Use latency_mode to balance between responsiveness and stability
         self.output_stream = sd.OutputStream(
             callback=self.output_callback,
-            latency="low",
+            latency=latency_mode,
             dtype=np.float32,
             device=output_device_id,
             blocksize=block_frame,
@@ -554,6 +570,7 @@ class Audio:
 
                     # Determine if we should use separate streams
                     use_separate_streams = params.get('use_separate_streams', False)
+                    latency_mode = params.get('latency_mode', 'low')
 
                     try:
                         if use_separate_streams:
@@ -568,6 +585,7 @@ class Audio:
                                 params['input_extra_setting'],
                                 params['output_extra_setting'],
                                 params['output_monitor_extra_setting'],
+                                latency_mode,
                             )
                         else:
                             self.run_audio_stream(
@@ -581,6 +599,7 @@ class Audio:
                                 params['input_extra_setting'],
                                 params['output_extra_setting'],
                                 params['output_monitor_extra_setting'],
+                                latency_mode,
                             )
 
                         # Reset error counter on successful reconnect
@@ -638,12 +657,17 @@ class Audio:
         asio_output_channel: int = -1,
         asio_output_monitor_channel: int = -1,
         read_chunk_size: int = 192,
+        stable_mode: bool = False,
     ):
         """
         Start the realtime audio processing with the specified devices.
 
         Supports WDM-KS devices by automatically detecting them and using separate
         input/output streams instead of duplex mode when necessary.
+
+        Args:
+            stable_mode: If True, uses high latency settings for more stable processing
+                         (useful with large extra_infer_size). If False, uses low latency settings.
         """
         self.stop()
 
@@ -746,6 +770,14 @@ class Audio:
                 use_separate_streams = True
                 print(f"[Different host APIs] Using separate input/output streams: {input_host} -> {output_host}")
 
+        # Save stable mode setting for use in callbacks
+        self.stable_mode = stable_mode
+
+        # Determine latency mode based on stable_mode setting
+        # stable_mode=True: Use high latency for more buffering and stability (better for large extra_infer_size)
+        # stable_mode=False: Use low latency for minimal delay (default behavior)
+        latency_mode = "high" if stable_mode else "low"
+
         try:
             # Save parameters for auto-reconnect
             self.last_stream_params = {
@@ -760,6 +792,7 @@ class Audio:
                 'output_extra_setting': output_extra_setting,
                 'output_monitor_extra_setting': output_monitor_extra_setting,
                 'use_separate_streams': use_separate_streams,
+                'latency_mode': latency_mode,
             }
 
             # Enable auto-reconnect and reset status flags
@@ -780,6 +813,7 @@ class Audio:
                     input_extra_setting,
                     output_extra_setting,
                     output_monitor_extra_setting,
+                    latency_mode,
                 )
             else:
                 self.run_audio_stream(
@@ -793,6 +827,7 @@ class Audio:
                     input_extra_setting,
                     output_extra_setting,
                     output_monitor_extra_setting,
+                    latency_mode,
                 )
             self.running = True
         except Exception as error:
