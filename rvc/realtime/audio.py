@@ -316,9 +316,11 @@ class Audio:
                 self.mon_queue.put(out_wav)
 
             # Put processed audio into queue for output stream
-            # Clear old data if queue is getting too large to reduce latency
-            max_queue_size = 3
-            min_queue_size = 1
+            # IMPORTANT: Keep queue small to minimize latency
+            # max_queue_size = 1 means we only keep the latest frame
+            # This prevents queue buildup during startup and reduces latency
+            max_queue_size = 1
+            min_queue_size = 0
 
             # Silent output handling strategy:
             # 1. Stop adding silence after threshold to let queue drain naturally
@@ -340,13 +342,17 @@ class Audio:
                 pass
             else:
                 # Normal operation: add data to queue and manage queue size
-                if self.io_queue.qsize() > max_queue_size:
-                    print(f"[Input] Queue size too large ({self.io_queue.qsize()}), clearing old data")
+                current_size = self.io_queue.qsize()
+                if current_size > max_queue_size:
+                    print(f"[Input] Queue size too large ({current_size}), clearing to {min_queue_size}")
+                    cleared = 0
                     while self.io_queue.qsize() > min_queue_size:
                         try:
                             self.io_queue.get_nowait()
+                            cleared += 1
                         except:
                             break
+                    print(f"[Input] Cleared {cleared} items from queue")
 
                 self.io_queue.put(out_wav)
 
@@ -380,15 +386,17 @@ class Audio:
             try:
                 out_wav = self.io_queue.get(timeout=0.1)
             except:
-                # Queue is empty - this shouldn't happen often
-                # Output silence and log warning
+                # Queue is empty
+                # This is normal during startup or when input processing is slower than output
                 if not hasattr(self, '_queue_empty_count'):
                     self._queue_empty_count = 0
                 self._queue_empty_count += 1
 
-                # Only log every 50th occurrence to avoid spam
-                if self._queue_empty_count % 50 == 1:
-                    print(f"[Output] Queue empty (count: {self._queue_empty_count}), outputting silence")
+                # Only log if queue has been empty for an extended period (potential problem)
+                # First 100 empties are ignored (startup period)
+                # After that, log every 50th occurrence to detect persistent issues
+                if self._queue_empty_count > 100 and self._queue_empty_count % 50 == 1:
+                    print(f"[Output] Queue empty (count: {self._queue_empty_count}), outputting silence - this may indicate processing is too slow")
 
                 # Increment error count for empty queue
                 self.consecutive_errors += 1
@@ -400,16 +408,21 @@ class Audio:
                 self._queue_empty_count = 0
             self.consecutive_errors = 0
 
-            # Latency reduction: Skip to latest data if queue has accumulated
-            # But keep the last frame to ensure audio completes properly
+            # Latency reduction: Always use latest data if queue has any items
+            # This ensures minimal latency by discarding old buffered data
             queue_size = self.io_queue.qsize()
-            if queue_size >= 2:
-                # Skip old data and use the latest to reduce latency
-                while self.io_queue.qsize() > 1:
+            if queue_size > 0:
+                # Get the latest data from queue, discard older frames
+                skipped = 0
+                while self.io_queue.qsize() > 0:
                     try:
                         out_wav = self.io_queue.get_nowait()
+                        if self.io_queue.qsize() > 0:  # If there's more, this one is being skipped
+                            skipped += 1
                     except:
                         break
+                if skipped > 0:
+                    print(f"[Output] Skipped {skipped} old frames to reduce latency (queue had {queue_size} items)")
 
             output_channels = outdata.shape[1]
             outdata[:] = (
@@ -512,9 +525,14 @@ class Audio:
             extra_settings=output_extra_setting,
         )
 
-        # Start streams
-        self.input_stream.start()
+        # Start streams - IMPORTANT: Start output first to prevent queue buildup
+        # If input starts first, it will process and queue data before output can consume it
+        # This causes initial latency as the queue fills up
+        print("[run_audio_stream_separate] Starting output stream first...")
         self.output_stream.start()
+        print("[run_audio_stream_separate] Starting input stream...")
+        self.input_stream.start()
+        print("[run_audio_stream_separate] Both streams started")
 
         if self.use_monitor:
             self.monitor = sd.OutputStream(
@@ -679,6 +697,81 @@ class Audio:
             self.monitor.close()
             self.monitor = None
 
+        # Clear all queues and reset counters to ensure clean state
+        while not self.io_queue.empty():
+            try:
+                self.io_queue.get_nowait()
+            except:
+                break
+
+        if self.use_monitor:
+            while not self.mon_queue.empty():
+                try:
+                    self.mon_queue.get_nowait()
+                except:
+                    break
+
+        # Reset counters
+        self.consecutive_silent_outputs = 0
+        if hasattr(self, '_queue_empty_count'):
+            self._queue_empty_count = 0
+        self.consecutive_errors = 0
+
+    def clear_buffers(self):
+        """
+        Clear all buffers and reset state for clean startup.
+        This reduces initial latency when connecting by ensuring no old data remains.
+        """
+        print("[clear_buffers] Starting buffer clear...")
+
+        # Clear queues (already done in stop(), but ensure they're empty)
+        io_queue_cleared = 0
+        while not self.io_queue.empty():
+            try:
+                self.io_queue.get_nowait()
+                io_queue_cleared += 1
+            except:
+                break
+        if io_queue_cleared > 0:
+            print(f"[clear_buffers] Cleared {io_queue_cleared} items from io_queue")
+
+        if self.use_monitor:
+            mon_queue_cleared = 0
+            while not self.mon_queue.empty():
+                try:
+                    self.mon_queue.get_nowait()
+                    mon_queue_cleared += 1
+                except:
+                    break
+            if mon_queue_cleared > 0:
+                print(f"[clear_buffers] Cleared {mon_queue_cleared} items from mon_queue")
+
+        # Reset counters
+        self.consecutive_silent_outputs = 0
+        if hasattr(self, '_queue_empty_count'):
+            self._queue_empty_count = 0
+        self.consecutive_errors = 0
+        print("[clear_buffers] Reset counters")
+
+        # Clear VoiceChanger buffers
+        if hasattr(self, 'callbacks') and hasattr(self.callbacks, 'vc'):
+            vc = self.callbacks.vc
+
+            # Clear sola_buffer
+            if vc.sola_buffer is not None:
+                vc.sola_buffer.zero_()
+                print("[clear_buffers] Cleared sola_buffer")
+
+            # Clear Realtime model buffers
+            if hasattr(vc, 'vc_model') and vc.vc_model is not None:
+                vc.vc_model.flush_buffers()
+                vc.vc_model.consecutive_silence_frames = 0
+                print("[clear_buffers] Flushed Realtime model buffers")
+        else:
+            print("[clear_buffers] WARNING: callbacks or vc not available!")
+
+        print("[clear_buffers] Buffer clear complete")
+
     def start(
         self,
         input_device_id: int,
@@ -697,6 +790,10 @@ class Audio:
         input/output streams instead of duplex mode when necessary.
         """
         self.stop()
+
+        # Clear all buffers and reset state for clean startup
+        # This reduces initial latency by ensuring no old data remains
+        self.clear_buffers()
 
         # NOTE: Not calling sd._terminate() and sd._initialize() here.
         # Re-initialization can invalidate device indices obtained before calling start(),
