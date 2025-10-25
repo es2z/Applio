@@ -188,14 +188,11 @@ class Audio:
         self.reconnect_success = False  # Flag to indicate successful reconnection
         self.last_error = None  # Store last error message for UI display
 
-        # Stable mode settings
-        self.stable_mode = False  # Will be set in start() method
-
         # Track consecutive silent outputs for queue management
         # Note: silence detection is done in core.py, this just tracks output
         self.consecutive_silent_outputs = 0
-        self.silent_output_threshold_to_stop_adding = 10  # Stop adding to queue after 10 silent outputs
-        self.silent_output_threshold_to_clear_queue = 30  # Clear queue after 30 silent outputs
+        self.silent_output_threshold_to_stop_adding = 3  # Stop adding to queue after 3 silent outputs
+        self.silent_output_threshold_to_clear_queue = 5  # Clear queue after 5 silent outputs (fast cleanup)
 
     def get_input_audio_device(self, index: int):
         audioinput, _ = list_audio_device()
@@ -320,9 +317,8 @@ class Audio:
 
             # Put processed audio into queue for output stream
             # Clear old data if queue is getting too large to reduce latency
-            # Use higher threshold in stable mode to allow more buffering when extra_infer_size is large
-            max_queue_size = 6 if self.stable_mode else 3
-            min_queue_size = 2 if self.stable_mode else 1
+            max_queue_size = 3
+            min_queue_size = 1
 
             # Silent output handling strategy:
             # 1. Stop adding silence after threshold to let queue drain naturally
@@ -381,10 +377,8 @@ class Audio:
                 self.consecutive_errors += 1
 
             # Get processed audio from queue with timeout to avoid blocking indefinitely
-            # Use longer timeout in stable mode to accommodate large extra_infer_size processing time
-            timeout_val = 0.5 if self.stable_mode else 0.1
             try:
-                out_wav = self.io_queue.get(timeout=timeout_val)
+                out_wav = self.io_queue.get(timeout=0.1)
             except:
                 # Queue is empty - this shouldn't happen often
                 # Output silence and log warning
@@ -397,12 +391,7 @@ class Audio:
                     print(f"[Output] Queue empty (count: {self._queue_empty_count}), outputting silence")
 
                 # Increment error count for empty queue
-                # In stable mode, only count every 3rd time to be more tolerant
-                if self.stable_mode:
-                    if self._queue_empty_count % 3 == 0:
-                        self.consecutive_errors += 1
-                else:
-                    self.consecutive_errors += 1
+                self.consecutive_errors += 1
                 outdata[:] = 0
                 return
 
@@ -411,9 +400,17 @@ class Audio:
                 self._queue_empty_count = 0
             self.consecutive_errors = 0
 
-            # Simply output the data from queue without discarding
-            # Latency management is handled in input callback by limiting queue size
-            # This ensures all audio data is output properly, including the last frames
+            # Latency reduction: Skip to latest data if queue has accumulated
+            # But keep the last frame to ensure audio completes properly
+            queue_size = self.io_queue.qsize()
+            if queue_size >= 2:
+                # Skip old data and use the latest to reduce latency
+                while self.io_queue.qsize() > 1:
+                    try:
+                        out_wav = self.io_queue.get_nowait()
+                    except:
+                        break
+
             output_channels = outdata.shape[1]
             outdata[:] = (
                 np.repeat(out_wav, output_channels).reshape(-1, output_channels)
@@ -692,17 +689,12 @@ class Audio:
         asio_output_channel: int = -1,
         asio_output_monitor_channel: int = -1,
         read_chunk_size: int = 192,
-        stable_mode: bool = False,
     ):
         """
         Start the realtime audio processing with the specified devices.
 
         Supports WDM-KS devices by automatically detecting them and using separate
         input/output streams instead of duplex mode when necessary.
-
-        Args:
-            stable_mode: If True, uses high latency settings for more stable processing
-                         (useful with large extra_infer_size). If False, uses low latency settings.
         """
         self.stop()
 
@@ -805,13 +797,8 @@ class Audio:
                 use_separate_streams = True
                 print(f"[Different host APIs] Using separate input/output streams: {input_host} -> {output_host}")
 
-        # Save stable mode setting for use in callbacks
-        self.stable_mode = stable_mode
-
-        # Determine latency mode based on stable_mode setting
-        # stable_mode=True: Use high latency for more buffering and stability (better for large extra_infer_size)
-        # stable_mode=False: Use low latency for minimal delay (default behavior)
-        latency_mode = "high" if stable_mode else "low"
+        # Use low latency mode for minimal delay
+        latency_mode = "low"
 
         try:
             # Save parameters for auto-reconnect

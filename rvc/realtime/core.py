@@ -47,7 +47,7 @@ class Realtime:
 
         # Track consecutive silence for buffer flushing
         self.consecutive_silence_frames = 0
-        self.silence_threshold_for_flush = 30  # Flush buffers after 30 consecutive silent frames
+        self.silence_threshold_for_flush = 3  # Flush buffers after 3 consecutive silent frames (fast cleanup)
 
         self.vad = (
             VADProcessor(
@@ -179,9 +179,10 @@ class Realtime:
         elif vol < self.input_sensitivity:
             is_input_silent = True
 
-        # Always update buffers and run processing, even if input is silent
-        # This ensures we process and output the last remaining audio data
-        circular_write(audio_input_16k, self.audio_buffer)
+        # Always write to convert buffer, even if input is silent
+        # This ensures proper fade-out processing and prevents incomplete audio tails
+        # For 2-stream mode: We rely on fast buffer flushing (silence_threshold_for_flush=3)
+        # to clear old data quickly after output becomes silent
         circular_write(audio_input_16k, self.convert_buffer)
 
         # Always run pipeline processing
@@ -206,22 +207,21 @@ class Realtime:
         # Check if output is actually silent (processing complete)
         is_output_silent = audio_model is None or torch.abs(audio_model).max() < 1e-6
 
-        # Track silence for buffer flushing
-        # IMPORTANT: Only count silence when BOTH input AND output are silent
-        if is_input_silent and is_output_silent:
+        # Track silence for buffer flushing based on OUTPUT silence only
+        # This is important for 2-stream mode (separate input/output streams)
+        # When input goes silent, we stop writing to buffers, but continue processing remaining data
+        # Only flush buffers when output is also silent (all data has been processed)
+        if is_output_silent:
             self.consecutive_silence_frames += 1
-            # Flush all buffers after extended silence to ensure clean state
+            # Flush all buffers after extended output silence to ensure clean state
             # This prevents old data in circular buffers from mixing with new audio
             if self.consecutive_silence_frames >= self.silence_threshold_for_flush:
                 self.flush_buffers()
-        else:
-            # Reset silence counter when any speech/audio detected
-            self.consecutive_silence_frames = 0
-
-        # Return None only if BOTH input is silent AND output is silent (complete)
-        if is_output_silent:
-            # Output is truly silent - no more audio to process
+            # Output is silent - no more audio to process
             return None, vol
+        else:
+            # Reset silence counter when output has audio
+            self.consecutive_silence_frames = 0
 
         # Output still has audio data (previous audio still being processed)
         # Continue outputting even if input is silent

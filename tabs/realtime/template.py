@@ -131,8 +131,7 @@ class RealtimeTemplateManager:
         ptch, idx_rate, vol_env, prot,
         f0_meth, hybrid_ratio,
         emb_model, emb_custom,
-        chnk_size, cross_fade, extra_conv, silent_thresh,
-        stable_md
+        chnk_size, cross_fade, extra_conv, silent_thresh
     ):
         """
         Create a settings dictionary from individual parameters.
@@ -160,7 +159,6 @@ class RealtimeTemplateManager:
                 },
                 "exclusive_mode": excl_mode,
                 "vad_enabled": vad_en,
-                "stable_mode": stable_md,
             },
             "modelTab": {
                 "voice": {
@@ -201,17 +199,17 @@ class RealtimeTemplateManager:
             template_data: Dictionary containing template settings
 
         Returns:
-            Tuple of 31 gr.update() objects for all UI components
+            Tuple of 30 gr.update() objects for all UI components
         """
         if not template_data:
-            return [gr.update()] * 31
+            return [gr.update()] * 30
 
         audio = template_data.get("audioTab", {})
         model = template_data.get("modelTab", {})
         perf = template_data.get("performanceTab", {})
 
         return (
-            # Audio tab (13 items - added stable_mode)
+            # Audio tab (12 items)
             gr.update(value=audio.get("input", {}).get("device", "")),
             gr.update(value=audio.get("input", {}).get("gain", 100)),
             gr.update(value=audio.get("input", {}).get("asio_channel", -1)),
@@ -224,7 +222,6 @@ class RealtimeTemplateManager:
             gr.update(value=audio.get("monitor", {}).get("asio_channel", -1)),
             gr.update(value=audio.get("exclusive_mode", True)),
             gr.update(value=audio.get("vad_enabled", True)),
-            gr.update(value=audio.get("stable_mode", False)),
             # Model tab (14 items)
             gr.update(value=model.get("voice", {}).get("model_path", "")),
             gr.update(value=model.get("voice", {}).get("index_path", "")),
