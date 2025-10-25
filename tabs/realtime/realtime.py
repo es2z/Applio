@@ -1284,8 +1284,7 @@ def realtime_tab():
             use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
             mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
             speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
-            emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh,
-            stable_md
+            emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
         ):
             """Handle save button in modal"""
             if not operation_state:
@@ -1320,8 +1319,7 @@ def realtime_tab():
                     use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
                     mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
                     speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
-                    emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh,
-                    stable_md
+                    emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
                 )
                 template_manager.save_template(new_name, settings)
                 gr.Info(f"Template '{new_name}' saved successfully.")
@@ -1346,8 +1344,7 @@ def realtime_tab():
                     use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
                     mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
                     speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
-                    emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh,
-                    stable_md
+                    emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
                 )
                 template_manager.save_template(new_name, settings)
                 gr.Info(f"Template '{new_name}' created successfully.")

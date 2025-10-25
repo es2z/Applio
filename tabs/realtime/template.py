@@ -199,17 +199,17 @@ class RealtimeTemplateManager:
             template_data: Dictionary containing template settings
 
         Returns:
-            Tuple of 30 gr.update() objects for all UI components
+            Tuple of 31 gr.update() objects for all UI components
         """
         if not template_data:
-            return [gr.update()] * 30
+            return [gr.update()] * 31
 
         audio = template_data.get("audioTab", {})
         model = template_data.get("modelTab", {})
         perf = template_data.get("performanceTab", {})
 
         return (
-            # Audio tab (12 items)
+            # Audio tab (12 items - stable_mode was removed)
             gr.update(value=audio.get("input", {}).get("device", "")),
             gr.update(value=audio.get("input", {}).get("gain", 100)),
             gr.update(value=audio.get("input", {}).get("asio_channel", -1)),
@@ -222,7 +222,7 @@ class RealtimeTemplateManager:
             gr.update(value=audio.get("monitor", {}).get("asio_channel", -1)),
             gr.update(value=audio.get("exclusive_mode", True)),
             gr.update(value=audio.get("vad_enabled", True)),
-            # Model tab (14 items)
+            # Model tab (15 items)
             gr.update(value=model.get("voice", {}).get("model_path", "")),
             gr.update(value=model.get("voice", {}).get("index_path", "")),
             gr.update(value=model.get("inference", {}).get("autotune", False)),

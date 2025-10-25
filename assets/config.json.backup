@@ -17,6 +17,6 @@
     "output_device": "4: Speakers (VB-Audio Point) (Windows WDM-KS)",
     "monitor_device": "1: CABLE Input (VB-Audio Virtual C (MME)",
     "model_file": "logs\\naru_A1\\naru_A1_20e_14480s.pth",
-    "index_file": "logs\\naru_A1\\naru_A1.index"
+    "index_file": "logs\\naru4\\naru4.index"
   }
 }
