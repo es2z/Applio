@@ -216,7 +216,9 @@ class Realtime:
             # Flush all buffers after extended output silence to ensure clean state
             # This prevents old data in circular buffers from mixing with new audio
             if self.consecutive_silence_frames >= self.silence_threshold_for_flush:
-                self.flush_buffers()
+                # Only flush once per silence period
+                if self.consecutive_silence_frames == self.silence_threshold_for_flush:
+                    self.flush_buffers()
             # Output is silent - no more audio to process
             return None, vol
         else:

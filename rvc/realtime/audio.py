@@ -329,6 +329,10 @@ class Audio:
                 # Stop adding silence to queue to allow natural draining
                 # Output callback will continue to output remaining data
 
+                # Reset output queue empty counter during silence (this is normal, not an error)
+                if hasattr(self, '_queue_empty_count'):
+                    self._queue_empty_count = 0
+
                 # If silent output continues for a very long time, clear the queue
                 # This prevents stale data from playing when new audio starts
                 if self.consecutive_silent_outputs > self.silent_output_threshold_to_clear_queue:
@@ -408,19 +412,20 @@ class Audio:
                 self._queue_empty_count = 0
             self.consecutive_errors = 0
 
-            # Latency reduction: Always use latest data if queue has any items
+            # Latency reduction: Use only the latest frame if queue has accumulated
             # This ensures minimal latency by discarding old buffered data
             queue_size = self.io_queue.qsize()
-            if queue_size > 0:
-                # Get the latest data from queue, discard older frames
+            if queue_size > 1:
+                # Discard old frames, keep only the latest
                 skipped = 0
-                while self.io_queue.qsize() > 0:
+                while self.io_queue.qsize() > 1:
                     try:
-                        out_wav = self.io_queue.get_nowait()
-                        if self.io_queue.qsize() > 0:  # If there's more, this one is being skipped
-                            skipped += 1
+                        self.io_queue.get_nowait()
+                        skipped += 1
                     except:
                         break
+                # Now get the latest frame
+                out_wav = self.io_queue.get_nowait()
                 if skipped > 0:
                     print(f"[Output] Skipped {skipped} old frames to reduce latency (queue had {queue_size} items)")
 
@@ -528,11 +533,8 @@ class Audio:
         # Start streams - IMPORTANT: Start output first to prevent queue buildup
         # If input starts first, it will process and queue data before output can consume it
         # This causes initial latency as the queue fills up
-        print("[run_audio_stream_separate] Starting output stream first...")
         self.output_stream.start()
-        print("[run_audio_stream_separate] Starting input stream...")
         self.input_stream.start()
-        print("[run_audio_stream_separate] Both streams started")
 
         if self.use_monitor:
             self.monitor = sd.OutputStream(
@@ -722,36 +724,25 @@ class Audio:
         Clear all buffers and reset state for clean startup.
         This reduces initial latency when connecting by ensuring no old data remains.
         """
-        print("[clear_buffers] Starting buffer clear...")
-
         # Clear queues (already done in stop(), but ensure they're empty)
-        io_queue_cleared = 0
         while not self.io_queue.empty():
             try:
                 self.io_queue.get_nowait()
-                io_queue_cleared += 1
             except:
                 break
-        if io_queue_cleared > 0:
-            print(f"[clear_buffers] Cleared {io_queue_cleared} items from io_queue")
 
         if self.use_monitor:
-            mon_queue_cleared = 0
             while not self.mon_queue.empty():
                 try:
                     self.mon_queue.get_nowait()
-                    mon_queue_cleared += 1
                 except:
                     break
-            if mon_queue_cleared > 0:
-                print(f"[clear_buffers] Cleared {mon_queue_cleared} items from mon_queue")
 
         # Reset counters
         self.consecutive_silent_outputs = 0
         if hasattr(self, '_queue_empty_count'):
             self._queue_empty_count = 0
         self.consecutive_errors = 0
-        print("[clear_buffers] Reset counters")
 
         # Clear VoiceChanger buffers
         if hasattr(self, 'callbacks') and hasattr(self.callbacks, 'vc'):
@@ -760,17 +751,11 @@ class Audio:
             # Clear sola_buffer
             if vc.sola_buffer is not None:
                 vc.sola_buffer.zero_()
-                print("[clear_buffers] Cleared sola_buffer")
 
             # Clear Realtime model buffers
             if hasattr(vc, 'vc_model') and vc.vc_model is not None:
                 vc.vc_model.flush_buffers()
                 vc.vc_model.consecutive_silence_frames = 0
-                print("[clear_buffers] Flushed Realtime model buffers")
-        else:
-            print("[clear_buffers] WARNING: callbacks or vc not available!")
-
-        print("[clear_buffers] Buffer clear complete")
 
     def start(
         self,
