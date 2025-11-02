@@ -474,7 +474,22 @@ class VoiceConverter:
             self.use_f0 = self.cpt.get("f0", 1)
 
             self.version = self.cpt.get("version", "v1")
-            self.text_enc_hidden_dim = 768 if self.version == "v2" else 256
+
+            # Load text_enc_hidden_dim with fallback chain
+            if "text_enc_hidden_dim" in self.cpt:
+                # Priority 1: Use saved dimension from checkpoint
+                self.text_enc_hidden_dim = self.cpt["text_enc_hidden_dim"]
+                print(f"Loaded text_enc_hidden_dim={self.text_enc_hidden_dim} from checkpoint")
+            elif "embedder_model" in self.cpt:
+                # Priority 2: Infer from embedder model name
+                from rvc.lib.utils import get_embedder_dim
+                self.text_enc_hidden_dim = get_embedder_dim(self.cpt["embedder_model"])
+                print(f"Inferred text_enc_hidden_dim={self.text_enc_hidden_dim} from embedder '{self.cpt['embedder_model']}'")
+            else:
+                # Priority 3: Fall back to version-based (legacy support)
+                self.text_enc_hidden_dim = 768 if self.version == "v2" else 256
+                print(f"Using version-based text_enc_hidden_dim={self.text_enc_hidden_dim} (legacy)")
+
             self.vocoder = self.cpt.get("vocoder", "HiFi-GAN")
             self.net_g = Synthesizer(
                 *self.cpt["config"],

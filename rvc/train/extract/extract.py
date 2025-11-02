@@ -134,17 +134,22 @@ def process_file_embedding(
 
     def worker(file_info):
         wav_file_path, _, _, out_file_path = file_info
-        if os.path.exists(out_file_path):
-            return
-        feats = torch.from_numpy(load_audio_16k(wav_file_path)).to(device).float()
-        feats = feats.view(1, -1)
-        with torch.no_grad():
-            result = model(feats)["last_hidden_state"]
-        feats_out = result.squeeze(0).float().cpu().numpy()
-        if not np.isnan(feats_out).any():
-            np.save(out_file_path, feats_out, allow_pickle=False)
-        else:
-            print(f"{wav_file_path} produced NaN values; skipping.")
+        try:
+            if os.path.exists(out_file_path):
+                return
+            feats = torch.from_numpy(load_audio_16k(wav_file_path)).to(device).float()
+            feats = feats.view(1, -1)
+            with torch.no_grad():
+                result = model(feats)["last_hidden_state"]
+            feats_out = result.squeeze(0).float().cpu().numpy()
+            if not np.isnan(feats_out).any():
+                np.save(out_file_path, feats_out, allow_pickle=False)
+            else:
+                print(f"{wav_file_path} produced NaN values; skipping.")
+        except Exception as e:
+            print(f"Error processing {wav_file_path}: {e}")
+            import traceback
+            traceback.print_exc()
 
     with tqdm.tqdm(total=len(files), leave=True, position=device_num) as pbar:
         with concurrent.futures.ThreadPoolExecutor(max_workers=n_threads) as executor:
@@ -204,6 +209,12 @@ if __name__ == "__main__":
     else:
         data = {}
     data["embedder_model"] = chosen_embedder_model
+
+    # Save text_enc_hidden_dim based on embedder model
+    from rvc.lib.utils import get_embedder_dim
+    text_enc_dim = get_embedder_dim(embedder_model)
+    data["text_enc_hidden_dim"] = text_enc_dim
+
     with open(file_path, "w") as f:
         json.dump(data, f, indent=4)
 

@@ -61,7 +61,19 @@ class RealtimeVoiceConverter:
             self.use_f0 = self.cpt.get("f0", 1)
 
             self.version = self.cpt.get("version", "v1")
-            self.text_enc_hidden_dim = 768 if self.version == "v2" else 256
+
+            # Load text_enc_hidden_dim with fallback chain
+            if "text_enc_hidden_dim" in self.cpt:
+                self.text_enc_hidden_dim = self.cpt["text_enc_hidden_dim"]
+                print(f"[Realtime] Loaded text_enc_hidden_dim={self.text_enc_hidden_dim} from checkpoint")
+            elif "embedder_model" in self.cpt:
+                from rvc.lib.utils import get_embedder_dim
+                self.text_enc_hidden_dim = get_embedder_dim(self.cpt["embedder_model"])
+                print(f"[Realtime] Inferred text_enc_hidden_dim={self.text_enc_hidden_dim} from embedder '{self.cpt['embedder_model']}'")
+            else:
+                self.text_enc_hidden_dim = 768 if self.version == "v2" else 256
+                print(f"[Realtime] Using version-based text_enc_hidden_dim={self.text_enc_hidden_dim} (legacy)")
+
             self.vocoder = self.cpt.get("vocoder", "HiFi-GAN")
             print(f"[Realtime] Loading model with vocoder: {self.vocoder}")
             self.net_g = Synthesizer(

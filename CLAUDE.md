@@ -189,10 +189,13 @@ Applio-3.5.0/
 - `hybrid[...]` - Averages multiple methods for robustness
 
 ### Embedder Models
-- `contentvec` - Default, works for most languages
-- `spin`, `spin-v2` - Alternative embedders
-- `chinese-hubert-base`, `japanese-hubert-base`, `korean-hubert-base` - Language-specific
+- `contentvec` - Default, works for most languages (768-dim)
+- `spin`, `spin-v2` - Alternative embedders (768-dim)
+- `chinese-hubert-base`, `japanese-hubert-base`, `korean-hubert-base` - Language-specific (768-dim)
+- `japanese-hubert-large` - Higher quality Japanese embedder (1024-dim) - **See `.claude/Plans_to_add_japanese-hubert-large.md` for implementation details**
 - `custom` - Use custom embedder (provide path via `embedder_model_custom`)
+
+**Note on Dimensions:** Models trained with different embedder dimensions (768 vs 1024) are **not** interchangeable. Always use the same embedder during inference that was used during training.
 
 ### Index Files
 - Generated from training embeddings using FAISS

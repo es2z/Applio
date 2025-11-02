@@ -14,6 +14,26 @@ def generate_config(sample_rate: int, model_path: str):
     if not os.path.exists(config_save_path):
         shutil.copyfile(config_path, config_save_path)
 
+        # Update text_enc_hidden_dim from model_info.json
+        model_info_path = os.path.join(model_path, "model_info.json")
+        if os.path.exists(model_info_path):
+            try:
+                with open(model_info_path, "r") as f:
+                    model_info = json.load(f)
+                text_enc_hidden_dim = model_info.get("text_enc_hidden_dim", 768)
+
+                # Load and update config.json
+                with open(config_save_path, "r") as f:
+                    config = json.load(f)
+                config["model"]["text_enc_hidden_dim"] = text_enc_hidden_dim
+
+                with open(config_save_path, "w") as f:
+                    json.dump(config, f, indent=2)
+
+                print(f"Updated config.json with text_enc_hidden_dim={text_enc_hidden_dim}")
+            except Exception as e:
+                print(f"Warning: Could not update text_enc_hidden_dim in config.json: {e}")
+
 
 def generate_filelist(model_path: str, sample_rate: int, include_mutes: int = 2):
     gt_wavs_dir = os.path.join(model_path, "sliced_audios")
@@ -42,6 +62,8 @@ def generate_filelist(model_path: str, sample_rate: int, include_mutes: int = 2)
         mute_base_path = os.path.join(current_directory, "logs", "mute_spin")
     elif embedder_name == "spin-v2":
         mute_base_path = os.path.join(current_directory, "logs", "mute_spin-v2")
+    elif embedder_name == "japanese-hubert-large":
+        mute_base_path = os.path.join(current_directory, "logs", "mute_japanese_hubert_large")
     else:
         mute_base_path = os.path.join(current_directory, "logs", "mute")
 

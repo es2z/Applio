@@ -922,6 +922,7 @@ def realtime_tab():
                             "spin",
                             "chinese-hubert-base",
                             "japanese-hubert-base",
+                            "japanese-hubert-large",
                             "korean-hubert-base",
                             "custom",
                         ],

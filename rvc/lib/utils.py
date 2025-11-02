@@ -111,6 +111,7 @@ def load_embedding(embedder_model, custom_embedder=None):
         "spin-v2": os.path.join(embedder_root, "spin-v2"),
         "chinese-hubert-base": os.path.join(embedder_root, "chinese_hubert_base"),
         "japanese-hubert-base": os.path.join(embedder_root, "japanese_hubert_base"),
+        "japanese-hubert-large": os.path.join(embedder_root, "japanese_hubert_large"),
         "korean-hubert-base": os.path.join(embedder_root, "korean_hubert_base"),
     }
 
@@ -120,6 +121,7 @@ def load_embedding(embedder_model, custom_embedder=None):
         "spin-v2": "https://huggingface.co/IAHispano/Applio/resolve/main/Resources/embedders/spin-v2/pytorch_model.bin",
         "chinese-hubert-base": "https://huggingface.co/IAHispano/Applio/resolve/main/Resources/embedders/chinese_hubert_base/pytorch_model.bin",
         "japanese-hubert-base": "https://huggingface.co/IAHispano/Applio/resolve/main/Resources/embedders/japanese_hubert_base/pytorch_model.bin",
+        "japanese-hubert-large": "https://huggingface.co/rinna/japanese-hubert-large/resolve/main/pytorch_model.bin",
         "korean-hubert-base": "https://huggingface.co/IAHispano/Applio/resolve/main/Resources/embedders/korean_hubert_base/pytorch_model.bin",
     }
 
@@ -129,6 +131,7 @@ def load_embedding(embedder_model, custom_embedder=None):
         "spin-v2": "https://huggingface.co/IAHispano/Applio/resolve/main/Resources/embedders/spin-v2/config.json",
         "chinese-hubert-base": "https://huggingface.co/IAHispano/Applio/resolve/main/Resources/embedders/chinese_hubert_base/config.json",
         "japanese-hubert-base": "https://huggingface.co/IAHispano/Applio/resolve/main/Resources/embedders/japanese_hubert_base/config.json",
+        "japanese-hubert-large": "https://huggingface.co/rinna/japanese-hubert-large/resolve/main/config.json",
         "korean-hubert-base": "https://huggingface.co/IAHispano/Applio/resolve/main/Resources/embedders/korean_hubert_base/config.json",
     }
 
@@ -154,3 +157,25 @@ def load_embedding(embedder_model, custom_embedder=None):
 
     models = HubertModelWithFinalProj.from_pretrained(model_path)
     return models
+
+
+def get_embedder_dim(embedder_model: str) -> int:
+    """
+    Returns the output dimension for a given embedder model.
+
+    Args:
+        embedder_model (str): Name of the embedder model
+
+    Returns:
+        int: Output dimension (768 or 1024)
+    """
+    embedder_dims = {
+        "contentvec": 768,
+        "spin": 768,
+        "spin-v2": 768,
+        "chinese-hubert-base": 768,
+        "japanese-hubert-base": 768,
+        "japanese-hubert-large": 1024,
+        "korean-hubert-base": 768,
+    }
+    return embedder_dims.get(embedder_model, 768)

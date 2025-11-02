@@ -390,6 +390,24 @@ def run(
     except Exception as e:
         print(f"Could not load model info file: {e}. Using defaults.")
 
+    # Determine text_enc_hidden_dim from embedder
+    from rvc.lib.utils import get_embedder_dim
+
+    text_enc_hidden_dim = 768  # default
+    if embedder_name:
+        text_enc_hidden_dim = get_embedder_dim(embedder_name)
+        print(f"Using text_enc_hidden_dim={text_enc_hidden_dim} for embedder '{embedder_name}'")
+
+    # Try to load from model_info if available (for resuming training)
+    try:
+        with open(model_info_path, "r") as f:
+            model_info = json.load(f)
+            if "text_enc_hidden_dim" in model_info:
+                text_enc_hidden_dim = model_info["text_enc_hidden_dim"]
+                print(f"Loaded text_enc_hidden_dim={text_enc_hidden_dim} from model_info.json")
+    except:
+        pass
+
     # Try to load speaker dim from latest checkpoint or pretrainG
     try:
         last_g = latest_checkpoint_path(experiment_dir, "G_*.pth")
@@ -412,15 +430,19 @@ def run(
     from rvc.lib.algorithm.discriminators import MultiPeriodDiscriminator
     from rvc.lib.algorithm.synthesizers import Synthesizer
 
+    # Prepare model config excluding text_enc_hidden_dim to avoid duplicate argument
+    model_config = {k: v for k, v in config.model.items() if k != 'text_enc_hidden_dim'}
+
     net_g = Synthesizer(
         config.data.filter_length // 2 + 1,
         config.train.segment_size // config.data.hop_length,
-        **config.model,
+        **model_config,
         use_f0=True,
         sr=config.data.sample_rate,
         vocoder=vocoder,
         checkpointing=checkpointing,
         randomized=randomized,
+        text_enc_hidden_dim=text_enc_hidden_dim,
     )
 
     net_d = MultiPeriodDiscriminator(
@@ -492,21 +514,47 @@ def run(
         if pretrainG not in ("", "None"):
             if rank == 0:
                 print(f"Loaded pretrained (G) '{pretrainG}'")
-            try:
-                ckpt = torch.load(pretrainG, map_location="cpu", weights_only=True)[
-                    "model"
-                ]
-                if hasattr(net_g, "module"):
-                    net_g.module.load_state_dict(ckpt)
+
+            ckpt = torch.load(pretrainG, map_location="cpu", weights_only=True)[
+                "model"
+            ]
+
+            # Get current model state dict to check dimensions
+            current_model = net_g.module if hasattr(net_g, "module") else net_g
+            current_state = current_model.state_dict()
+
+            # Filter out keys with dimension mismatches
+            filtered_ckpt = {}
+            skipped_keys = []
+            for key, value in ckpt.items():
+                if key in current_state:
+                    if value.shape == current_state[key].shape:
+                        filtered_ckpt[key] = value
+                    else:
+                        skipped_keys.append(f"{key} (pretrained: {value.shape}, current: {current_state[key].shape})")
                 else:
-                    net_g.load_state_dict(ckpt)
-                del ckpt
-            except Exception as e:
-                print(
-                    "The parameters of the pretrain model such as the sample rate or architecture do not match the selected model."
-                )
-                print(e)
-                sys.exit(1)
+                    filtered_ckpt[key] = value
+
+            # Load filtered checkpoint
+            if hasattr(net_g, "module"):
+                result = net_g.module.load_state_dict(filtered_ckpt, strict=False)
+            else:
+                result = net_g.load_state_dict(filtered_ckpt, strict=False)
+
+            # Log information
+            if skipped_keys and rank == 0:
+                print(f"Skipped loading layers due to dimension mismatch (will be randomly initialized):")
+                for key in skipped_keys:
+                    print(f"  - {key}")
+                if any('emb_phone' in key for key in skipped_keys):
+                    print(f"Note: This is expected when using {text_enc_hidden_dim}-dim embedders with 768-dim pretrained models.")
+
+            if result.missing_keys and rank == 0:
+                print(f"Missing keys (randomly initialized): {result.missing_keys}")
+            if result.unexpected_keys and rank == 0:
+                print(f"Unexpected keys (ignored): {result.unexpected_keys}")
+
+            del ckpt, filtered_ckpt
 
         if pretrainD not in ("", "None"):
             if rank == 0:

@@ -47,8 +47,11 @@ def extract_model(
                 dataset_length = data.get("total_dataset_duration", None)
                 embedder_model = data.get("embedder_model", None)
                 speakers_id = data.get("speakers_id", 1)
+                text_enc_hidden_dim = data.get("text_enc_hidden_dim", 768)
         else:
             dataset_length = None
+            embedder_model = None
+            text_enc_hidden_dim = 768
 
         with open(os.path.join(now_dir, "assets", "config.json"), "r") as f:
             data = json.load(f)
@@ -96,6 +99,7 @@ def extract_model(
         opt["embedder_model"] = embedder_model
         opt["speakers_id"] = speakers_id
         opt["vocoder"] = vocoder
+        opt["text_enc_hidden_dim"] = text_enc_hidden_dim
 
         torch.save(
             replace_keys_in_dict(

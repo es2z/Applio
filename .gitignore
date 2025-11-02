@@ -28,3 +28,4 @@ env
 venv
 .venv
 templates
+assets/config.json.backup

@@ -537,6 +537,7 @@ def train_tab():
                     "spin-v2",
                     "chinese-hubert-base",
                     "japanese-hubert-base",
+                    "japanese-hubert-large",
                     "korean-hubert-base",
                     "custom",
                 ],
