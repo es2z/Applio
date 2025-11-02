@@ -23,6 +23,10 @@ config.json
 assets/audios
 assets/datasets
 logs
+!logs/mute_japanese_hubert_large/
+!logs/mute_japanese_hubert_large/**/*.wav
+!logs/mute_japanese_hubert_large/**/*.npy
+!logs/mute_japanese_hubert_large/**/*.pt
 rvc/models
 env
 venv
