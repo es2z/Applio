@@ -1,5 +1,6 @@
 import math
 import torch
+import torch.nn.functional as F
 from typing import Optional
 
 from rvc.lib.algorithm.commons import sequence_mask
@@ -116,6 +117,7 @@ class TextEncoder(torch.nn.Module):
         super().__init__()
         self.hidden_channels = hidden_channels
         self.out_channels = out_channels
+        self.embedding_dim = embedding_dim  # Store for conditional normalization
         self.emb_phone = torch.nn.Linear(embedding_dim, hidden_channels)
         self.lrelu = torch.nn.LeakyReLU(0.1, inplace=True)
         self.emb_pitch = torch.nn.Embedding(256, hidden_channels) if f0 else None
@@ -128,6 +130,12 @@ class TextEncoder(torch.nn.Module):
     def forward(
         self, phone: torch.Tensor, pitch: Optional[torch.Tensor], lengths: torch.Tensor
     ):
+        # Apply layer normalization for large embedders (1024-dim) only
+        # This compensates for different normalization strategies in japanese-hubert-large
+        # vs japanese-hubert-base (layer norm + pre-norm vs group norm + post-norm)
+        if self.embedding_dim >= 1024:
+            phone = F.layer_norm(phone, phone.shape[-1:])
+
         x = self.emb_phone(phone)
         if pitch is not None and self.emb_pitch:
             x += self.emb_pitch(pitch)

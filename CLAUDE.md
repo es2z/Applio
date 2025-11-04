@@ -192,10 +192,34 @@ Applio-3.5.0/
 - `contentvec` - Default, works for most languages (768-dim)
 - `spin`, `spin-v2` - Alternative embedders (768-dim)
 - `chinese-hubert-base`, `japanese-hubert-base`, `korean-hubert-base` - Language-specific (768-dim)
-- `japanese-hubert-large` - Higher quality Japanese embedder (1024-dim) - **See `.claude/Plans_to_add_japanese-hubert-large.md` for implementation details**
+- `japanese-hubert-large` - Higher quality Japanese embedder (1024-dim) - **See notes below**
 - `custom` - Use custom embedder (provide path via `embedder_model_custom`)
 
 **Note on Dimensions:** Models trained with different embedder dimensions (768 vs 1024) are **not** interchangeable. Always use the same embedder during inference that was used during training.
+
+**Important: japanese-hubert-large Quality Issues (FIXED as of 2025-01-04)**
+
+⚠️ japanese-hubert-large (1024-dim) previously produced inferior results compared to japanese-hubert-base (768-dim). A fix has been implemented to compensate for architectural differences:
+- High-frequency noise artifacts → **FIX APPLIED: Conditional layer normalization**
+- Pitch shifting (voice sounding 0.8-1 semitones higher) → **FIX APPLIED**
+- Reduced speaker similarity → **FIX APPLIED**
+
+**Root Cause:** japanese-hubert-large uses different normalization (layer norm + stable pre-norm) compared to base (group norm + post-norm). The RVC architecture now applies layer normalization specifically for 1024-dim embedders to compensate.
+
+**Fix Implementation (rvc/lib/algorithm/encoders.py:136-137):**
+- Conditional layer normalization applied only when `embedding_dim >= 1024`
+- No impact on existing 768-dim models (japanese-hubert-base, contentvec, etc.)
+- Normalizes embeddings to mean≈0, std≈1 before projection
+
+**Testing Required:** Users should test with their datasets to validate improvement.
+
+**Advanced Training Tips:**
+- Long training (10-100 hours) with gradual learning rate decay (1e-4 → 1e-7) works well
+- Architecture is resistant to overfitting with proper learning rate scheduling
+- RTX 4090 or similar recommended for extended training sessions
+
+**See:** `.claude/japanese-hubert-large_quality_issues_analysis.md` for detailed root cause analysis.
+**Implementation Details:** `.claude/Plans_to_add_japanese-hubert-large.md`
 
 ### Index Files
 - Generated from training embeddings using FAISS
