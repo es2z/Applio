@@ -61,6 +61,7 @@ overtraining_threshold = int(sys.argv[13])
 cleanup = strtobool(sys.argv[14])
 vocoder = sys.argv[15]
 checkpointing = strtobool(sys.argv[16])
+hidden_channels_from_argv = int(sys.argv[17]) if len(sys.argv) > 17 else 192  # Command line argument
 # experimental settings
 randomized = True
 d_lr_coeff = 1.0
@@ -92,6 +93,24 @@ experiment_dir = os.path.join(current_dir, "logs", model_name)
 config_save_path = os.path.join(experiment_dir, "config.json")
 dataset_path = os.path.join(experiment_dir, "sliced_audios")
 model_info_path = os.path.join(experiment_dir, "model_info.json")
+
+# PRIORITY: Read hidden_channels from model_info.json (set during Extract phase)
+# This ensures the architecture selected in Extract accordion is used
+hidden_channels = hidden_channels_from_argv  # Default to command-line argument
+try:
+    if os.path.exists(model_info_path):
+        with open(model_info_path, "r") as f:
+            model_info = json.load(f)
+        if "hidden_channels" in model_info:
+            hidden_channels = model_info["hidden_channels"]
+            print(f"[Training] Using architecture from model_info.json: hidden_channels={hidden_channels}")
+        else:
+            print(f"[Training] Using architecture from command line: hidden_channels={hidden_channels}")
+    else:
+        print(f"[Training] model_info.json not found, using command line: hidden_channels={hidden_channels}")
+except Exception as e:
+    print(f"[Training] Warning: Could not read model_info.json: {e}")
+    print(f"[Training] Falling back to command line: hidden_channels={hidden_channels}")
 
 try:
     with open(config_save_path, "r") as f:
@@ -218,6 +237,7 @@ def main():
                         config,
                         device,
                         device_id,
+                        hidden_channels,  # Add hidden_channels parameter
                     ),
                 )
                 children.append(subproc)
@@ -305,6 +325,7 @@ def run(
     config,
     device,
     device_id,
+    hidden_channels=192,  # Default to 192 for backward compatibility
 ):
     """
     Runs the training loop on a specific GPU or CPU.
@@ -324,6 +345,36 @@ def run(
 
     smoothed_value_gen = 0
     smoothed_value_disc = 0
+
+    # Select appropriate config based on hidden_channels
+    if hidden_channels == 768:
+        config_file = f"{config.data.sample_rate}-768.json"
+        print(f"[High-Capacity Mode] Using {hidden_channels}-dim hidden_channels with config: {config_file}")
+    else:
+        config_file = f"{config.data.sample_rate}.json"
+        print(f"[Standard Mode] Using {hidden_channels}-dim hidden_channels with config: {config_file}")
+
+    # Reload config with the appropriate architecture
+    config_path = os.path.join(now_dir, "rvc", "configs", config_file)
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            config_data = json.load(f)
+        config = HParams(**config_data)
+        config.data.training_files = os.path.join(experiment_dir, "filelist.txt")
+        print(f"Loaded architecture config: hidden_channels={config.model.hidden_channels}, filter_channels={config.model.filter_channels}")
+
+        # Save the corrected config to config.json (overwrite if necessary)
+        config_save_path = os.path.join(experiment_dir, "config.json")
+        try:
+            import copy
+            config_dict = copy.deepcopy(config_data)
+            with open(config_save_path, "w") as f:
+                json.dump(config_dict, f, indent=4)
+            print(f"Saved corrected config to {config_save_path}")
+        except Exception as e:
+            print(f"Warning: Could not save config.json: {e}")
+    else:
+        print(f"Warning: Config file {config_path} not found, using existing config")
 
     if rank == 0:
         writer_eval = SummaryWriter(log_dir=os.path.join(experiment_dir, "eval"))
@@ -407,6 +458,22 @@ def run(
                 print(f"Loaded text_enc_hidden_dim={text_enc_hidden_dim} from model_info.json")
     except:
         pass
+
+    # Update model_info.json with text_enc_hidden_dim and hidden_channels
+    try:
+        with open(model_info_path, "r") as f:
+            model_info = json.load(f)
+    except:
+        model_info = {}
+
+    model_info["text_enc_hidden_dim"] = text_enc_hidden_dim
+    model_info["hidden_channels"] = config.model.hidden_channels
+
+    print(f"Updated config.json with text_enc_hidden_dim={text_enc_hidden_dim}")
+    print(f"Updated config.json with hidden_channels={config.model.hidden_channels}")
+
+    with open(model_info_path, "w") as f:
+        json.dump(model_info, f, indent=4)
 
     # Try to load speaker dim from latest checkpoint or pretrainG
     try:

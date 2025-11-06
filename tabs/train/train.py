@@ -580,6 +580,17 @@ def train_tab():
                     i18n("Move files to custom embedder folder")
                 )
 
+        with gr.Row():
+            hidden_channels = gr.Radio(
+                label=i18n("Architecture Capacity"),
+                info=i18n(
+                    "Select the model architecture capacity:\n- **Standard (192-dim)**: Lower VRAM usage, faster training. Suitable for most cases.\n- **High-Capacity (768-dim)**: Higher VRAM usage, better quality. Recommended for high-end GPUs (RTX 4090) and long training sessions. Works with all embedders (768-dim and 1024-dim)."
+                ),
+                choices=["192", "768"],
+                value="192",
+                interactive=True,
+            )
+
         extract_output_info = gr.Textbox(
             label=i18n("Output Information"),
             info=i18n("The output information will be displayed here."),
@@ -599,6 +610,7 @@ def train_tab():
                 embedder_model,
                 embedder_model_custom,
                 include_mutes,
+                hidden_channels,
             ],
             outputs=[extract_output_info],
         )
@@ -807,6 +819,7 @@ def train_tab():
                     d_pretrained_path,
                     vocoder,
                     checkpointing,
+                    hidden_channels,
                 ],
                 outputs=[train_output_info],
             )

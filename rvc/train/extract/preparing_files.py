@@ -9,30 +9,67 @@ current_directory = os.getcwd()
 
 
 def generate_config(sample_rate: int, model_path: str):
-    config_path = os.path.join("rvc", "configs", f"{sample_rate}.json")
+    # Check model_info.json for hidden_channels to determine which config to use
+    model_info_path = os.path.join(model_path, "model_info.json")
+    hidden_channels = 192  # default
+    text_enc_hidden_dim = 768  # default
+
+    if os.path.exists(model_info_path):
+        try:
+            with open(model_info_path, "r") as f:
+                model_info = json.load(f)
+            hidden_channels = model_info.get("hidden_channels", 192)
+            text_enc_hidden_dim = model_info.get("text_enc_hidden_dim", 768)
+        except Exception as e:
+            print(f"Warning: Could not read model_info.json: {e}")
+
+    # Select appropriate config file based on hidden_channels
+    if hidden_channels == 768:
+        config_file = f"{sample_rate}-768.json"
+        print(f"[Generate Config] Using high-capacity config: {config_file}")
+    else:
+        config_file = f"{sample_rate}.json"
+        print(f"[Generate Config] Using standard config: {config_file}")
+
+    config_path = os.path.join("rvc", "configs", config_file)
     config_save_path = os.path.join(model_path, "config.json")
-    if not os.path.exists(config_save_path):
-        shutil.copyfile(config_path, config_save_path)
 
-        # Update text_enc_hidden_dim from model_info.json
-        model_info_path = os.path.join(model_path, "model_info.json")
-        if os.path.exists(model_info_path):
+    # Check if we need to update existing config.json
+    need_update = True
+    if os.path.exists(config_save_path):
+        try:
+            with open(config_save_path, "r") as f:
+                existing_config = json.load(f)
+            existing_hidden = existing_config.get("model", {}).get("hidden_channels", 192)
+
+            # Check if hidden_channels matches
+            if existing_hidden == hidden_channels:
+                print(f"[Generate Config] Existing config.json already has correct hidden_channels={hidden_channels}")
+                need_update = False
+            else:
+                print(f"[Generate Config] Updating config.json: hidden_channels {existing_hidden} → {hidden_channels}")
+        except Exception as e:
+            print(f"Warning: Could not read existing config.json: {e}")
+
+    if need_update:
+        if os.path.exists(config_path):
+            shutil.copyfile(config_path, config_save_path)
+            print(f"Copied {config_file} to config.json")
+
+            # Update text_enc_hidden_dim in config.json
             try:
-                with open(model_info_path, "r") as f:
-                    model_info = json.load(f)
-                text_enc_hidden_dim = model_info.get("text_enc_hidden_dim", 768)
-
-                # Load and update config.json
                 with open(config_save_path, "r") as f:
                     config = json.load(f)
                 config["model"]["text_enc_hidden_dim"] = text_enc_hidden_dim
 
                 with open(config_save_path, "w") as f:
-                    json.dump(config, f, indent=2)
+                    json.dump(config, f, indent=4)
 
                 print(f"Updated config.json with text_enc_hidden_dim={text_enc_hidden_dim}")
             except Exception as e:
                 print(f"Warning: Could not update text_enc_hidden_dim in config.json: {e}")
+        else:
+            print(f"Error: Config file {config_path} not found!")
 
 
 def generate_filelist(model_path: str, sample_rate: int, include_mutes: int = 2):

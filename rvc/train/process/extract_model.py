@@ -100,6 +100,7 @@ def extract_model(
         opt["speakers_id"] = speakers_id
         opt["vocoder"] = vocoder
         opt["text_enc_hidden_dim"] = text_enc_hidden_dim
+        opt["hidden_channels"] = hps.model.hidden_channels
 
         torch.save(
             replace_keys_in_dict(

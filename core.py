@@ -459,7 +459,10 @@ def run_extract_script(
     embedder_model: str,
     embedder_model_custom: str = None,
     include_mutes: int = 2,
+    hidden_channels: int = 192,
 ):
+    # Convert hidden_channels to int (may be passed as string from UI)
+    hidden_channels = int(hidden_channels)
 
     model_path = os.path.join(logs_path, model_name)
     extract = os.path.join("rvc", "train", "extract", "extract.py")
@@ -478,6 +481,7 @@ def run_extract_script(
                 embedder_model,
                 embedder_model_custom,
                 include_mutes,
+                hidden_channels,
             ],
         ),
     ]
@@ -508,9 +512,22 @@ def run_train_script(
     d_pretrained_path: str = None,
     vocoder: str = "HiFi-GAN",
     checkpointing: bool = False,
+    hidden_channels: int = 192,
 ):
+    # Convert hidden_channels to int (may be passed as string from UI)
+    hidden_channels = int(hidden_channels)
 
-    if pretrained == True:
+    # High-capacity (768-dim) architecture requires training from scratch
+    # as no pretrained models exist for this architecture
+    if hidden_channels == 768:
+        if pretrained:
+            print(
+                "[High-Capacity Mode] 768-dim architecture requires training from scratch. "
+                "Pretrained models are only available for standard 192-dim architecture. "
+                "Disabling pretrained model loading..."
+            )
+        pg, pd = "", ""
+    elif pretrained == True:
         from rvc.lib.tools.pretrained_selector import pretrained_selector
 
         if custom_pretrained == False:
@@ -547,6 +564,7 @@ def run_train_script(
                 cleanup,
                 vocoder,
                 checkpointing,
+                hidden_channels,
             ],
         ),
     ]
@@ -1940,6 +1958,13 @@ def parse_arguments():
         default=2,
         required=True,
     )
+    extract_parser.add_argument(
+        "--hidden_channels",
+        type=int,
+        help="Architecture capacity: 192 for standard, 768 for high-capacity.",
+        choices=[192, 768],
+        default=192,
+    )
 
     # Parser for 'train' mode
     train_parser = subparsers.add_parser("train", help="Train an RVC model.")
@@ -2071,6 +2096,14 @@ def parse_arguments():
         choices=["Auto", "Faiss", "KMeans"],
         help="Choose the method for generating the index file.",
         default="Auto",
+        required=False,
+    )
+    train_parser.add_argument(
+        "--hidden_channels",
+        type=int,
+        choices=[192, 768],
+        help="Architecture capacity: 192 (standard) or 768 (high-capacity for 1024-dim embedders).",
+        default=192,
         required=False,
     )
 
@@ -2357,6 +2390,7 @@ def main():
                 embedder_model=args.embedder_model,
                 embedder_model_custom=args.embedder_model_custom,
                 include_mutes=args.include_mutes,
+                hidden_channels=args.hidden_channels,
             )
         elif args.mode == "train":
             run_train_script(
@@ -2379,6 +2413,7 @@ def main():
                 d_pretrained_path=args.d_pretrained_path,
                 vocoder=args.vocoder,
                 checkpointing=args.checkpointing,
+                hidden_channels=args.hidden_channels,
             )
         elif args.mode == "index":
             run_index_script(

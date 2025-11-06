@@ -265,6 +265,50 @@ This is a personal fork with the following customizations:
   - Mangio-CREPE variants: `mangio-crepe-tiny`, `mangio-crepe-full`
   - Hybrid support infrastructure is preserved for future enhancements
 
+### High-Capacity Architecture Support (768-dim) 🚀
+
+**IMPORTANT:** For implementing or understanding high-capacity architecture, **always refer to:**
+📄 **`.claude/IMPLEMENTATION_PLAN_high_capacity_architecture.md`**
+
+This fork adds optional **768-dim `hidden_channels`** architecture alongside the standard 192-dim:
+
+**Why High-Capacity?**
+- Standard RVC compresses embeddings: 1024-dim → 192-dim (18.75% retention) or 768-dim → 192-dim (25% retention)
+- High-capacity preserves: 1024-dim → 768-dim (75% retention) or 768-dim → 768-dim (100% retention)
+- Designed for RTX 4090 users with long training sessions (10-100 hours)
+
+**Architecture Comparison:**
+
+| Feature | Standard (192-dim) | High-Capacity (768-dim) |
+|---------|-------------------|-------------------------|
+| `hidden_channels` | 192 | 768 |
+| `filter_channels` | 768 | 2048 |
+| `n_heads` | 2 | 12 |
+| `n_layers` | 6 | 8 |
+| Parameters | ~30M | ~150M |
+| VRAM (training, batch=6) | ~4-6GB | ~12-16GB |
+| Quality (1024-dim embedder) | Bottlenecked | Excellent |
+
+**Usage:**
+- **Training Tab:** Select "High-Capacity (768-dim)" architecture option
+- **CLI:** `python core.py train --hidden_channels 768 ...`
+- **Inference:** Automatic detection from model metadata (backward compatible)
+
+**Supported Embedders:**
+- ✅ All 768-dim embedders (contentvec, japanese-hubert-base, etc.) - 100% retention
+- ✅ All 1024-dim embedders (japanese-hubert-large) - 75% retention
+
+**Config Files:**
+- Standard: `rvc/configs/{sample_rate}.json`
+- High-Capacity: `rvc/configs/{sample_rate}-768.json`
+
+**When to Use:**
+- ✅ RTX 4090 or similar (24GB+ VRAM)
+- ✅ Long training sessions (1000-2000 epochs)
+- ✅ Goal: Maximum quality with japanese-hubert-large
+- ❌ Low VRAM (< 12GB)
+- ❌ Quick training (< 500 epochs)
+
 ## Common Pitfalls
 
 1. **Missing prerequisites** - Run `run-install.bat` before first use

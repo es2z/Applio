@@ -1027,9 +1027,28 @@ def realtime_tab():
                 "", new_index_choices, fallback_index
             )
 
-            return gr.update(
-                choices=new_index_choices, value=safe_index_value
-            ), gr.update(choices=new_sids, value=0 if new_sids else None)
+            # Auto-detect embedder from model_info.json
+            detected_embedder = None
+            if model_path:
+                try:
+                    # Extract model directory from path
+                    model_dir = os.path.dirname(model_path)
+                    model_info_path = os.path.join(model_dir, "model_info.json")
+
+                    if os.path.exists(model_info_path):
+                        with open(model_info_path, "r") as f:
+                            model_info = json.load(f)
+                        detected_embedder = model_info.get("embedder_model", None)
+                        if detected_embedder:
+                            print(f"[Realtime UI] Auto-detected embedder: {detected_embedder}")
+                except Exception as e:
+                    print(f"[Realtime UI] Could not auto-detect embedder: {e}")
+
+            return (
+                gr.update(choices=new_index_choices, value=safe_index_value),
+                gr.update(choices=new_sids, value=0 if new_sids else None),
+                gr.update(value=detected_embedder) if detected_embedder else gr.update()
+            )
 
         def refresh_devices():
             sd._terminate()
@@ -1157,7 +1176,7 @@ def realtime_tab():
             outputs=[model_file, index_file],
         )
         model_file.select(
-            fn=update_on_model_change, inputs=[model_file], outputs=[index_file, sid]
+            fn=update_on_model_change, inputs=[model_file], outputs=[index_file, sid, embedder_model]
         )
 
         # Save settings when devices or model change

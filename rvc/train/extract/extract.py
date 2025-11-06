@@ -193,6 +193,7 @@ if __name__ == "__main__":
     embedder_model = sys.argv[6]
     embedder_model_custom = sys.argv[7] if len(sys.argv) > 7 else None
     include_mutes = int(sys.argv[8]) if len(sys.argv) > 8 else 2
+    hidden_channels = int(sys.argv[9]) if len(sys.argv) > 9 else 192
 
     wav_path = os.path.join(exp_dir, "sliced_audios_16k")
     os.makedirs(os.path.join(exp_dir, "f0"), exist_ok=True)
@@ -214,6 +215,10 @@ if __name__ == "__main__":
     from rvc.lib.utils import get_embedder_dim
     text_enc_dim = get_embedder_dim(embedder_model)
     data["text_enc_hidden_dim"] = text_enc_dim
+
+    # CRITICAL: Save hidden_channels to model_info.json BEFORE generate_config() is called
+    data["hidden_channels"] = hidden_channels
+    print(f"[Extract] Saving architecture capacity: hidden_channels={hidden_channels}")
 
     with open(file_path, "w") as f:
         json.dump(data, f, indent=4)

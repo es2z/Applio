@@ -490,6 +490,23 @@ class VoiceConverter:
                 self.text_enc_hidden_dim = 768 if self.version == "v2" else 256
                 print(f"Using version-based text_enc_hidden_dim={self.text_enc_hidden_dim} (legacy)")
 
+            # Load hidden_channels (architecture capacity) with auto-detection
+            # Note: hidden_channels is stored at index [3] in config array
+            hidden_channels_from_config = self.cpt["config"][3]
+            if "hidden_channels" in self.cpt:
+                # Verify metadata matches config
+                hidden_channels_from_metadata = self.cpt["hidden_channels"]
+                if hidden_channels_from_config != hidden_channels_from_metadata:
+                    print(f"Warning: hidden_channels mismatch (config={hidden_channels_from_config}, metadata={hidden_channels_from_metadata})")
+
+            # Log architecture type
+            if hidden_channels_from_config == 768:
+                print(f"Using High-Capacity architecture (hidden_channels=768)")
+            elif hidden_channels_from_config == 192:
+                print(f"Using Standard architecture (hidden_channels=192)")
+            else:
+                print(f"Using custom architecture (hidden_channels={hidden_channels_from_config})")
+
             self.vocoder = self.cpt.get("vocoder", "HiFi-GAN")
             self.net_g = Synthesizer(
                 *self.cpt["config"],

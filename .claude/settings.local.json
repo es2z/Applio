@@ -20,7 +20,11 @@
       "Bash(git rm:*)",
       "Bash(git commit:*)",
       "Bash(cat:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "WebFetch(domain:qiita.com)",
+      "WebFetch(domain:docs.applio.org)",
+      "Bash(test:*)",
+      "Bash(xargs ls:*)"
     ],
     "deny": [],
     "ask": []
