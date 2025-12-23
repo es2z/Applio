@@ -2,8 +2,17 @@ import gradio as gr
 import sys
 import os
 import logging
+import torch
 
 from typing import Any
+
+
+def setup_torch_compile_cache():
+    """Enable torch.compile cache for faster startup on subsequent runs (PyTorch 2.4+)"""
+    if hasattr(torch, '_inductor'):
+        import torch._inductor.config
+        torch._inductor.config.fx_graph_cache = True
+        torch._inductor.config.autotune_local_cache = True
 
 DEFAULT_SERVER_NAME = "127.0.0.1"
 DEFAULT_PORT = 6969
@@ -40,6 +49,9 @@ run_prerequisites_script(
     models=True,
     exe=True,
 )
+
+# Setup torch.compile cache for torchcrepe optimization
+setup_torch_compile_cache()
 
 # Initialize i18n
 from assets.i18n.i18n import I18nAuto
