@@ -30,8 +30,14 @@ class CREPE:
         self.device = device
         self.sample_rate = sample_rate
         self.hop_size = hop_size
-        # Enable compile_model for PyTorch 2.0+ with CUDA
+        # Enable compile_model for PyTorch 2.0+ with CUDA and Triton installed
+        try:
+            import triton
+            triton_available = True
+        except ImportError:
+            triton_available = False
         self.use_compile = (
+            triton_available and
             hasattr(torch, 'compile') and
             torch.cuda.is_available() and
             str(device).startswith('cuda')
@@ -73,8 +79,14 @@ class MANGIO_CREPE:
         self.device = device
         self.sample_rate = sample_rate
         self.hop_size = hop_size
-        # Enable compile_model for PyTorch 2.0+ with CUDA
+        # Enable compile_model for PyTorch 2.0+ with CUDA and Triton installed
+        try:
+            import triton
+            triton_available = True
+        except ImportError:
+            triton_available = False
         self.use_compile = (
+            triton_available and
             hasattr(torch, 'compile') and
             torch.cuda.is_available() and
             str(device).startswith('cuda')
