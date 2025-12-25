@@ -10,7 +10,6 @@ from typing import Any
 def setup_torch_compile_cache():
     """Enable torch.compile cache for faster startup on subsequent runs (PyTorch 2.4+)"""
     if hasattr(torch, '_inductor'):
-        import torch._inductor.config
         torch._inductor.config.fx_graph_cache = True
         torch._inductor.config.autotune_local_cache = True
 
