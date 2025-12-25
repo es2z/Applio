@@ -39,6 +39,18 @@ class F0Extractor:
     def extract_f0(self):
         f0 = None
         method = self.method
+        # Enable compile_model for PyTorch 2.0+ with CUDA and Triton installed
+        try:
+            import triton
+            triton_available = True
+        except ImportError:
+            triton_available = False
+        use_compile = (
+            triton_available and
+            hasattr(torch, 'compile') and
+            torch.cuda.is_available() and
+            str(config.device).startswith('cuda')
+        )
         if method == "crepe":
             wav16k_torch = torch.FloatTensor(self.wav16k).unsqueeze(0).to(config.device)
             f0 = torchcrepe.predict(
@@ -49,6 +61,7 @@ class F0Extractor:
                 fmin=self.f0_min,
                 fmax=self.f0_max,
                 device=config.device,
+                compile_model=use_compile,
             )
             f0 = f0[0].cpu().numpy()
         elif method == "fcpe":

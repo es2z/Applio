@@ -30,6 +30,18 @@ class CREPE:
         self.device = device
         self.sample_rate = sample_rate
         self.hop_size = hop_size
+        # Enable compile_model for PyTorch 2.0+ with CUDA and Triton installed
+        try:
+            import triton
+            triton_available = True
+        except ImportError:
+            triton_available = False
+        self.use_compile = (
+            triton_available and
+            hasattr(torch, 'compile') and
+            torch.cuda.is_available() and
+            str(device).startswith('cuda')
+        )
 
     def get_f0(self, x, f0_min=50, f0_max=1100, p_len=None, model="full"):
         if p_len is None:
@@ -51,6 +63,7 @@ class CREPE:
             device=self.device,
             return_periodicity=True,
             decoder=torchcrepe.decode.weighted_argmax,
+            compile_model=self.use_compile,
         )
         # Apply median filter to both f0 and periodicity (matching reference implementation)
         f0 = torchcrepe.filter.median(f0, 3)
@@ -66,6 +79,18 @@ class MANGIO_CREPE:
         self.device = device
         self.sample_rate = sample_rate
         self.hop_size = hop_size
+        # Enable compile_model for PyTorch 2.0+ with CUDA and Triton installed
+        try:
+            import triton
+            triton_available = True
+        except ImportError:
+            triton_available = False
+        self.use_compile = (
+            triton_available and
+            hasattr(torch, 'compile') and
+            torch.cuda.is_available() and
+            str(device).startswith('cuda')
+        )
 
     def get_f0(self, x, f0_min=50, f0_max=1100, p_len=None, model="full"):
         if p_len is None:
@@ -99,6 +124,7 @@ class MANGIO_CREPE:
             device=self.device,
             pad=True,
             return_periodicity=True,
+            compile_model=self.use_compile,
         )
 
         # Apply periodicity filter (Applio improvement for noise reduction)
@@ -181,6 +207,17 @@ class SWIFT:
 
 
 class CREPE_ONNX:
+    # NOTE: ONNX CREPE uses ONNX Runtime, not PyTorch.
+    # torch.compile / compile_model is NOT applicable here.
+    # If future ONNX Runtime versions support similar optimization,
+    # consider adding:
+    #   self.use_compile = (
+    #       hasattr(torch, 'compile') and
+    #       torch.cuda.is_available() and
+    #       str(device).startswith('cuda')
+    #   )
+    # And pass compile_model=self.use_compile to onnxcrepe.predict if supported.
+
     def __init__(self, device, model_path, sample_rate=16000, hop_size=160):
         self.device = device
         self.sample_rate = sample_rate
