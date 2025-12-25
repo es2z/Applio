@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Applio is a high-quality voice conversion tool built on Retrieval-Based Voice Conversion (RVC) technology. It provides a Gradio-based web interface for training voice models and performing voice conversion with various audio processing features.
 
 **Key Technology Stack:**
-- PyTorch 2.7.1 with CUDA 12.8 support
+- PyTorch 2.9.1 with CUDA 13.0 support (optimized with torch.compile)
 - Gradio 5.23.1 for web UI
 - Multiple F0 (pitch) extraction methods: RMVPE, FCPE, CREPE, SWIFT
 - Various embedder models: ContentVec, SPIN, Hubert variants

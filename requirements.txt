@@ -1,51 +1,74 @@
+# =========================
 # Core dependencies
+# =========================
 pip>=23.3; sys_platform == 'darwin'
 wheel; sys_platform == 'darwin'
 PyYAML; sys_platform == 'darwin'
-numpy==1.26.4
-requests>=2.31.0,<2.32.0
-tqdm
-wget
 
+numpy>=1.26.4,<2.0
+requests>=2.31.0
+tqdm>=4.66.1
+wget>=3.2
+
+
+# =========================
 # Audio processing
+# =========================
 ffmpeg-python>=0.2.0
-faiss-cpu==1.7.3
-librosa==0.11.0
-scipy==1.11.1
-soundfile==0.12.1
-noisereduce
-pedalboard
-stftpitchshift
-soxr
+faiss-cpu>=1.7.4,<1.9.0
+librosa>=0.10.1,<0.11.0
+scipy>=1.11.4,<1.13.0
+soundfile>=0.12.1
+noisereduce>=3.0.2
+pedalboard>=0.9.0
+stftpitchshift>=1.0.3
+soxr>=0.3.7
 
-# Machine learning and deep learning
-omegaconf>=2.0.6; sys_platform == 'darwin'
-numba; sys_platform == 'linux'
-numba==0.61.0; sys_platform == 'darwin' or sys_platform == 'win32'
-torch==2.7.1; sys_platform == 'darwin'
-torch==2.7.1+cu128; sys_platform == 'linux' or sys_platform == 'win32'
-torchaudio==2.7.1; sys_platform == 'darwin'
-torchaudio==2.7.1+cu128; sys_platform == 'linux' or sys_platform == 'win32'
-torchvision==0.22.1; sys_platform == 'darwin'
-torchvision==0.22.1+cu128; sys_platform == 'linux' or sys_platform == 'win32'
+
+# =========================
+# Machine learning / Deep learning
+# =========================
+omegaconf>=2.3.0; sys_platform == 'darwin'
+
+numba>=0.58.1,<0.60.0; sys_platform == 'linux'
+numba>=0.58.1,<0.60.0; sys_platform == 'darwin' or sys_platform == 'win32'
+
+# ---- ここは絶対に変更しない ----
+torch==2.9.1; sys_platform == 'darwin'
+torch==2.9.1+cu130; sys_platform == 'linux' or sys_platform == 'win32'
+torchaudio==2.9.1; sys_platform == 'darwin'
+torchaudio==2.9.1+cu130; sys_platform == 'linux' or sys_platform == 'win32'
+# --------------------------------
+
+torchvision==0.24.1; sys_platform == 'darwin'
+torchvision==0.24.1+cu130; sys_platform == 'linux' or sys_platform == 'win32'
+
 torchcrepe @ https://github.com/es2z/torchcrepe_plus/releases/download/release1_(Improved_version_of_ver0.0.24)/torchcrepe-0.0.25-py3-none-any.whl
-torchfcpe
-swift_f0
-einops
-transformers==4.44.2
+torchfcpe>=0.0.4
+swift_f0>=0.1.2
 
-# Visualization and UI
-matplotlib==3.7.2
-tensorboard
+einops>=0.7.0
+transformers>=4.39.3,<4.45.0
+
+
+# =========================
+# Visualization / UI
+# =========================
+matplotlib>=3.8.2,<3.9.0
+tensorboard>=2.16.2
 gradio==5.23.1
 
+
+# =========================
 # Miscellaneous utilities
-certifi>=2023.07.22; sys_platform == 'darwin'
-antlr4-python3-runtime==4.8; sys_platform == 'darwin'
-tensorboardX
-edge-tts==7.2.0
-pypresence
-beautifulsoup4
-sounddevice
-webrtcvad
-loudness
+# =========================
+certifi>=2023.11.17; sys_platform == 'darwin'
+antlr4-python3-runtime>=4.9.3; sys_platform == 'darwin'
+
+tensorboardX>=2.6.2
+edge-tts>=6.1.10
+pypresence>=4.3.0
+beautifulsoup4>=4.12.3
+sounddevice>=0.4.6
+webrtcvad>=2.0.10
+loudness==0.1.0
