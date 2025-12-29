@@ -508,7 +508,7 @@ def run_train_script(
     d_pretrained_path: str = None,
     vocoder: str = "HiFi-GAN",
     checkpointing: bool = False,
-    refinegan_variant: str = "Standard (f0)",
+    refinegan_variant: str = "RFGv3_CV (ContentVec)",
 ):
 
     if pretrained == True:

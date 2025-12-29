@@ -351,10 +351,10 @@ def train_tab():
                 refinegan_variant = gr.Dropdown(
                     label=i18n("RefineGAN Variant"),
                     info=i18n(
-                        "Select the RefineGAN pretrained model variant:\n- **Standard (f0)**: Original RefineGAN models.\n- **RFGv3**: Latest version with improved quality."
+                        "Select the RefineGAN pretrained model variant (32kHz only):\n- **RFGv3_CV (ContentVec)**: Latest version, trained with ContentVec embedder.\n- **RFGv3_SPv2 (SPIN v2)**: Older version, trained with SPIN v2 embedder."
                     ),
-                    choices=["Standard (f0)", "RFGv3"],
-                    value="Standard (f0)",
+                    choices=["RFGv3_CV (ContentVec)", "RFGv3_SPv2 (SPIN v2)"],
+                    value="RFGv3_CV (ContentVec)",
                     interactive=True,
                     visible=False,
                 )
