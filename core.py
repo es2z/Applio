@@ -599,11 +599,13 @@ def run_prerequisites_script(
     pretraineds_hifigan: bool,
     models: bool,
     exe: bool,
+    pretraineds_refinegan: bool = False,
 ):
     prequisites_download_pipeline(
         pretraineds_hifigan,
         models,
         exe,
+        pretraineds_refinegan,
     )
     return "Prerequisites installed successfully."
 
@@ -2150,6 +2152,13 @@ def parse_arguments():
         help="Download pretrained models for RVC v2.",
     )
     prerequisites_parser.add_argument(
+        "--pretraineds_refinegan",
+        type=lambda x: bool(strtobool(x)),
+        choices=[True, False],
+        default=False,
+        help="Download RefineGAN pretrained models (including RFGv3).",
+    )
+    prerequisites_parser.add_argument(
         "--models",
         type=lambda x: bool(strtobool(x)),
         choices=[True, False],
@@ -2407,6 +2416,7 @@ def main():
                 pretraineds_hifigan=args.pretraineds_hifigan,
                 models=args.models,
                 exe=args.exe,
+                pretraineds_refinegan=args.pretraineds_refinegan,
             )
         elif args.mode == "audio_analyzer":
             run_audio_analyzer_script(
