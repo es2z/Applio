@@ -774,6 +774,22 @@ def train_tab():
                 message = "You must agree to the Terms of Use to proceed."
                 gr.Info(message)
                 return message
+
+            # args order: model_name, save_every_epoch, ..., vocoder (index 17), checkpointing, refinegan_variant
+            # Check if RefineGAN vocoder is selected and download pretraineds if needed
+            vocoder_arg = args[17] if len(args) > 17 else "HiFi-GAN"
+            if vocoder_arg == "RefineGAN":
+                refinegan_path = os.path.join("rvc", "models", "pretraineds", "refinegan")
+                if not os.path.exists(refinegan_path) or len(os.listdir(refinegan_path)) == 0:
+                    gr.Info("Downloading RefineGAN pretrained models... Please wait.")
+                    run_prerequisites_script(
+                        pretraineds_hifigan=False,
+                        models=False,
+                        exe=False,
+                        pretraineds_refinegan=True,
+                    )
+                    gr.Info("RefineGAN pretrained models downloaded.")
+
             return run_train_script(*args)
 
         terms_checkbox = gr.Checkbox(
@@ -916,18 +932,26 @@ def train_tab():
                     "__type__": "update",
                 }
 
-            def download_prerequisites():
+            def download_prerequisites(vocoder_choice):
                 gr.Info(
                     "Checking for prerequisites with pitch guidance... Missing files will be downloaded. If you already have them, this step will be skipped."
                 )
+                # Download RefineGAN pretraineds if RefineGAN vocoder is selected
+                download_refinegan = vocoder_choice == "RefineGAN"
                 run_prerequisites_script(
                     pretraineds_hifigan=True,
                     models=False,
                     exe=False,
+                    pretraineds_refinegan=download_refinegan,
                 )
-                gr.Info(
-                    "Prerequisites check complete. Missing files were downloaded, and you may now start preprocessing."
-                )
+                if download_refinegan:
+                    gr.Info(
+                        "Prerequisites check complete (including RefineGAN). Missing files were downloaded."
+                    )
+                else:
+                    gr.Info(
+                        "Prerequisites check complete. Missing files were downloaded, and you may now start preprocessing."
+                    )
 
             def toggle_visible_embedder_custom(embedder_model):
                 if embedder_model == "custom":
