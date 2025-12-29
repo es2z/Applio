@@ -445,8 +445,13 @@ def run(
         text_enc_hidden_dim=text_enc_hidden_dim,
     )
 
+    # Select discriminator version based on vocoder
+    disc_version = "v2"
+    if vocoder == "RefineGAN":
+        disc_version = "v3"
+
     net_d = MultiPeriodDiscriminator(
-        config.model.use_spectral_norm, checkpointing=checkpointing
+        config.model.use_spectral_norm, checkpointing=checkpointing, version=disc_version
     )
 
     if torch.cuda.is_available():

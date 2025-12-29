@@ -4,7 +4,6 @@ from tqdm import tqdm
 import requests
 
 url_base = "https://huggingface.co/IAHispano/Applio/resolve/main/Resources"
-url_refinegan = "https://huggingface.co/Aznamir/RefineGAN/resolve/main"
 
 pretraineds_hifigan_list = [
     (
@@ -20,21 +19,13 @@ pretraineds_hifigan_list = [
     )
 ]
 
-# RefineGAN pretrained models from Aznamir's HuggingFace
-# Note: Currently only 32kHz models are available
-# Two variants available:
-#   - RFGv3_CV (ContentVec): Latest version (2 days ago)
-#   - RFGv3_SPv2 (SPIN v2): Older version (5+ days ago)
+# RefineGAN pretrained models (32kHz only)
 pretraineds_refinegan_list = [
     (
-        "refinegan/",  # local folder marker
+        "refinegan/",
         [
-            # RFGv3_CV (ContentVec) - Latest version
-            "RFGv3_CV_D_1771500.pth",
-            "RFGv3_CV_G_1771500.pth",
-            # RFGv3_SPv2 (SPIN v2) - Older version
-            "RFGv3_SPv2_D_1771500.pth",
-            "RFGv3_SPv2_G_1771500.pth",
+            "f0D32k.pth",
+            "f0G32k.pth",
         ],
     )
 ]
@@ -66,11 +57,7 @@ def get_file_size_if_missing(file_list, base_url=None):
         for file in files:
             destination_path = os.path.join(local_folder, file)
             if not os.path.exists(destination_path):
-                # For refinegan, files are directly in the root, not in a subfolder
-                if base_url == url_refinegan:
-                    url = f"{base_url}/{file}"
-                else:
-                    url = f"{base_url}/{remote_folder}{file}"
+                url = f"{base_url}/{remote_folder}{file}"
                 try:
                     response = requests.head(url, timeout=10)
                     total_size += int(response.headers.get("content-length", 0))
@@ -110,11 +97,7 @@ def download_mapping_files(file_mapping_list, global_bar, base_url=None):
             for file in file_list:
                 destination_path = os.path.join(local_folder, file)
                 if not os.path.exists(destination_path):
-                    # For refinegan, files are directly in the root, not in a subfolder
-                    if base_url == url_refinegan:
-                        url = f"{base_url}/{file}"
-                    else:
-                        url = f"{base_url}/{remote_folder}{file}"
+                    url = f"{base_url}/{remote_folder}{file}"
                     futures.append(
                         executor.submit(
                             download_file, url, destination_path, global_bar
@@ -138,7 +121,6 @@ def split_pretraineds(pretrained_list):
 
 
 pretraineds_hifigan_list, _ = split_pretraineds(pretraineds_hifigan_list)
-# RefineGAN list already has proper filenames (f0D/f0G and RFGv3)
 pretraineds_refinegan_list_processed = pretraineds_refinegan_list
 
 
@@ -160,7 +142,7 @@ def calculate_total_size(
     if pretraineds_hifigan:
         total_size += get_file_size_if_missing(pretraineds_hifigan)
     if pretraineds_refinegan:
-        total_size += get_file_size_if_missing(pretraineds_refinegan, url_refinegan)
+        total_size += get_file_size_if_missing(pretraineds_refinegan)
     return total_size
 
 
@@ -201,4 +183,4 @@ def prequisites_download_pipeline(
             if pretraineds_hifigan:
                 download_mapping_files(pretraineds_hifigan_list, global_bar)
             if pretraineds_refinegan:
-                download_mapping_files(pretraineds_refinegan_list_processed, global_bar, url_refinegan)
+                download_mapping_files(pretraineds_refinegan_list_processed, global_bar)
