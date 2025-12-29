@@ -21,21 +21,18 @@ pretraineds_hifigan_list = [
 ]
 
 # RefineGAN pretrained models from Aznamir's HuggingFace
-# Includes RFGv3 (latest) and legacy v1/v2 variants
+# Note: Currently only 32kHz models are available
+# RFGv3 is the latest version (added 2024-12)
 pretraineds_refinegan_list = [
     (
         "refinegan/",  # local folder marker
         [
-            # RFGv3 (latest, 2 days ago as of 2024-12)
+            # RFGv3 (latest) - can be used as custom pretrained
             "RFGv3_CV_D_1771500.pth",
             "RFGv3_CV_G_1771500.pth",
-            # Standard RefineGAN (for all sample rates)
+            # Standard RefineGAN (32kHz only)
             "f0D32k.pth",
-            "f0D40k.pth",
-            "f0D48k.pth",
             "f0G32k.pth",
-            "f0G40k.pth",
-            "f0G48k.pth",
         ],
     )
 ]
