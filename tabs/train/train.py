@@ -348,6 +348,16 @@ def train_tab():
                     interactive=True,
                     visible=True,
                 )
+                refinegan_variant = gr.Dropdown(
+                    label=i18n("RefineGAN Variant"),
+                    info=i18n(
+                        "Select the RefineGAN pretrained model variant:\n- **Standard (f0)**: Original RefineGAN models.\n- **RFGv3**: Latest version with improved quality."
+                    ),
+                    choices=["Standard (f0)", "RFGv3"],
+                    value="Standard (f0)",
+                    interactive=True,
+                    visible=False,
+                )
         with gr.Accordion(
             i18n("Advanced Settings"),
             open=False,
@@ -807,6 +817,7 @@ def train_tab():
                     d_pretrained_path,
                     vocoder,
                     checkpointing,
+                    refinegan_variant,
                 ],
                 outputs=[train_output_info],
             )
@@ -877,6 +888,9 @@ def train_tab():
 
             def toggle_visible(checkbox):
                 return {"visible": checkbox, "__type__": "update"}
+
+            def toggle_refinegan_variant(vocoder_value):
+                return {"visible": vocoder_value == "RefineGAN", "__type__": "update"}
 
             def toggle_pretrained(pretrained, custom_pretrained):
                 if custom_pretrained == False:
@@ -1006,6 +1020,11 @@ def train_tab():
                 fn=toggle_visible,
                 inputs=[overtraining_detector],
                 outputs=[overtraining_settings],
+            )
+            vocoder.change(
+                fn=toggle_refinegan_variant,
+                inputs=[vocoder],
+                outputs=[refinegan_variant],
             )
             train_button.click(
                 fn=enable_stop_train_button,

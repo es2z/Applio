@@ -508,13 +508,14 @@ def run_train_script(
     d_pretrained_path: str = None,
     vocoder: str = "HiFi-GAN",
     checkpointing: bool = False,
+    refinegan_variant: str = "Standard (f0)",
 ):
 
     if pretrained == True:
         from rvc.lib.tools.pretrained_selector import pretrained_selector
 
         if custom_pretrained == False:
-            pg, pd = pretrained_selector(str(vocoder), int(sample_rate))
+            pg, pd = pretrained_selector(str(vocoder), int(sample_rate), refinegan_variant)
         else:
             if g_pretrained_path is None or d_pretrained_path is None:
                 raise ValueError(
