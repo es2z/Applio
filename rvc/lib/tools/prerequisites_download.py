@@ -180,9 +180,15 @@ def prequisites_download_pipeline(
         exe,
     )
 
-    if total_size > 0:
+    # Always attempt download if any category is requested, even if size calculation failed
+    has_downloads = models or exe or pretraineds_hifigan or pretraineds_refinegan
+
+    if has_downloads:
         with tqdm(
-            total=total_size, unit="iB", unit_scale=True, desc="Downloading all files"
+            total=total_size if total_size > 0 else None,
+            unit="iB",
+            unit_scale=True,
+            desc="Downloading all files",
         ) as global_bar:
             if models:
                 download_mapping_files(models_list, global_bar)
@@ -196,5 +202,3 @@ def prequisites_download_pipeline(
                 download_mapping_files(pretraineds_hifigan_list, global_bar)
             if pretraineds_refinegan:
                 download_mapping_files(pretraineds_refinegan_list_processed, global_bar, url_refinegan)
-    else:
-        pass
