@@ -1,5 +1,6 @@
 import os
 import sys
+import shutil
 import ctypes
 import librosa
 import traceback
@@ -10,10 +11,10 @@ from dataclasses import dataclass
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 
-# ASIO Support: Load custom PortAudio DLL if available
-# If an ASIO-enabled PortAudio DLL exists in assets/portaudio/, load it before importing sounddevice
-# This allows ASIO devices to be detected (standard sounddevice doesn't include ASIO)
-# Supported filenames:
+# ASIO Support: Replace sounddevice's bundled PortAudio DLL with ASIO-enabled version
+# sounddevice bundles its own PortAudio DLL without ASIO support.
+# To enable ASIO, we need to replace the DLL in sounddevice's package directory.
+# Supported filenames in assets/portaudio/:
 #   - portaudio_x64.dll (custom name)
 #   - libportaudio64bit-asio.dll (from spatialaudio/portaudio-binaries)
 _asio_support_enabled = False
@@ -23,18 +24,50 @@ if sys.platform == "win32":
         "portaudio_x64.dll",
         "libportaudio64bit-asio.dll",
     ]
+
+    # Find custom ASIO-enabled DLL
+    _custom_dll_path = None
     for _dll_name in _dll_candidates:
-        _custom_portaudio_dll = os.path.join(_portaudio_dir, _dll_name)
-        if os.path.exists(_custom_portaudio_dll):
-            try:
-                ctypes.CDLL(_custom_portaudio_dll)
-                _asio_support_enabled = True
-                print(f"[PortAudio] Loaded custom DLL with ASIO support: {_custom_portaudio_dll}")
-                break
-            except Exception as e:
-                print(f"[PortAudio] Failed to load {_dll_name}: {e}")
-    if not _asio_support_enabled:
-        pass  # Silently use default sounddevice (no ASIO support)
+        _candidate_path = os.path.join(_portaudio_dir, _dll_name)
+        if os.path.exists(_candidate_path):
+            _custom_dll_path = _candidate_path
+            break
+
+    if _custom_dll_path:
+        try:
+            # Find sounddevice's bundled DLL location
+            import importlib.util
+            _sd_spec = importlib.util.find_spec("sounddevice")
+            if _sd_spec and _sd_spec.origin:
+                _sd_dir = os.path.dirname(_sd_spec.origin)
+                _sd_portaudio_dir = os.path.join(_sd_dir, "_sounddevice_data", "portaudio-binaries")
+                _sd_dll_path = os.path.join(_sd_portaudio_dir, "libportaudio64bit.dll")
+
+                if os.path.exists(_sd_dll_path):
+                    # Check if already replaced (compare file sizes as simple check)
+                    _custom_size = os.path.getsize(_custom_dll_path)
+                    _sd_size = os.path.getsize(_sd_dll_path)
+
+                    if _custom_size != _sd_size:
+                        # Backup original DLL if not already backed up
+                        _backup_path = _sd_dll_path + ".original"
+                        if not os.path.exists(_backup_path):
+                            shutil.copy2(_sd_dll_path, _backup_path)
+                            print(f"[PortAudio] Backed up original DLL to: {_backup_path}")
+
+                        # Replace with ASIO-enabled DLL
+                        shutil.copy2(_custom_dll_path, _sd_dll_path)
+                        print(f"[PortAudio] Replaced sounddevice DLL with ASIO-enabled version")
+                        _asio_support_enabled = True
+                    else:
+                        print(f"[PortAudio] ASIO-enabled DLL already installed")
+                        _asio_support_enabled = True
+                else:
+                    print(f"[PortAudio] sounddevice DLL not found at expected location: {_sd_dll_path}")
+        except Exception as e:
+            print(f"[PortAudio] Failed to install ASIO DLL: {e}")
+            import traceback
+            traceback.print_exc()
 
 import sounddevice as sd
 
