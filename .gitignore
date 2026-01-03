@@ -22,6 +22,7 @@ config.json
 
 assets/audios
 assets/datasets
+assets/portaudio/*.dll
 logs
 rvc/models
 env

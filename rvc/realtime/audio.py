@@ -1,14 +1,30 @@
 import os
 import sys
+import ctypes
 import librosa
 import traceback
 import numpy as np
-import sounddevice as sd
 from queue import Queue
 from dataclasses import dataclass
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
+
+# ASIO Support: Load custom PortAudio DLL if available
+# If assets/portaudio/portaudio_x64.dll exists, load it before importing sounddevice
+# This allows ASIO devices to be detected (standard sounddevice doesn't include ASIO)
+_custom_portaudio_dll = os.path.join(now_dir, "assets", "portaudio", "portaudio_x64.dll")
+_asio_support_enabled = False
+if sys.platform == "win32" and os.path.exists(_custom_portaudio_dll):
+    try:
+        ctypes.CDLL(_custom_portaudio_dll)
+        _asio_support_enabled = True
+        print(f"[PortAudio] Loaded custom DLL with ASIO support: {_custom_portaudio_dll}")
+    except Exception as e:
+        print(f"[PortAudio] Failed to load custom DLL: {e}")
+        print("[PortAudio] Falling back to default sounddevice (no ASIO support)")
+
+import sounddevice as sd
 
 from rvc.realtime.core import AUDIO_SAMPLE_RATE
 
@@ -30,6 +46,10 @@ def check_the_device(device, type: str = "input", hostapis=None):
     For WDM-KS devices: Uses a lenient test since they only support callback-based
     (non-blocking) mode and may fail standard blocking tests. WDM-KS devices are
     accepted if the error indicates they're valid but just don't support blocking mode.
+
+    For ASIO devices: Uses a lenient test since ASIO requires exclusive access and
+    may fail if another application is using the device. ASIO devices are accepted
+    unless clearly invalid.
     """
     # Get host API name if available
     host_api_name = ""
@@ -63,7 +83,30 @@ def check_the_device(device, type: str = "input", hostapis=None):
             # WDM-KS only supports callback-based (non-blocking) mode, so this is expected
             return True
 
-    # Standard test for non-WDM-KS devices
+    # For ASIO devices, use a lenient test
+    # ASIO requires exclusive access, so device may fail to open if in use by another app
+    # We accept the device unless it's clearly invalid
+    if "ASIO" in host_api_name:
+        try:
+            with stream_cls(
+                device=device["index"],
+                dtype=np.float32,
+                samplerate=device["default_samplerate"],
+                channels=1,  # Test with mono
+                blocksize=512,
+                latency='low',
+            ):
+                return True
+        except Exception as e:
+            error_str = str(e).lower()
+            # Only reject if clearly not a valid device
+            if "invalid device" in error_str or "device unavailable" in error_str:
+                return False
+            # For other errors (device busy, exclusive access, etc.), assume device is valid
+            # ASIO devices often fail to open when another app has exclusive access
+            return True
+
+    # Standard test for non-WDM-KS/non-ASIO devices
     try:
         with stream_cls(
             device=device["index"],
@@ -849,12 +892,16 @@ class Audio:
 
         block_frame = int((read_chunk_size * 128 / 48000) * AUDIO_SAMPLE_RATE)
 
-        # WDM-KS Support: Check if we need to use separate input/output streams
+        # WDM-KS/ASIO Support: Check if we need to use separate input/output streams
         # WDM-KS (Windows Driver Model - Kernel Streaming) provides lower latency but has
         # compatibility limitations:
         # 1. Cannot be used in duplex mode (combined input/output stream)
         # 2. May conflict with WASAPI exclusive mode when used in mixed configurations
         # 3. Only supports callback-based (non-blocking) operation
+        #
+        # ASIO requires exclusive device access and may need separate streams when:
+        # 1. Mixing ASIO with other host APIs (WASAPI, WDM-KS, etc.)
+        # 2. Using different ASIO devices for input and output
         use_separate_streams = False
         if input_audio_device and output_audio_device:
             input_host = input_audio_device.host_api
@@ -863,6 +910,7 @@ class Audio:
             # Use separate streams if:
             # 1. Either device uses WDM-KS (known to have compatibility issues with duplex streams)
             # 2. Input and output use different host APIs (may not be compatible)
+            # 3. ASIO mixed with other APIs requires separate streams
             if "WDM-KS" in input_host or "WDM-KS" in output_host:
                 use_separate_streams = True
                 print(f"[WDM-KS detected] Using separate input/output streams for compatibility")
@@ -877,7 +925,11 @@ class Audio:
                     output_extra_setting = sd.WasapiSettings(exclusive=False, auto_convert=True)
             elif input_host != output_host:
                 use_separate_streams = True
-                print(f"[Different host APIs] Using separate input/output streams: {input_host} -> {output_host}")
+                # Log specific API combinations for debugging
+                if "ASIO" in input_host or "ASIO" in output_host:
+                    print(f"[ASIO mixed mode] Using separate input/output streams: {input_host} -> {output_host}")
+                else:
+                    print(f"[Different host APIs] Using separate input/output streams: {input_host} -> {output_host}")
 
         # Use low latency mode for minimal delay
         latency_mode = "low"
