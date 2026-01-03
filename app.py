@@ -1,6 +1,74 @@
-import gradio as gr
+# ASIO Support: Must run BEFORE any other imports that might load sounddevice
 import sys
 import os
+
+def _setup_asio_support():
+    """Replace sounddevice's bundled PortAudio DLL with ASIO-enabled version.
+    Must be called before sounddevice is imported anywhere."""
+    if sys.platform != "win32":
+        return
+
+    import shutil
+    now_dir = os.getcwd()
+    portaudio_dir = os.path.join(now_dir, "assets", "portaudio")
+    dll_candidates = ["portaudio_x64.dll", "libportaudio64bit-asio.dll"]
+
+    # Find custom ASIO-enabled DLL
+    custom_dll_path = None
+    for dll_name in dll_candidates:
+        candidate_path = os.path.join(portaudio_dir, dll_name)
+        if os.path.exists(candidate_path):
+            custom_dll_path = candidate_path
+            break
+
+    if not custom_dll_path:
+        return
+
+    try:
+        import importlib.util
+        sd_spec = importlib.util.find_spec("sounddevice")
+        if not sd_spec or not sd_spec.origin:
+            return
+
+        sd_dir = os.path.dirname(sd_spec.origin)
+        sd_portaudio_dir = os.path.join(sd_dir, "_sounddevice_data", "portaudio-binaries")
+        sd_dll_path = os.path.join(sd_portaudio_dir, "libportaudio64bit.dll")
+
+        if not os.path.exists(sd_dll_path):
+            print(f"[PortAudio] sounddevice DLL not found: {sd_dll_path}")
+            return
+
+        # Compare file sizes to check if already replaced
+        custom_size = os.path.getsize(custom_dll_path)
+        sd_size = os.path.getsize(sd_dll_path)
+
+        if custom_size == sd_size:
+            print("[PortAudio] ASIO-enabled DLL already installed")
+            return
+
+        # Backup original if not already backed up
+        backup_path = sd_dll_path + ".original"
+        if not os.path.exists(backup_path):
+            shutil.copy2(sd_dll_path, backup_path)
+            print(f"[PortAudio] Backed up original DLL")
+
+        # Try to replace - this will fail if DLL is loaded
+        try:
+            shutil.copy2(custom_dll_path, sd_dll_path)
+            print("[PortAudio] Replaced sounddevice DLL with ASIO-enabled version")
+        except PermissionError:
+            # DLL is in use, print instructions
+            print("[PortAudio] Cannot replace DLL (file in use).")
+            print("[PortAudio] Please run this command manually before starting Applio:")
+            print(f'[PortAudio]   copy "{custom_dll_path}" "{sd_dll_path}"')
+            print("[PortAudio] Or restart Applio - the DLL may be replaced on next startup.")
+
+    except Exception as e:
+        print(f"[PortAudio] ASIO setup error: {e}")
+
+_setup_asio_support()
+
+import gradio as gr
 import logging
 import torch
 
