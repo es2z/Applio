@@ -11,18 +11,30 @@ now_dir = os.getcwd()
 sys.path.append(now_dir)
 
 # ASIO Support: Load custom PortAudio DLL if available
-# If assets/portaudio/portaudio_x64.dll exists, load it before importing sounddevice
+# If an ASIO-enabled PortAudio DLL exists in assets/portaudio/, load it before importing sounddevice
 # This allows ASIO devices to be detected (standard sounddevice doesn't include ASIO)
-_custom_portaudio_dll = os.path.join(now_dir, "assets", "portaudio", "portaudio_x64.dll")
+# Supported filenames:
+#   - portaudio_x64.dll (custom name)
+#   - libportaudio64bit-asio.dll (from spatialaudio/portaudio-binaries)
 _asio_support_enabled = False
-if sys.platform == "win32" and os.path.exists(_custom_portaudio_dll):
-    try:
-        ctypes.CDLL(_custom_portaudio_dll)
-        _asio_support_enabled = True
-        print(f"[PortAudio] Loaded custom DLL with ASIO support: {_custom_portaudio_dll}")
-    except Exception as e:
-        print(f"[PortAudio] Failed to load custom DLL: {e}")
-        print("[PortAudio] Falling back to default sounddevice (no ASIO support)")
+if sys.platform == "win32":
+    _portaudio_dir = os.path.join(now_dir, "assets", "portaudio")
+    _dll_candidates = [
+        "portaudio_x64.dll",
+        "libportaudio64bit-asio.dll",
+    ]
+    for _dll_name in _dll_candidates:
+        _custom_portaudio_dll = os.path.join(_portaudio_dir, _dll_name)
+        if os.path.exists(_custom_portaudio_dll):
+            try:
+                ctypes.CDLL(_custom_portaudio_dll)
+                _asio_support_enabled = True
+                print(f"[PortAudio] Loaded custom DLL with ASIO support: {_custom_portaudio_dll}")
+                break
+            except Exception as e:
+                print(f"[PortAudio] Failed to load {_dll_name}: {e}")
+    if not _asio_support_enabled:
+        pass  # Silently use default sounddevice (no ASIO support)
 
 import sounddevice as sd
 

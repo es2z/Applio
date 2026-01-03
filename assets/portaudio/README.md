@@ -8,12 +8,19 @@ The standard `sounddevice` Python package does not include ASIO support due to l
 
 ## How to enable ASIO support
 
-### Option 1: Download pre-built DLL
+### Option 1: Download pre-built DLL (Recommended)
 
-1. Search for "PortAudio ASIO DLL" or check community resources
-2. Download `portaudio_x64.dll` (64-bit version with ASIO support)
-3. Place it in this directory (`assets/portaudio/portaudio_x64.dll`)
+**Download from [spatialaudio/portaudio-binaries](https://github.com/spatialaudio/portaudio-binaries):**
+
+1. Go to: https://github.com/spatialaudio/portaudio-binaries
+2. Download `libportaudio64bit-asio.dll` (click the file, then "Download raw file")
+   - Direct link: https://github.com/spatialaudio/portaudio-binaries/raw/master/libportaudio64bit-asio.dll
+3. Place it in this directory (`assets/portaudio/`) - no need to rename!
 4. Restart Applio
+
+**Supported DLL filenames:**
+- `libportaudio64bit-asio.dll` (from spatialaudio/portaudio-binaries)
+- `portaudio_x64.dll` (if you build it yourself)
 
 ### Option 2: Build from source
 
