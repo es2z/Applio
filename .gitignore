@@ -24,8 +24,6 @@ assets/audios
 assets/datasets
 logs
 rvc/models
-env
-venv
-.venv
+/*env*/
 templates
 assets/config.json.backup
