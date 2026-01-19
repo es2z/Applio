@@ -446,9 +446,13 @@ def run(
     )
 
     # Select discriminator version based on vocoder
+    # v2: Default for HiFi-GAN, MRF HiFi-GAN, BigVGAN
+    # v3: RefineGAN (includes resolution discriminators)
     disc_version = "v2"
     if vocoder == "RefineGAN":
         disc_version = "v3"
+    elif vocoder == "BigVGAN":
+        disc_version = "v2"  # BigVGAN uses standard MPD
 
     net_d = MultiPeriodDiscriminator(
         config.model.use_spectral_norm, checkpointing=checkpointing, version=disc_version

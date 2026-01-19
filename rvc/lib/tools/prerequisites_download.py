@@ -5,6 +5,8 @@ import requests
 
 url_base = "https://huggingface.co/IAHispano/Applio/resolve/main/Resources"
 url_refinegan = "https://huggingface.co/Aznamir/RefineGAN/resolve/main"
+# BigVGAN pretraineds URL (placeholder - needs to be updated when models are available)
+url_bigvgan = "https://huggingface.co/IAHispano/Applio/resolve/main/Resources/bigvgan"
 
 pretraineds_hifigan_list = [
     (
@@ -38,6 +40,19 @@ pretraineds_refinegan_list = [
     )
 ]
 
+# BigVGAN pretrained models (44.1kHz only)
+# Note: These need to be trained specifically for RVC as NVIDIA's original
+# BigVGAN models are Mel-to-Audio, not compatible with RVC's latent space
+pretraineds_bigvgan_list = [
+    (
+        "bigvgan/",  # local folder
+        [
+            "f0G44100.pth",
+            "f0D44100.pth",
+        ],
+    )
+]
+
 models_list = [("predictors/", ["rmvpe.pt", "fcpe.pt"])]
 embedders_list = [("embedders/contentvec/", ["pytorch_model.bin", "config.json"])]
 executables_list = [
@@ -47,6 +62,7 @@ executables_list = [
 folder_mapping_list = {
     "pretrained_v2/": "rvc/models/pretraineds/hifi-gan/",
     "refinegan/": "rvc/models/pretraineds/refinegan/",
+    "bigvgan/": "rvc/models/pretraineds/bigvgan/",
     "embedders/contentvec/": "rvc/models/embedders/contentvec/",
     "predictors/": "rvc/models/predictors/",
     "formant/": "rvc/models/formant/",
@@ -138,6 +154,7 @@ def split_pretraineds(pretrained_list):
 
 pretraineds_hifigan_list, _ = split_pretraineds(pretraineds_hifigan_list)
 pretraineds_refinegan_list_processed = pretraineds_refinegan_list
+pretraineds_bigvgan_list_processed = pretraineds_bigvgan_list
 
 
 def calculate_total_size(
@@ -145,6 +162,7 @@ def calculate_total_size(
     pretraineds_refinegan,
     models,
     exe,
+    pretraineds_bigvgan=None,
 ):
     """
     Calculate the total size of all files to be downloaded based on selected categories.
@@ -159,6 +177,8 @@ def calculate_total_size(
         total_size += get_file_size_if_missing(pretraineds_hifigan)
     if pretraineds_refinegan:
         total_size += get_file_size_if_missing(pretraineds_refinegan, url_refinegan)
+    if pretraineds_bigvgan:
+        total_size += get_file_size_if_missing(pretraineds_bigvgan, url_bigvgan)
     return total_size
 
 
@@ -167,6 +187,7 @@ def prequisites_download_pipeline(
     models,
     exe,
     pretraineds_refinegan=False,
+    pretraineds_bigvgan=False,
 ):
     """
     Manage the download pipeline for different categories of files.
@@ -176,10 +197,11 @@ def prequisites_download_pipeline(
         pretraineds_refinegan_list_processed if pretraineds_refinegan else [],
         models,
         exe,
+        pretraineds_bigvgan_list_processed if pretraineds_bigvgan else [],
     )
 
     # Always attempt download if any category is requested, even if size calculation failed
-    has_downloads = models or exe or pretraineds_hifigan or pretraineds_refinegan
+    has_downloads = models or exe or pretraineds_hifigan or pretraineds_refinegan or pretraineds_bigvgan
 
     if has_downloads:
         with tqdm(
@@ -200,3 +222,5 @@ def prequisites_download_pipeline(
                 download_mapping_files(pretraineds_hifigan_list, global_bar)
             if pretraineds_refinegan:
                 download_mapping_files(pretraineds_refinegan_list_processed, global_bar, url_refinegan)
+            if pretraineds_bigvgan:
+                download_mapping_files(pretraineds_bigvgan_list_processed, global_bar, url_bigvgan)

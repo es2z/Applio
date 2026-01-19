@@ -4,6 +4,7 @@ from rvc.lib.algorithm.generators.hifigan_mrf import HiFiGANMRFGenerator
 from rvc.lib.algorithm.generators.hifigan_nsf import HiFiGANNSFGenerator
 from rvc.lib.algorithm.generators.hifigan import HiFiGANGenerator
 from rvc.lib.algorithm.generators.refinegan import RefineGANGenerator
+from rvc.lib.algorithm.generators.bigvgan import BigVGANGenerator
 from rvc.lib.algorithm.commons import slice_segments, rand_slice_segments
 from rvc.lib.algorithm.residuals import ResidualCouplingBlock
 from rvc.lib.algorithm.encoders import TextEncoder, PosteriorEncoder
@@ -104,6 +105,20 @@ class Synthesizer(torch.nn.Module):
                     num_mels=inter_channels,
                     checkpointing=checkpointing,
                 )
+            elif vocoder == "BigVGAN":
+                self.dec = BigVGANGenerator(
+                    initial_channel=inter_channels,
+                    resblock_kernel_sizes=resblock_kernel_sizes,
+                    resblock_dilation_sizes=resblock_dilation_sizes,
+                    upsample_rates=upsample_rates,
+                    upsample_initial_channel=upsample_initial_channel,
+                    upsample_kernel_sizes=upsample_kernel_sizes,
+                    gin_channels=gin_channels,
+                    sr=sr,
+                    checkpointing=checkpointing,
+                    activation="snakebeta",
+                    snake_logscale=True,
+                )
             else:
                 self.dec = HiFiGANNSFGenerator(
                     inter_channels,
@@ -122,6 +137,9 @@ class Synthesizer(torch.nn.Module):
                 self.dec = None
             elif vocoder == "RefineGAN":
                 print("RefineGAN does not support training without pitch guidance.")
+                self.dec = None
+            elif vocoder == "BigVGAN":
+                print("BigVGAN does not support training without pitch guidance.")
                 self.dec = None
             else:
                 self.dec = HiFiGANGenerator(
