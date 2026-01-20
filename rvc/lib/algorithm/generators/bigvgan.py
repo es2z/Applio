@@ -702,8 +702,11 @@ class BigVGANGenerator(nn.Module):
             else:
                 x = self.ups[i][0](x)
 
-            # Add harmonic source
-            x = x + self.noise_convs[i](har_source)
+            # Add harmonic source (with size matching to handle rounding differences)
+            x_har = self.noise_convs[i](har_source)
+            # Match dimensions - truncate the longer one to the shorter
+            min_len = min(x.size(2), x_har.size(2))
+            x = x[:, :, :min_len] + x_har[:, :, :min_len]
 
             # Apply AMP blocks
             xs = None
