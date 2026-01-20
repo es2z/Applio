@@ -65,9 +65,11 @@ def generate_filelist(model_path: str, sample_rate: int, include_mutes: int = 2)
     f0nsf_dir = os.path.join(model_path, "f0_voiced")
 
     # Debug: Check if directories exist and count files
+    sliced_16k_dir = os.path.join(model_path, "sliced_audios_16k")
     print(f"[DEBUG] Checking directories in {model_path}")
     for dir_name, dir_path in [
         ("sliced_audios", gt_wavs_dir),
+        ("sliced_audios_16k", sliced_16k_dir),
         ("extracted", feature_dir),
         ("f0", f0_dir),
         ("f0_voiced", f0nsf_dir),
@@ -81,11 +83,12 @@ def generate_filelist(model_path: str, sample_rate: int, include_mutes: int = 2)
             print(f"[DEBUG]   {dir_name}: DIRECTORY NOT FOUND")
 
     gt_wavs_files = set(name.split(".")[0] for name in os.listdir(gt_wavs_dir)) if os.path.exists(gt_wavs_dir) else set()
+    gt_wavs_16k_files = set(name.split(".")[0] for name in os.listdir(sliced_16k_dir)) if os.path.exists(sliced_16k_dir) else set()
     feature_files = set(name.split(".")[0] for name in os.listdir(feature_dir)) if os.path.exists(feature_dir) else set()
     f0_files = set(name.split(".")[0] for name in os.listdir(f0_dir)) if os.path.exists(f0_dir) else set()
     f0nsf_files = set(name.split(".")[0] for name in os.listdir(f0nsf_dir)) if os.path.exists(f0nsf_dir) else set()
 
-    print(f"[DEBUG] Unique names - sliced_audios: {len(gt_wavs_files)}, extracted: {len(feature_files)}, f0: {len(f0_files)}, f0_voiced: {len(f0nsf_files)}")
+    print(f"[DEBUG] Unique names - sliced_audios: {len(gt_wavs_files)}, sliced_16k: {len(gt_wavs_16k_files)}, extracted: {len(feature_files)}, f0: {len(f0_files)}, f0_voiced: {len(f0nsf_files)}")
 
     names = gt_wavs_files & feature_files & f0_files & f0nsf_files
     print(f"[DEBUG] Common names (intersection): {len(names)}")
