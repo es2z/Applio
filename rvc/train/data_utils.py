@@ -13,9 +13,10 @@ class TextAudioLoaderMultiNSFsid(torch.utils.data.Dataset):
 
     Args:
         hparams: Hyperparameters.
+        min_frames: Minimum number of frames required (segment_size // hop_length).
     """
 
-    def __init__(self, hparams):
+    def __init__(self, hparams, min_frames=None):
         print(f"[DEBUG] Loading training files from: {hparams.training_files}")
         self.audiopaths_and_text = load_filepaths_and_text(hparams.training_files)
         print(f"[DEBUG] Loaded {len(self.audiopaths_and_text)} entries from filelist")
@@ -27,32 +28,40 @@ class TextAudioLoaderMultiNSFsid(torch.utils.data.Dataset):
         self.sample_rate = hparams.sample_rate
         self.min_text_len = getattr(hparams, "min_text_len", 1)
         self.max_text_len = getattr(hparams, "max_text_len", 5000)
+        self.min_frames = min_frames  # Minimum frames for segment slicing
         print(f"[DEBUG] hop_length: {self.hop_length}, sample_rate: {self.sample_rate}")
+        if min_frames:
+            print(f"[DEBUG] min_frames filter: {min_frames}")
         self._filter()
 
     def _filter(self):
         """
-        Filters audio paths and text pairs based on text length.
+        Filters audio paths and text pairs based on text length and minimum frame count.
         """
         audiopaths_and_text_new = []
         lengths = []
         skipped_missing = 0
         skipped_text_len = 0
+        skipped_too_short = 0
         for audiopath, text, pitch, pitchf, dv in self.audiopaths_and_text:
             if not os.path.exists(audiopath):
                 skipped_missing += 1
                 continue
             if self.min_text_len <= len(text) and len(text) <= self.max_text_len:
-                audiopaths_and_text_new.append([audiopath, text, pitch, pitchf, dv])
                 file_size = os.path.getsize(audiopath)
                 length = file_size // (3 * self.hop_length)
+                # Skip samples that are too short for segment slicing
+                if self.min_frames and length < self.min_frames:
+                    skipped_too_short += 1
+                    continue
+                audiopaths_and_text_new.append([audiopath, text, pitch, pitchf, dv])
                 lengths.append(length)
             else:
                 skipped_text_len += 1
         self.audiopaths_and_text = audiopaths_and_text_new
         self.lengths = lengths
         print(f"[DEBUG] After filter: {len(self.audiopaths_and_text)} samples")
-        print(f"[DEBUG] Skipped (missing file): {skipped_missing}, Skipped (text length): {skipped_text_len}")
+        print(f"[DEBUG] Skipped (missing file): {skipped_missing}, Skipped (text length): {skipped_text_len}, Skipped (too short): {skipped_too_short}")
         if lengths:
             print(f"[DEBUG] Length range: {min(lengths)} - {max(lengths)} (bucket boundaries: 50-900)")
 
