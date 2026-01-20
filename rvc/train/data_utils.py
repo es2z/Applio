@@ -16,7 +16,9 @@ class TextAudioLoaderMultiNSFsid(torch.utils.data.Dataset):
     """
 
     def __init__(self, hparams):
+        print(f"[DEBUG] Loading training files from: {hparams.training_files}")
         self.audiopaths_and_text = load_filepaths_and_text(hparams.training_files)
+        print(f"[DEBUG] Loaded {len(self.audiopaths_and_text)} entries from filelist")
         self.max_wav_value = hparams.max_wav_value
         self.sample_rate = hparams.sample_rate
         self.filter_length = hparams.filter_length
@@ -25,6 +27,7 @@ class TextAudioLoaderMultiNSFsid(torch.utils.data.Dataset):
         self.sample_rate = hparams.sample_rate
         self.min_text_len = getattr(hparams, "min_text_len", 1)
         self.max_text_len = getattr(hparams, "max_text_len", 5000)
+        print(f"[DEBUG] hop_length: {self.hop_length}, sample_rate: {self.sample_rate}")
         self._filter()
 
     def _filter(self):
@@ -33,12 +36,25 @@ class TextAudioLoaderMultiNSFsid(torch.utils.data.Dataset):
         """
         audiopaths_and_text_new = []
         lengths = []
+        skipped_missing = 0
+        skipped_text_len = 0
         for audiopath, text, pitch, pitchf, dv in self.audiopaths_and_text:
+            if not os.path.exists(audiopath):
+                skipped_missing += 1
+                continue
             if self.min_text_len <= len(text) and len(text) <= self.max_text_len:
                 audiopaths_and_text_new.append([audiopath, text, pitch, pitchf, dv])
-                lengths.append(os.path.getsize(audiopath) // (3 * self.hop_length))
+                file_size = os.path.getsize(audiopath)
+                length = file_size // (3 * self.hop_length)
+                lengths.append(length)
+            else:
+                skipped_text_len += 1
         self.audiopaths_and_text = audiopaths_and_text_new
         self.lengths = lengths
+        print(f"[DEBUG] After filter: {len(self.audiopaths_and_text)} samples")
+        print(f"[DEBUG] Skipped (missing file): {skipped_missing}, Skipped (text length): {skipped_text_len}")
+        if lengths:
+            print(f"[DEBUG] Length range: {min(lengths)} - {max(lengths)} (bucket boundaries: 50-900)")
 
     def get_sid(self, sid):
         """

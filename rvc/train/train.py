@@ -349,7 +349,20 @@ def run(
         TextAudioLoaderMultiNSFsid,
     )
 
+    # Debug: Print config values
+    print(f"[DEBUG] Config sample_rate: {config.data.sample_rate}")
+    print(f"[DEBUG] Config hop_length: {config.data.hop_length}")
+    print(f"[DEBUG] Config training_files: {config.data.training_files}")
+
     train_dataset = TextAudioLoaderMultiNSFsid(config.data)
+
+    # Debug: Print dataset info
+    print(f"[DEBUG] Dataset size (after filter): {len(train_dataset)}")
+    if len(train_dataset) > 0:
+        print(f"[DEBUG] Sample lengths (first 10): {train_dataset.lengths[:10]}")
+        print(f"[DEBUG] Min length: {min(train_dataset.lengths) if train_dataset.lengths else 'N/A'}")
+        print(f"[DEBUG] Max length: {max(train_dataset.lengths) if train_dataset.lengths else 'N/A'}")
+
     collate_fn = TextAudioCollateMultiNSFsid()
     train_sampler = DistributedBucketSampler(
         train_dataset,
@@ -359,6 +372,10 @@ def run(
         rank=rank,
         shuffle=True,
     )
+
+    # Debug: Print sampler info
+    print(f"[DEBUG] Number of buckets: {len(train_sampler.buckets)}")
+    print(f"[DEBUG] Samples per bucket: {train_sampler.num_samples_per_bucket}")
 
     train_loader = DataLoader(
         train_dataset,
@@ -371,11 +388,15 @@ def run(
         prefetch_factor=8,
     )
 
+    print(f"[DEBUG] train_loader length: {len(train_loader)}")
+
     # Validations
     if len(train_loader) < 3:
         print(
             "Not enough data present in the training set. Perhaps you forgot to slice the audio files in preprocess?"
         )
+        print(f"[DEBUG] Bucket boundaries: [50, 100, 200, 300, 400, 500, 600, 700, 800, 900]")
+        print(f"[DEBUG] Data lengths may be outside these boundaries. Check hop_length setting.")
         os._exit(2333333)
 
     # defaults

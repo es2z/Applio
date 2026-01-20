@@ -11,8 +11,29 @@ current_directory = os.getcwd()
 def generate_config(sample_rate: int, model_path: str):
     config_path = os.path.join("rvc", "configs", f"{sample_rate}.json")
     config_save_path = os.path.join(model_path, "config.json")
-    if not os.path.exists(config_save_path):
+
+    # Check if we need to update the config (new or sample_rate changed)
+    need_update = True
+    if os.path.exists(config_save_path):
+        try:
+            with open(config_save_path, "r") as f:
+                existing_config = json.load(f)
+            existing_sr = existing_config.get("data", {}).get("sample_rate", 0)
+            if existing_sr == sample_rate:
+                need_update = False
+                print(f"[DEBUG] config.json already exists with correct sample_rate={sample_rate}")
+            else:
+                print(f"[DEBUG] config.json sample_rate mismatch: existing={existing_sr}, requested={sample_rate}")
+                print(f"[DEBUG] Updating config.json to use {sample_rate}Hz settings")
+        except Exception as e:
+            print(f"[DEBUG] Could not read existing config.json: {e}")
+
+    if need_update:
+        if not os.path.exists(config_path):
+            print(f"[ERROR] Config file not found: {config_path}")
+            return
         shutil.copyfile(config_path, config_save_path)
+        print(f"[DEBUG] Copied {config_path} to {config_save_path}")
 
         # Update text_enc_hidden_dim from model_info.json
         model_info_path = os.path.join(model_path, "model_info.json")
