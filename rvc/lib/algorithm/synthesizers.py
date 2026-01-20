@@ -201,20 +201,25 @@ class Synthesizer(torch.nn.Module):
             z_p = self.flow(z, y_mask, g=g)
             # regular old training method using random slices
             if self.randomized:
-                # Safety check: ensure z has enough time steps for slicing
-                # Clamp y_lengths to actual z length to prevent out-of-bounds access
+                # Safety check: ensure z and related tensors have enough time steps
                 z_time = z.size(2)
-                if z_time < self.segment_size:
-                    # Pad z if too short (edge case for very short samples)
-                    pad_size = self.segment_size - z_time
+                segment_size = self.segment_size
+
+                # Case 1: z tensor is shorter than segment_size - pad it
+                if z_time < segment_size:
+                    pad_size = segment_size - z_time
                     z = torch.nn.functional.pad(z, (0, pad_size))
                     y_mask = torch.nn.functional.pad(y_mask, (0, pad_size))
                     z_p = torch.nn.functional.pad(z_p, (0, pad_size))
-                    y_lengths = torch.clamp(y_lengths, max=self.segment_size)
-                else:
-                    y_lengths = torch.clamp(y_lengths, max=z_time)
+                    z_time = segment_size  # Update after padding
+
+                # Case 2: Ensure y_lengths is within valid range for slicing
+                # y_lengths must be: segment_size <= y_lengths <= z_time
+                # This ensures ids_str_max = y_lengths - segment_size + 1 >= 1 (valid positive range)
+                y_lengths = torch.clamp(y_lengths, min=segment_size, max=z_time)
+
                 z_slice, ids_slice = rand_slice_segments(
-                    z, y_lengths, self.segment_size
+                    z, y_lengths, segment_size
                 )
                 if self.use_f0:
                     pitchf = slice_segments(pitchf, ids_slice, self.segment_size, 2)
