@@ -355,8 +355,10 @@ def run(
     print(f"[DEBUG] Config training_files: {config.data.training_files}")
 
     # Calculate minimum frames needed for segment slicing
-    min_frames = config.train.segment_size // config.data.hop_length
-    print(f"[DEBUG] min_frames required for training: {min_frames} (segment_size={config.train.segment_size} / hop_length={config.data.hop_length})")
+    # Add margin to account for length estimation inaccuracies and ensure at least first bucket boundary (50)
+    segment_frames = config.train.segment_size // config.data.hop_length
+    min_frames = max(segment_frames + 10, 50)  # segment_size/hop_length + margin, at least 50
+    print(f"[DEBUG] min_frames required for training: {min_frames} (segment_frames={segment_frames} + margin)")
 
     train_dataset = TextAudioLoaderMultiNSFsid(config.data, min_frames=min_frames)
 

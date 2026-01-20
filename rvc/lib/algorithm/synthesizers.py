@@ -201,6 +201,18 @@ class Synthesizer(torch.nn.Module):
             z_p = self.flow(z, y_mask, g=g)
             # regular old training method using random slices
             if self.randomized:
+                # Safety check: ensure z has enough time steps for slicing
+                # Clamp y_lengths to actual z length to prevent out-of-bounds access
+                z_time = z.size(2)
+                if z_time < self.segment_size:
+                    # Pad z if too short (edge case for very short samples)
+                    pad_size = self.segment_size - z_time
+                    z = torch.nn.functional.pad(z, (0, pad_size))
+                    y_mask = torch.nn.functional.pad(y_mask, (0, pad_size))
+                    z_p = torch.nn.functional.pad(z_p, (0, pad_size))
+                    y_lengths = torch.clamp(y_lengths, max=self.segment_size)
+                else:
+                    y_lengths = torch.clamp(y_lengths, max=z_time)
                 z_slice, ids_slice = rand_slice_segments(
                     z, y_lengths, self.segment_size
                 )
