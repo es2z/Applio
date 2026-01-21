@@ -7,10 +7,15 @@ import torch
 import torchcrepe
 import torchfcpe
 import os
+import sys
+
+now_dir = os.getcwd()
+sys.path.append(now_dir)
 
 # from tools.anyf0.rmvpe import RMVPE
 from rvc.lib.predictors.RMVPE import RMVPE0Predictor
 from rvc.configs.config import Config
+from tabs.settings.sections.torch_compile import get_torch_compile_settings
 
 config = Config()
 
@@ -41,6 +46,8 @@ class F0Extractor:
         method = self.method
         if method == "crepe":
             wav16k_torch = torch.FloatTensor(self.wav16k).unsqueeze(0).to(config.device)
+            # Get torch.compile settings
+            compile_enabled, compile_mode = get_torch_compile_settings()
             f0 = torchcrepe.predict(
                 wav16k_torch,
                 sample_rate=16000,
@@ -49,6 +56,8 @@ class F0Extractor:
                 fmin=self.f0_min,
                 fmax=self.f0_max,
                 device=config.device,
+                compile_model=compile_enabled,
+                compile_mode=compile_mode,
             )
             f0 = f0[0].cpu().numpy()
         elif method == "fcpe":

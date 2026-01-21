@@ -31,6 +31,13 @@ from tabs.voice_blender.voice_blender import voice_blender_tab
 from tabs.plugins.plugins import plugins_tab
 from tabs.settings.settings import settings_tab
 from tabs.realtime.realtime import realtime_tab
+from tabs.settings.sections.torch_compile import (
+    load_torch_compile_enabled,
+    load_torch_compile_mode,
+    save_torch_compile_enabled,
+    save_torch_compile_mode,
+    TORCH_COMPILE_MODES,
+)
 
 # Run prerequisites
 from core import run_prerequisites_script
@@ -79,6 +86,43 @@ with gr.Blocks(
             "[Support](https://discord.gg/urxFjYmYYh) — [GitHub](https://github.com/IAHispano/Applio)"
         )
     )
+
+    # TorchCompile Settings (collapsible, initially collapsed)
+    with gr.Accordion(i18n("TorchCompile Settings"), open=False):
+        with gr.Row():
+            torch_compile_checkbox = gr.Checkbox(
+                label=i18n("Enable TorchCompile"),
+                info=i18n(
+                    "Enable torch.compile for CREPE and other inference models. Improves performance after initial compilation."
+                ),
+                value=load_torch_compile_enabled(),
+                interactive=True,
+            )
+            torch_compile_mode_dropdown = gr.Dropdown(
+                label=i18n("TorchCompile Mode"),
+                info=i18n(
+                    "Select the torch.compile optimization mode. 'default' is standard, 'reduce-overhead' is optimized for repeated inference, 'max-autotune' provides maximum optimization but slower initial compile."
+                ),
+                choices=TORCH_COMPILE_MODES,
+                value=load_torch_compile_mode(),
+                interactive=True,
+                visible=load_torch_compile_enabled(),
+            )
+
+        torch_compile_checkbox.change(
+            fn=lambda enabled: (
+                save_torch_compile_enabled(enabled),
+                gr.update(visible=enabled),
+            )[1],
+            inputs=[torch_compile_checkbox],
+            outputs=[torch_compile_mode_dropdown],
+        )
+        torch_compile_mode_dropdown.change(
+            fn=save_torch_compile_mode,
+            inputs=[torch_compile_mode_dropdown],
+            outputs=[],
+        )
+
     with gr.Tab(i18n("Inference")):
         inference_tab()
 

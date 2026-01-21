@@ -1,5 +1,9 @@
 import os
+import sys
 import torch
+
+now_dir = os.getcwd()
+sys.path.append(now_dir)
 
 from rvc.lib.predictors.RMVPE import RMVPE0Predictor
 from torchfcpe import spawn_bundled_infer_model
@@ -8,6 +12,7 @@ from swift_f0 import SwiftF0
 import numpy as np
 import onnxruntime as ort
 from rvc.lib.predictors import onnxcrepe
+from tabs.settings.sections.torch_compile import get_torch_compile_settings
 
 
 class RMVPE:
@@ -40,6 +45,9 @@ class CREPE:
 
         batch_size = 512
 
+        # Get torch.compile settings
+        compile_enabled, compile_mode = get_torch_compile_settings()
+
         f0, pd = torchcrepe.predict(
             x.float().to(self.device).unsqueeze(dim=0),
             self.sample_rate,
@@ -51,6 +59,8 @@ class CREPE:
             device=self.device,
             return_periodicity=True,
             decoder=torchcrepe.decode.weighted_argmax,
+            compile_model=compile_enabled,
+            compile_mode=compile_mode,
         )
         # Apply median filter to both f0 and periodicity (matching reference implementation)
         f0 = torchcrepe.filter.median(f0, 3)
@@ -87,6 +97,9 @@ class MANGIO_CREPE:
             audio = torch.mean(audio, dim=0, keepdim=True).detach()
         audio = audio.detach()
 
+        # Get torch.compile settings
+        compile_enabled, compile_mode = get_torch_compile_settings()
+
         # Predict using torchcrepe with periodicity (Applio improvement)
         pitch, pd = torchcrepe.predict(
             audio,
@@ -99,6 +112,8 @@ class MANGIO_CREPE:
             device=self.device,
             pad=True,
             return_periodicity=True,
+            compile_model=compile_enabled,
+            compile_mode=compile_mode,
         )
 
         # Apply periodicity filter (Applio improvement for noise reduction)
