@@ -2,6 +2,7 @@ import gradio as gr
 import sys
 import os
 import logging
+import torch
 
 from typing import Any
 
@@ -37,6 +38,7 @@ from tabs.settings.sections.torch_compile import (
     save_torch_compile_enabled,
     save_torch_compile_mode,
     is_torch_compile_available,
+    is_triton_available,
     TORCH_COMPILE_MODES,
 )
 
@@ -90,21 +92,29 @@ with gr.Blocks(
 
     # TorchCompile Settings (collapsible, initially collapsed)
     torch_compile_available = is_torch_compile_available()
+    triton_available = is_triton_available()
     with gr.Accordion(i18n("TorchCompile Settings"), open=False):
         if not torch_compile_available:
-            gr.Markdown(
-                i18n(
-                    "TorchCompile is not available on this platform. It requires Linux with triton installed."
+            if not triton_available:
+                gr.Markdown(
+                    i18n(
+                        "Note: triton is not installed. TorchCompile requires triton for full optimization."
+                    )
                 )
-            )
+            elif not torch.cuda.is_available():
+                gr.Markdown(
+                    i18n(
+                        "Note: CUDA is not available. TorchCompile requires CUDA."
+                    )
+                )
         with gr.Row():
             torch_compile_checkbox = gr.Checkbox(
                 label=i18n("Enable TorchCompile"),
                 info=i18n(
                     "Enable torch.compile for CREPE and other inference models. Improves performance after initial compilation."
                 ),
-                value=load_torch_compile_enabled() if torch_compile_available else False,
-                interactive=torch_compile_available,
+                value=load_torch_compile_enabled(),
+                interactive=True,
             )
             torch_compile_mode_dropdown = gr.Dropdown(
                 label=i18n("TorchCompile Mode"),
@@ -113,24 +123,23 @@ with gr.Blocks(
                 ),
                 choices=TORCH_COMPILE_MODES,
                 value=load_torch_compile_mode(),
-                interactive=torch_compile_available,
-                visible=load_torch_compile_enabled() if torch_compile_available else False,
+                interactive=True,
+                visible=load_torch_compile_enabled(),
             )
 
-        if torch_compile_available:
-            torch_compile_checkbox.change(
-                fn=lambda enabled: (
-                    save_torch_compile_enabled(enabled),
-                    gr.update(visible=enabled),
-                )[1],
-                inputs=[torch_compile_checkbox],
-                outputs=[torch_compile_mode_dropdown],
-            )
-            torch_compile_mode_dropdown.change(
-                fn=save_torch_compile_mode,
-                inputs=[torch_compile_mode_dropdown],
-                outputs=[],
-            )
+        torch_compile_checkbox.change(
+            fn=lambda enabled: (
+                save_torch_compile_enabled(enabled),
+                gr.update(visible=enabled),
+            )[1],
+            inputs=[torch_compile_checkbox],
+            outputs=[torch_compile_mode_dropdown],
+        )
+        torch_compile_mode_dropdown.change(
+            fn=save_torch_compile_mode,
+            inputs=[torch_compile_mode_dropdown],
+            outputs=[],
+        )
 
     with gr.Tab(i18n("Inference")):
         inference_tab()

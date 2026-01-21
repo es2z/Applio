@@ -1,6 +1,5 @@
 import os
 import sys
-import platform
 import torch
 
 now_dir = os.getcwd()
@@ -13,29 +12,39 @@ CONFIG_PATH = os.path.join(now_dir, "assets", "config.json")
 # Available torch.compile modes
 TORCH_COMPILE_MODES = ["default", "reduce-overhead", "max-autotune"]
 
+# Cache triton availability check
+_triton_available = None
+
+
+def is_triton_available():
+    """Check if triton is available."""
+    global _triton_available
+    if _triton_available is None:
+        try:
+            import triton
+            _triton_available = True
+        except ImportError:
+            _triton_available = False
+    return _triton_available
+
 
 def is_torch_compile_available():
-    """Check if torch.compile is available on this platform.
+    """Check if torch.compile can be used.
 
-    torch.compile with inductor backend requires triton, which is only available on Linux.
-    On Windows/macOS, torch.compile will fail with 'No module named triton' error.
+    Returns True if:
+    - triton is available
+    - torch.compile exists
+    - CUDA is available
     """
-    # Check if we're on Linux (triton is Linux-only)
-    if platform.system() != "Linux":
-        return False
-
-    # Try to import triton to verify it's actually available
-    try:
-        import triton
-        return True
-    except ImportError:
-        return False
+    return (
+        is_triton_available() and
+        hasattr(torch, 'compile') and
+        torch.cuda.is_available()
+    )
 
 
 def setup_torch_compile_cache():
     """Enable torch.compile cache for faster startup on subsequent runs (PyTorch 2.4+)"""
-    if not is_torch_compile_available():
-        return
     if hasattr(torch, "_inductor"):
         torch._inductor.config.fx_graph_cache = True
         torch._inductor.config.autotune_local_cache = True
@@ -54,13 +63,7 @@ def load_torch_compile_mode():
 
 
 def save_torch_compile_enabled(enabled: bool):
-    """Save torch compile enabled state to config.
-
-    If torch.compile is not available on this platform, always saves as False.
-    """
-    # Don't allow enabling if not available
-    if enabled and not is_torch_compile_available():
-        enabled = False
+    """Save torch compile enabled state to config."""
     update_config(CONFIG_PATH, {"torch_compile_enabled": bool(enabled)})
     if enabled:
         setup_torch_compile_cache()
@@ -74,19 +77,22 @@ def save_torch_compile_mode(mode: str):
 
 
 def get_torch_compile_settings():
-    """Get both torch compile settings.
+    """Get torch compile settings for use in inference.
 
-    Returns (False, "default") if torch.compile is not available on this platform.
+    Returns (enabled, mode) tuple. The 'enabled' value will be False if:
+    - User has disabled it in config
+    - torch.compile is not available (no triton, no CUDA, etc.)
     """
-    # Always return disabled if torch.compile is not available
-    if not is_torch_compile_available():
-        return False, "default"
-
     config = load_config(CONFIG_PATH)
     enabled = bool(config.get("torch_compile_enabled", False))
     mode = config.get("torch_compile_mode", "default")
     if mode not in TORCH_COMPILE_MODES:
         mode = "default"
+
+    # Only actually enable if all requirements are met
+    if enabled and not is_torch_compile_available():
+        enabled = False
+
     return enabled, mode
 
 
