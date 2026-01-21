@@ -341,6 +341,7 @@
     "Timbre for formant shifting": "フォルマントシフトの音色",
     "TorchCompile Mode": "TorchCompileモード",
     "TorchCompile Settings": "TorchCompile設定",
+    "TorchCompile is not available on this platform. It requires Linux with triton installed.": "このプラットフォームではTorchCompileは利用できません。tritonがインストールされたLinuxが必要です。",
     "Total Epoch": "総エポック数",
     "Training": "トレーニング",
     "Unload Voice": "音声をアンロード",

@@ -1,5 +1,6 @@
 import os
 import sys
+import platform
 import torch
 
 now_dir = os.getcwd()
@@ -13,8 +14,28 @@ CONFIG_PATH = os.path.join(now_dir, "assets", "config.json")
 TORCH_COMPILE_MODES = ["default", "reduce-overhead", "max-autotune"]
 
 
+def is_torch_compile_available():
+    """Check if torch.compile is available on this platform.
+
+    torch.compile with inductor backend requires triton, which is only available on Linux.
+    On Windows/macOS, torch.compile will fail with 'No module named triton' error.
+    """
+    # Check if we're on Linux (triton is Linux-only)
+    if platform.system() != "Linux":
+        return False
+
+    # Try to import triton to verify it's actually available
+    try:
+        import triton
+        return True
+    except ImportError:
+        return False
+
+
 def setup_torch_compile_cache():
     """Enable torch.compile cache for faster startup on subsequent runs (PyTorch 2.4+)"""
+    if not is_torch_compile_available():
+        return
     if hasattr(torch, "_inductor"):
         torch._inductor.config.fx_graph_cache = True
         torch._inductor.config.autotune_local_cache = True
@@ -33,7 +54,13 @@ def load_torch_compile_mode():
 
 
 def save_torch_compile_enabled(enabled: bool):
-    """Save torch compile enabled state to config."""
+    """Save torch compile enabled state to config.
+
+    If torch.compile is not available on this platform, always saves as False.
+    """
+    # Don't allow enabling if not available
+    if enabled and not is_torch_compile_available():
+        enabled = False
     update_config(CONFIG_PATH, {"torch_compile_enabled": bool(enabled)})
     if enabled:
         setup_torch_compile_cache()
@@ -47,7 +74,14 @@ def save_torch_compile_mode(mode: str):
 
 
 def get_torch_compile_settings():
-    """Get both torch compile settings."""
+    """Get both torch compile settings.
+
+    Returns (False, "default") if torch.compile is not available on this platform.
+    """
+    # Always return disabled if torch.compile is not available
+    if not is_torch_compile_available():
+        return False, "default"
+
     config = load_config(CONFIG_PATH)
     enabled = bool(config.get("torch_compile_enabled", False))
     mode = config.get("torch_compile_mode", "default")

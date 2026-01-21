@@ -341,6 +341,7 @@
     "Timbre for formant shifting": "Timbre for formant shifting",
     "TorchCompile Mode": "TorchCompile Mode",
     "TorchCompile Settings": "TorchCompile Settings",
+    "TorchCompile is not available on this platform. It requires Linux with triton installed.": "TorchCompile is not available on this platform. It requires Linux with triton installed.",
     "Total Epoch": "Total Epoch",
     "Training": "Training",
     "Unload Voice": "Unload Voice",
