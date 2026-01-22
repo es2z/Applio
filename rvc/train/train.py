@@ -60,6 +60,7 @@ overtraining_detector = strtobool(sys.argv[12])
 overtraining_threshold = int(sys.argv[13])
 cleanup = strtobool(sys.argv[14])
 vocoder = sys.argv[15]
+effective_vocoder = vocoder  # May be auto-corrected if custom pretrained detected
 checkpointing = strtobool(sys.argv[16])
 # experimental settings
 randomized = True
@@ -320,10 +321,11 @@ def run(
         config (object): Configuration object containing training parameters.
         device (torch.device): The device to use for training (CPU or GPU).
     """
-    global global_step, smoothed_value_gen, smoothed_value_disc
+    global global_step, smoothed_value_gen, smoothed_value_disc, effective_vocoder
 
     smoothed_value_gen = 0
     smoothed_value_disc = 0
+    effective_vocoder = vocoder  # Will be auto-corrected if custom pretrained detected
 
     if rank == 0:
         writer_eval = SummaryWriter(log_dir=os.path.join(experiment_dir, "eval"))
@@ -408,12 +410,16 @@ def run(
     # defaults
     embedder_name = "contentvec"
     spk_dim = config.model.spk_embed_dim  # 109 default speakers
+    saved_vocoder = None  # Vocoder saved from previous training session
 
     try:
         with open(model_info_path, "r") as f:
             model_info = json.load(f)
             embedder_name = model_info["embedder_model"]
             spk_dim = model_info["speakers_id"]
+            saved_vocoder = model_info.get("vocoder", None)
+            if saved_vocoder:
+                print(f"Loaded vocoder from model_info.json: {saved_vocoder}")
     except Exception as e:
         print(f"Could not load model info file: {e}. Using defaults.")
 
@@ -456,6 +462,63 @@ def run(
     # Initialize models and optimizers
     from rvc.lib.algorithm.discriminators import MultiPeriodDiscriminator
     from rvc.lib.algorithm.synthesizers import Synthesizer
+    from rvc.lib.utils import detect_vocoder_from_checkpoint
+
+    # Auto-detect vocoder from checkpoint or use saved vocoder
+    effective_vocoder = vocoder
+
+    # Priority 1: Check existing checkpoint in experiment directory
+    last_g = latest_checkpoint_path(experiment_dir, "G_*.pth")
+    if last_g:
+        detected_vocoder = detect_vocoder_from_checkpoint(last_g)
+        if detected_vocoder != vocoder:
+            print(f"\n{'='*60}")
+            print(f"INFO: Continuing training with existing checkpoint")
+            print(f"  - Detected vocoder from checkpoint: {detected_vocoder}")
+            print(f"  - Selected vocoder in UI: {vocoder}")
+            print(f"  Using '{detected_vocoder}' to match existing checkpoint.")
+            print(f"{'='*60}\n")
+            effective_vocoder = detected_vocoder
+        else:
+            print(f"Vocoder match confirmed: {vocoder}")
+    # Priority 2: Check saved vocoder from model_info.json
+    elif saved_vocoder and saved_vocoder != vocoder:
+        print(f"\n{'='*60}")
+        print(f"INFO: Using vocoder from previous training session")
+        print(f"  - Saved vocoder in model_info.json: {saved_vocoder}")
+        print(f"  - Selected vocoder in UI: {vocoder}")
+        print(f"  Using '{saved_vocoder}' to maintain consistency.")
+        print(f"{'='*60}\n")
+        effective_vocoder = saved_vocoder
+    # Priority 3: Check custom pretrained if provided
+    elif pretrainG not in ("", "None") and os.path.exists(pretrainG):
+        detected_vocoder = detect_vocoder_from_checkpoint(pretrainG)
+        if detected_vocoder != vocoder:
+            print(f"\n{'='*60}")
+            print(f"WARNING: Vocoder mismatch detected!")
+            print(f"  - Custom pretrained appears to be: {detected_vocoder}")
+            print(f"  - Selected vocoder in UI: {vocoder}")
+            print(f"  Auto-correcting to use '{detected_vocoder}' to match checkpoint.")
+            print(f"{'='*60}\n")
+            effective_vocoder = detected_vocoder
+        else:
+            print(f"Vocoder match confirmed: {vocoder}")
+    else:
+        print(f"Using selected vocoder: {vocoder}")
+
+    # Save effective_vocoder to model_info.json for future sessions
+    try:
+        if os.path.exists(model_info_path):
+            with open(model_info_path, "r") as f:
+                model_info = json.load(f)
+        else:
+            model_info = {}
+        model_info["vocoder"] = effective_vocoder
+        with open(model_info_path, "w") as f:
+            json.dump(model_info, f, indent=4)
+        print(f"Saved vocoder '{effective_vocoder}' to model_info.json")
+    except Exception as e:
+        print(f"Warning: Could not save vocoder to model_info.json: {e}")
 
     # Prepare model config excluding text_enc_hidden_dim to avoid duplicate argument
     model_config = {k: v for k, v in config.model.items() if k != 'text_enc_hidden_dim'}
@@ -466,7 +529,7 @@ def run(
         **model_config,
         use_f0=True,
         sr=config.data.sample_rate,
-        vocoder=vocoder,
+        vocoder=effective_vocoder,
         checkpointing=checkpointing,
         randomized=randomized,
         text_enc_hidden_dim=text_enc_hidden_dim,
@@ -476,9 +539,9 @@ def run(
     # v2: Default for HiFi-GAN, MRF HiFi-GAN, BigVGAN
     # v3: RefineGAN (includes resolution discriminators)
     disc_version = "v2"
-    if vocoder == "RefineGAN":
+    if effective_vocoder == "RefineGAN":
         disc_version = "v3"
-    elif vocoder == "BigVGAN":
+    elif effective_vocoder == "BigVGAN":
         disc_version = "v2"  # BigVGAN uses standard MPD
 
     net_d = MultiPeriodDiscriminator(
@@ -713,7 +776,7 @@ def train_and_evaluate(
         cache (list): List to cache data in GPU memory.
         use_cpu (bool): Whether to use CPU for training.
     """
-    global global_step, lowest_value, loss_disc, consecutive_increases_gen, consecutive_increases_disc, smoothed_value_gen, smoothed_value_disc
+    global global_step, lowest_value, loss_disc, consecutive_increases_gen, consecutive_increases_disc, smoothed_value_gen, smoothed_value_disc, effective_vocoder
 
     if epoch == 1:
         lowest_value = {"step": 0, "value": float("inf"), "epoch": 0}
@@ -1150,7 +1213,7 @@ def train_and_evaluate(
                         step=global_step,
                         hps=hps,
                         overtrain_info=overtrain_info,
-                        vocoder=vocoder,
+                        vocoder=effective_vocoder,
                     )
 
         if done:

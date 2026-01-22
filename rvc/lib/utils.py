@@ -179,3 +179,92 @@ def get_embedder_dim(embedder_model: str) -> int:
         "korean-hubert-base": 768,
     }
     return embedder_dims.get(embedder_model, 768)
+
+
+def detect_vocoder_from_checkpoint(checkpoint_path: str) -> str:
+    """
+    Detects the vocoder type from a checkpoint file by analyzing its weight keys.
+
+    This is useful for automatically determining the correct vocoder type when
+    loading custom pretrained models, to avoid architecture mismatches.
+
+    Args:
+        checkpoint_path (str): Path to the checkpoint file (.pth)
+
+    Returns:
+        str: Detected vocoder type - one of:
+            - "BigVGAN": Has Snake activation keys (dec.resblocks.X.activations.Y.act.alpha)
+            - "RefineGAN": Has RefineGAN-specific keys (dec.resblocks.X.conv_blocks)
+            - "MRF HiFi-GAN": Has MRF-specific keys with harmonic patterns
+            - "HiFi-GAN": Default/fallback for standard weight_g/weight_v patterns
+    """
+    import torch
+
+    try:
+        # Load only the model keys without loading all tensors to memory
+        ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+
+        if isinstance(ckpt, dict) and "model" in ckpt:
+            model_keys = list(ckpt["model"].keys())
+        elif isinstance(ckpt, dict) and "weight" in ckpt:
+            # Exported model format
+            model_keys = list(ckpt["weight"].keys())
+        else:
+            model_keys = list(ckpt.keys()) if isinstance(ckpt, dict) else []
+
+        del ckpt  # Free memory
+
+        # Check for BigVGAN-specific keys (Snake/SnakeBeta activations)
+        # BigVGAN uses: dec.resblocks.X.activations.Y.act.alpha/beta
+        for key in model_keys:
+            if "activations" in key and ".act.alpha" in key:
+                return "BigVGAN"
+
+        # Check for RefineGAN-specific keys
+        # RefineGAN uses: dec.resblocks.X.conv_blocks.Y.conv.weight
+        for key in model_keys:
+            if "dec.resblocks" in key and "conv_blocks" in key:
+                return "RefineGAN"
+
+        # Check for MRF HiFi-GAN specific keys
+        # MRF uses: dec.noise_convs and specific harmonic patterns
+        has_noise_convs = any("noise_convs" in key for key in model_keys)
+        has_mrf_resblocks = any("resblocks" in key and "convs1" in key for key in model_keys)
+        if has_noise_convs and has_mrf_resblocks:
+            # Could be either MRF HiFi-GAN or standard HiFi-GAN NSF
+            # Check for MRF-specific upsampling patterns
+            has_ups_weight_g = any("ups" in key and "weight_g" in key for key in model_keys)
+            if has_ups_weight_g:
+                return "MRF HiFi-GAN"
+
+        # Default to HiFi-GAN for standard weight_g/weight_v patterns
+        return "HiFi-GAN"
+
+    except Exception as e:
+        print(f"Warning: Could not detect vocoder from checkpoint {checkpoint_path}: {e}")
+        return "HiFi-GAN"  # Default fallback
+
+
+def validate_vocoder_checkpoint_match(checkpoint_path: str, selected_vocoder: str) -> tuple:
+    """
+    Validates that the selected vocoder matches the checkpoint's architecture.
+
+    Args:
+        checkpoint_path (str): Path to the checkpoint file
+        selected_vocoder (str): The vocoder type selected in the UI
+
+    Returns:
+        tuple: (is_valid: bool, detected_vocoder: str, message: str)
+    """
+    detected = detect_vocoder_from_checkpoint(checkpoint_path)
+
+    if detected == selected_vocoder:
+        return True, detected, f"Vocoder match: {selected_vocoder}"
+    else:
+        return False, detected, (
+            f"WARNING: Vocoder mismatch detected!\n"
+            f"  - Checkpoint appears to be: {detected}\n"
+            f"  - Selected vocoder: {selected_vocoder}\n"
+            f"  This may cause errors during training. "
+            f"Consider selecting '{detected}' vocoder in the UI."
+        )
