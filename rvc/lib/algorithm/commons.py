@@ -57,12 +57,31 @@ def slice_segments(
         ret = torch.zeros_like(x[:, :, :segment_size])
 
     for i in range(x.size(0)):
-        idx_str = ids_str[i].item()
+        idx_str = max(0, ids_str[i].item())  # Ensure non-negative start
         idx_end = idx_str + segment_size
+        # Ensure we don't slice past the tensor boundary
         if dim == 2:
-            ret[i] = x[i, idx_str:idx_end]
+            max_len = x.size(1)
+            if idx_end > max_len:
+                idx_str = max(0, max_len - segment_size)
+                idx_end = idx_str + segment_size
+            slice_data = x[i, idx_str:idx_end]
+            # Pad if still too short (edge case)
+            if slice_data.size(0) < segment_size:
+                pad_size = segment_size - slice_data.size(0)
+                slice_data = torch.nn.functional.pad(slice_data, (0, pad_size))
+            ret[i] = slice_data
         else:
-            ret[i] = x[i, :, idx_str:idx_end]
+            max_len = x.size(2)
+            if idx_end > max_len:
+                idx_str = max(0, max_len - segment_size)
+                idx_end = idx_str + segment_size
+            slice_data = x[i, :, idx_str:idx_end]
+            # Pad if still too short (edge case)
+            if slice_data.size(1) < segment_size:
+                pad_size = segment_size - slice_data.size(1)
+                slice_data = torch.nn.functional.pad(slice_data, (0, pad_size))
+            ret[i] = slice_data
 
     return ret
 
@@ -78,8 +97,19 @@ def rand_slice_segments(x, x_lengths=None, segment_size=4):
     """
     b, d, t = x.size()
     if x_lengths is None:
-        x_lengths = t
+        x_lengths = torch.full((b,), t, dtype=torch.long, device=x.device)
+    elif not torch.is_tensor(x_lengths):
+        x_lengths = torch.full((b,), x_lengths, dtype=torch.long, device=x.device)
+
+    # Safety: ensure x_lengths is at least segment_size and at most t
+    # This prevents negative ids_str_max which causes invalid slices
+    x_lengths = torch.clamp(x_lengths, min=segment_size, max=t)
+
+    # Calculate valid starting positions: [0, x_lengths - segment_size]
     ids_str_max = x_lengths - segment_size + 1
+    # Ensure non-negative (should be guaranteed by clamp above, but extra safety)
+    ids_str_max = torch.clamp(ids_str_max, min=1)
+
     ids_str = (torch.rand([b], device=x.device) * ids_str_max).to(dtype=torch.long)
     ret = slice_segments(x, ids_str, segment_size, dim=3)
     return ret, ids_str

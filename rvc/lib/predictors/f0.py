@@ -30,18 +30,25 @@ class CREPE:
         self.device = device
         self.sample_rate = sample_rate
         self.hop_size = hop_size
-        # Enable compile_model for PyTorch 2.0+ with CUDA and Triton installed
-        try:
-            import triton
-            triton_available = True
-        except ImportError:
-            triton_available = False
-        self.use_compile = (
-            triton_available and
-            hasattr(torch, 'compile') and
-            torch.cuda.is_available() and
-            str(device).startswith('cuda')
-        )
+        # Check if torchcrepe supports compile_model parameter
+        import inspect
+        sig = inspect.signature(torchcrepe.predict)
+        self.supports_compile = 'compile_model' in sig.parameters
+        # Enable compile_model for PyTorch 2.0+ with CUDA and Triton installed (if supported)
+        if self.supports_compile:
+            try:
+                import triton
+                triton_available = True
+            except ImportError:
+                triton_available = False
+            self.use_compile = (
+                triton_available and
+                hasattr(torch, 'compile') and
+                torch.cuda.is_available() and
+                str(device).startswith('cuda')
+            )
+        else:
+            self.use_compile = False
 
     def get_f0(self, x, f0_min=50, f0_max=1100, p_len=None, model="full"):
         if p_len is None:
@@ -52,18 +59,24 @@ class CREPE:
 
         batch_size = 512
 
+        # Build predict kwargs - only include compile_model if supported
+        predict_kwargs = {
+            'model': model,
+            'batch_size': batch_size,
+            'device': self.device,
+            'return_periodicity': True,
+            'decoder': torchcrepe.decode.weighted_argmax,
+        }
+        if self.supports_compile:
+            predict_kwargs['compile_model'] = self.use_compile
+
         f0, pd = torchcrepe.predict(
             x.float().to(self.device).unsqueeze(dim=0),
             self.sample_rate,
             self.hop_size,
             f0_min,
             f0_max,
-            model=model,
-            batch_size=batch_size,
-            device=self.device,
-            return_periodicity=True,
-            decoder=torchcrepe.decode.weighted_argmax,
-            compile_model=self.use_compile,
+            **predict_kwargs,
         )
         # Apply median filter to both f0 and periodicity (matching reference implementation)
         f0 = torchcrepe.filter.median(f0, 3)
@@ -79,18 +92,25 @@ class MANGIO_CREPE:
         self.device = device
         self.sample_rate = sample_rate
         self.hop_size = hop_size
-        # Enable compile_model for PyTorch 2.0+ with CUDA and Triton installed
-        try:
-            import triton
-            triton_available = True
-        except ImportError:
-            triton_available = False
-        self.use_compile = (
-            triton_available and
-            hasattr(torch, 'compile') and
-            torch.cuda.is_available() and
-            str(device).startswith('cuda')
-        )
+        # Check if torchcrepe supports compile_model parameter
+        import inspect
+        sig = inspect.signature(torchcrepe.predict)
+        self.supports_compile = 'compile_model' in sig.parameters
+        # Enable compile_model for PyTorch 2.0+ with CUDA and Triton installed (if supported)
+        if self.supports_compile:
+            try:
+                import triton
+                triton_available = True
+            except ImportError:
+                triton_available = False
+            self.use_compile = (
+                triton_available and
+                hasattr(torch, 'compile') and
+                torch.cuda.is_available() and
+                str(device).startswith('cuda')
+            )
+        else:
+            self.use_compile = False
 
     def get_f0(self, x, f0_min=50, f0_max=1100, p_len=None, model="full"):
         if p_len is None:
@@ -112,6 +132,17 @@ class MANGIO_CREPE:
             audio = torch.mean(audio, dim=0, keepdim=True).detach()
         audio = audio.detach()
 
+        # Build predict kwargs - only include compile_model if supported
+        predict_kwargs = {
+            'model': model,
+            'batch_size': self.hop_size * 2,
+            'device': self.device,
+            'pad': True,
+            'return_periodicity': True,
+        }
+        if self.supports_compile:
+            predict_kwargs['compile_model'] = self.use_compile
+
         # Predict using torchcrepe with periodicity (Applio improvement)
         pitch, pd = torchcrepe.predict(
             audio,
@@ -119,12 +150,7 @@ class MANGIO_CREPE:
             self.hop_size,
             f0_min,
             f0_max,
-            model=model,
-            batch_size=self.hop_size * 2,
-            device=self.device,
-            pad=True,
-            return_periodicity=True,
-            compile_model=self.use_compile,
+            **predict_kwargs,
         )
 
         # Apply periodicity filter (Applio improvement for noise reduction)

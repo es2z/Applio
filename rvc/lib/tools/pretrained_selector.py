@@ -6,6 +6,7 @@ VOCODER_FOLDER_MAP = {
     "hifi-gan": "hifi-gan",
     "mrf hifi-gan": "mrf-hifi-gan",
     "refinegan": "refinegan",
+    "bigvgan": "bigvgan",
 }
 
 # RefineGAN variant configurations (32kHz only)
@@ -53,6 +54,10 @@ def pretrained_selector(vocoder, sample_rate, refinegan_variant="RFGv3_CV (Conte
             g_filename, d_filename = REFINEGAN_VARIANTS["RFGv3_CV (ContentVec)"]
         path_g = os.path.join(base_path, g_filename)
         path_d = os.path.join(base_path, d_filename)
+    elif vocoder_lower == "bigvgan":
+        # BigVGAN: 44100Hz only
+        path_g = os.path.join(base_path, "f0G44100.pth")
+        path_d = os.path.join(base_path, "f0D44100.pth")
     else:
         # Standard naming for HiFi-GAN and MRF HiFi-GAN
         path_g = os.path.join(base_path, f"f0G{sr_short}k.pth")

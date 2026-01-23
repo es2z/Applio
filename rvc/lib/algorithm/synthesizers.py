@@ -4,6 +4,7 @@ from rvc.lib.algorithm.generators.hifigan_mrf import HiFiGANMRFGenerator
 from rvc.lib.algorithm.generators.hifigan_nsf import HiFiGANNSFGenerator
 from rvc.lib.algorithm.generators.hifigan import HiFiGANGenerator
 from rvc.lib.algorithm.generators.refinegan import RefineGANGenerator
+from rvc.lib.algorithm.generators.bigvgan import BigVGANGenerator
 from rvc.lib.algorithm.commons import slice_segments, rand_slice_segments
 from rvc.lib.algorithm.residuals import ResidualCouplingBlock
 from rvc.lib.algorithm.encoders import TextEncoder, PosteriorEncoder
@@ -104,6 +105,20 @@ class Synthesizer(torch.nn.Module):
                     num_mels=inter_channels,
                     checkpointing=checkpointing,
                 )
+            elif vocoder == "BigVGAN":
+                self.dec = BigVGANGenerator(
+                    initial_channel=inter_channels,
+                    resblock_kernel_sizes=resblock_kernel_sizes,
+                    resblock_dilation_sizes=resblock_dilation_sizes,
+                    upsample_rates=upsample_rates,
+                    upsample_initial_channel=upsample_initial_channel,
+                    upsample_kernel_sizes=upsample_kernel_sizes,
+                    gin_channels=gin_channels,
+                    sr=sr,
+                    checkpointing=checkpointing,
+                    activation="snakebeta",
+                    snake_logscale=True,
+                )
             else:
                 self.dec = HiFiGANNSFGenerator(
                     inter_channels,
@@ -122,6 +137,9 @@ class Synthesizer(torch.nn.Module):
                 self.dec = None
             elif vocoder == "RefineGAN":
                 print("RefineGAN does not support training without pitch guidance.")
+                self.dec = None
+            elif vocoder == "BigVGAN":
+                print("BigVGAN does not support training without pitch guidance.")
                 self.dec = None
             else:
                 self.dec = HiFiGANGenerator(
@@ -183,8 +201,25 @@ class Synthesizer(torch.nn.Module):
             z_p = self.flow(z, y_mask, g=g)
             # regular old training method using random slices
             if self.randomized:
+                # Safety check: ensure z and related tensors have enough time steps
+                z_time = z.size(2)
+                segment_size = self.segment_size
+
+                # Case 1: z tensor is shorter than segment_size - pad it
+                if z_time < segment_size:
+                    pad_size = segment_size - z_time
+                    z = torch.nn.functional.pad(z, (0, pad_size))
+                    y_mask = torch.nn.functional.pad(y_mask, (0, pad_size))
+                    z_p = torch.nn.functional.pad(z_p, (0, pad_size))
+                    z_time = segment_size  # Update after padding
+
+                # Case 2: Ensure y_lengths is within valid range for slicing
+                # y_lengths must be: segment_size <= y_lengths <= z_time
+                # This ensures ids_str_max = y_lengths - segment_size + 1 >= 1 (valid positive range)
+                y_lengths = torch.clamp(y_lengths, min=segment_size, max=z_time)
+
                 z_slice, ids_slice = rand_slice_segments(
-                    z, y_lengths, self.segment_size
+                    z, y_lengths, segment_size
                 )
                 if self.use_f0:
                     pitchf = slice_segments(pitchf, ids_slice, self.segment_size, 2)

@@ -334,16 +334,16 @@ def train_tab():
                 sampling_rate = gr.Radio(
                     label=i18n("Sampling Rate"),
                     info=i18n("The sampling rate of the audio files."),
-                    choices=["32000", "40000", "48000"],
+                    choices=["32000", "40000", "44100", "48000"],
                     value="40000",
                     interactive=True,
                 )
                 vocoder = gr.Radio(
                     label=i18n("Vocoder"),
                     info=i18n(
-                        "Choose the vocoder for audio synthesis:\n- **HiFi-GAN**: Default option, compatible with all clients.\n- **MRF HiFi-GAN**: Higher fidelity, Applio-only.\n- **RefineGAN**: Superior audio quality, Applio-only."
+                        "Choose the vocoder for audio synthesis:\n- **HiFi-GAN**: Default option, compatible with all clients.\n- **MRF HiFi-GAN**: Higher fidelity, Applio-only.\n- **RefineGAN**: Superior audio quality, Applio-only.\n- **BigVGAN**: NVIDIA's high-quality vocoder with anti-aliased activations (44.1kHz only)."
                     ),
-                    choices=["HiFi-GAN", "MRF HiFi-GAN", "RefineGAN"],
+                    choices=["HiFi-GAN", "MRF HiFi-GAN", "RefineGAN", "BigVGAN"],
                     value="HiFi-GAN",
                     interactive=True,
                     visible=True,
@@ -789,6 +789,18 @@ def train_tab():
                         pretraineds_refinegan=True,
                     )
                     gr.Info("RefineGAN pretrained models downloaded.")
+            elif vocoder_arg == "BigVGAN":
+                bigvgan_path = os.path.join("rvc", "models", "pretraineds", "bigvgan")
+                if not os.path.exists(bigvgan_path) or len(os.listdir(bigvgan_path)) == 0:
+                    gr.Info("BigVGAN pretrained models are not yet available. Training will start without pretraineds.")
+                    # Uncomment below when BigVGAN pretraineds are available:
+                    # run_prerequisites_script(
+                    #     pretraineds_hifigan=False,
+                    #     models=False,
+                    #     exe=False,
+                    #     pretraineds_bigvgan=True,
+                    # )
+                    # gr.Info("BigVGAN pretrained models downloaded.")
 
             return run_train_script(*args)
 
@@ -908,6 +920,20 @@ def train_tab():
             def toggle_refinegan_variant(vocoder_value):
                 return {"visible": vocoder_value == "RefineGAN", "__type__": "update"}
 
+            def update_sample_rate_for_vocoder(vocoder_value, current_sr):
+                """Update sample rate choices based on selected vocoder."""
+                if vocoder_value == "BigVGAN":
+                    # BigVGAN only supports 44.1kHz
+                    return gr.update(choices=["44100"], value="44100")
+                elif vocoder_value == "RefineGAN":
+                    # RefineGAN only supports 32kHz
+                    return gr.update(choices=["32000"], value="32000")
+                else:
+                    # HiFi-GAN and MRF HiFi-GAN support all sample rates
+                    choices = ["32000", "40000", "44100", "48000"]
+                    value = current_sr if current_sr in choices else "40000"
+                    return gr.update(choices=choices, value=value)
+
             def toggle_pretrained(pretrained, custom_pretrained):
                 if custom_pretrained == False:
                     return {"visible": pretrained, "__type__": "update"}, {
@@ -936,17 +962,23 @@ def train_tab():
                 gr.Info(
                     "Checking for prerequisites with pitch guidance... Missing files will be downloaded. If you already have them, this step will be skipped."
                 )
-                # Download RefineGAN pretraineds if RefineGAN vocoder is selected
+                # Download RefineGAN or BigVGAN pretraineds if selected
                 download_refinegan = vocoder_choice == "RefineGAN"
+                download_bigvgan = vocoder_choice == "BigVGAN"
                 run_prerequisites_script(
                     pretraineds_hifigan=True,
                     models=False,
                     exe=False,
                     pretraineds_refinegan=download_refinegan,
+                    pretraineds_bigvgan=download_bigvgan,
                 )
                 if download_refinegan:
                     gr.Info(
                         "Prerequisites check complete (including RefineGAN). Missing files were downloaded."
+                    )
+                elif download_bigvgan:
+                    gr.Info(
+                        "Prerequisites check complete (BigVGAN). Note: BigVGAN pretraineds may not be available yet - training will start from scratch."
                     )
                 else:
                     gr.Info(
@@ -1049,6 +1081,11 @@ def train_tab():
                 fn=toggle_refinegan_variant,
                 inputs=[vocoder],
                 outputs=[refinegan_variant],
+            )
+            vocoder.change(
+                fn=update_sample_rate_for_vocoder,
+                inputs=[vocoder, sampling_rate],
+                outputs=[sampling_rate],
             )
             train_button.click(
                 fn=enable_stop_train_button,

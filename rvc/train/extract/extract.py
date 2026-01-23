@@ -82,45 +82,101 @@ class FeatureInput:
     def process_file(self, file_info):
         inp_path, opt_path_coarse, opt_path_full, _ = file_info
         if os.path.exists(opt_path_coarse) and os.path.exists(opt_path_full):
-            return
+            return True  # Already exists
 
         try:
             np_arr = load_audio_16k(inp_path)
+            if np_arr is None or len(np_arr) == 0:
+                print(f"[ERROR] Failed to load audio or empty audio: {inp_path}")
+                return False
             feature_pit = self.compute_f0(np_arr)
+            if feature_pit is None:
+                print(f"[ERROR] compute_f0 returned None for {inp_path}")
+                return False
             np.save(opt_path_full, feature_pit, allow_pickle=False)
             coarse_pit = self.coarse_f0(feature_pit)
             np.save(opt_path_coarse, coarse_pit, allow_pickle=False)
+            return True
         except Exception as error:
             print(
                 f"An error occurred extracting file {inp_path} on {self.device}: {error}"
             )
+            import traceback
+            traceback.print_exc()
+            return False
 
 
 def process_files(files, f0_method, device, threads):
-    fe = FeatureInput(f0_method=f0_method, device=device)
+    print(f"[DEBUG] process_files started: device={device}, f0_method={f0_method}, num_files={len(files)}")
+    try:
+        fe = FeatureInput(f0_method=f0_method, device=device)
+        print(f"[DEBUG] FeatureInput created successfully on {device}")
+    except Exception as e:
+        print(f"[ERROR] Failed to create FeatureInput on {device}: {e}")
+        import traceback
+        traceback.print_exc()
+        return
+
+    success_count = 0
+    error_count = 0
     with tqdm.tqdm(total=len(files), leave=True) as pbar:
         for file_info in files:
-            fe.process_file(file_info)
+            result = fe.process_file(file_info)
+            if result:
+                success_count += 1
+            else:
+                error_count += 1
             pbar.update(1)
+    print(f"[DEBUG] process_files completed on {device}: success={success_count}, errors={error_count}")
 
 
 def run_pitch_extraction(files, devices, f0_method, threads):
     devices_str = ", ".join(devices)
+    print(f"[DEBUG] run_pitch_extraction called with {len(files)} files on devices: {devices_str}")
     print(f"Starting pitch extraction on {devices_str} using {f0_method}...")
+
+    if len(files) == 0:
+        print("[ERROR] No files to process for pitch extraction!")
+        return
+
+    # Show first few file paths for debugging
+    print(f"[DEBUG] First 3 files to process:")
+    for i, f in enumerate(files[:3]):
+        print(f"[DEBUG]   {i}: input={f[0]}, f0_out={f[1]}, f0nsf_out={f[2]}")
+
     start_time = time.time()
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=len(devices)) as executor:
-        tasks = [
-            executor.submit(
-                process_files,
-                files[i :: len(devices)],
-                f0_method,
-                devices[i],
-                threads // len(devices),
+        tasks = []
+        for i in range(len(devices)):
+            files_for_device = files[i :: len(devices)]
+            print(f"[DEBUG] Submitting {len(files_for_device)} files to device {devices[i]}")
+            tasks.append(
+                executor.submit(
+                    process_files,
+                    files_for_device,
+                    f0_method,
+                    devices[i],
+                    threads // len(devices),
+                )
             )
-            for i in range(len(devices))
-        ]
-        concurrent.futures.wait(tasks)
+        # Wait for all tasks and check for exceptions
+        for i, task in enumerate(concurrent.futures.as_completed(tasks)):
+            try:
+                task.result()
+                print(f"[DEBUG] Task {i} completed successfully")
+            except Exception as e:
+                print(f"[ERROR] Task {i} failed with exception: {e}")
+                import traceback
+                traceback.print_exc()
+
+    # Verify output files were created
+    f0_dir = os.path.dirname(files[0][1]) if files else None
+    if f0_dir and os.path.exists(f0_dir):
+        f0_files = os.listdir(f0_dir)
+        print(f"[DEBUG] After extraction, f0 directory has {len(f0_files)} files")
+    else:
+        print(f"[DEBUG] f0 directory does not exist: {f0_dir}")
 
     print(f"Pitch extraction completed in {time.time() - start_time:.2f} seconds.")
 
@@ -194,10 +250,28 @@ if __name__ == "__main__":
     embedder_model_custom = sys.argv[7] if len(sys.argv) > 7 else None
     include_mutes = int(sys.argv[8]) if len(sys.argv) > 8 else 2
 
+    print(f"[DEBUG] ========== EXTRACTION STARTED ==========")
+    print(f"[DEBUG] exp_dir: {exp_dir}")
+    print(f"[DEBUG] f0_method: {f0_method}")
+    print(f"[DEBUG] sample_rate: {sample_rate}")
+    print(f"[DEBUG] gpus: {gpus}")
+    print(f"[DEBUG] embedder_model: {embedder_model}")
+
     wav_path = os.path.join(exp_dir, "sliced_audios_16k")
     os.makedirs(os.path.join(exp_dir, "f0"), exist_ok=True)
     os.makedirs(os.path.join(exp_dir, "f0_voiced"), exist_ok=True)
     os.makedirs(os.path.join(exp_dir, "extracted"), exist_ok=True)
+
+    # Debug: Check sliced_audios_16k directory
+    if os.path.exists(wav_path):
+        wav_files = glob.glob(os.path.join(wav_path, "*.wav"))
+        print(f"[DEBUG] sliced_audios_16k directory exists with {len(wav_files)} .wav files")
+        if len(wav_files) > 0 and len(wav_files) <= 5:
+            print(f"[DEBUG] Files: {[os.path.basename(f) for f in wav_files]}")
+        elif len(wav_files) > 5:
+            print(f"[DEBUG] First 3 files: {[os.path.basename(f) for f in wav_files[:3]]}")
+    else:
+        print(f"[ERROR] sliced_audios_16k directory does NOT exist: {wav_path}")
 
     chosen_embedder_model = (
         embedder_model_custom if embedder_model == "custom" else embedder_model
