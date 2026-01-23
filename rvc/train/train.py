@@ -460,8 +460,9 @@ def run(
     from rvc.lib.algorithm.synthesizers import Synthesizer
     from rvc.lib.utils import detect_vocoder_from_checkpoint
 
-    # Auto-detect vocoder from checkpoint to ensure architecture consistency
+    # Determine the effective vocoder to use
     effective_vocoder = vocoder
+    pretrained_vocoder_mismatch = False  # Track if custom pretrained has different vocoder
 
     # Priority 1: Check existing checkpoint in experiment directory
     # This takes precedence because we must match the architecture of existing weights
@@ -478,24 +479,26 @@ def run(
             effective_vocoder = detected_vocoder
         else:
             print(f"Vocoder match confirmed: {vocoder}")
-    # Priority 2: Check custom pretrained if provided
-    # This is checked because custom pretrained specifies explicit weights to load
+    # Priority 2: Custom pretrained - RESPECT user's vocoder choice
+    # If user explicitly selects a vocoder, use it even if pretrained is different
+    # Incompatible decoder weights will be skipped during loading
     elif pretrainG not in ("", "None") and os.path.exists(pretrainG):
         detected_vocoder = detect_vocoder_from_checkpoint(pretrainG)
         if detected_vocoder != vocoder:
             print(f"\n{'='*60}")
-            print(f"WARNING: Vocoder mismatch detected!")
-            print(f"  - Custom pretrained appears to be: {detected_vocoder}")
+            print(f"INFO: Vocoder architecture difference detected")
+            print(f"  - Custom pretrained vocoder: {detected_vocoder}")
             print(f"  - Selected vocoder in UI: {vocoder}")
-            print(f"  Auto-correcting to use '{detected_vocoder}' to match checkpoint.")
+            print(f"  USING YOUR SELECTED VOCODER: '{vocoder}'")
+            print(f"  Note: Decoder weights from pretrained will be skipped.")
+            print(f"        Only compatible weights (encoder, flow, etc.) will be loaded.")
             print(f"{'='*60}\n")
-            effective_vocoder = detected_vocoder
+            # Keep user's selected vocoder, mark that we have a mismatch
+            effective_vocoder = vocoder
+            pretrained_vocoder_mismatch = True
         else:
             print(f"Vocoder match confirmed: {vocoder}")
-    # Priority 3: Use user's selected vocoder
-    # Note: We no longer override based on saved_vocoder from model_info.json
-    # because the user explicitly selected a vocoder in the UI. The saved_vocoder
-    # was only intended for continuing training, which is handled by Priority 1.
+    # Priority 3: Use user's selected vocoder (no pretrained or standard pretrained)
     else:
         print(f"Using selected vocoder: {vocoder}")
 
@@ -616,9 +619,17 @@ def run(
             current_state = current_model.state_dict()
 
             # Filter out keys with dimension mismatches
+            # Also skip decoder weights entirely if vocoder architecture is different
             filtered_ckpt = {}
             skipped_keys = []
+            skipped_decoder_keys = []
+
             for key, value in ckpt.items():
+                # Skip ALL decoder weights if vocoder architecture is different
+                if pretrained_vocoder_mismatch and key.startswith("dec."):
+                    skipped_decoder_keys.append(key)
+                    continue
+
                 if key in current_state:
                     if value.shape == current_state[key].shape:
                         filtered_ckpt[key] = value
@@ -633,7 +644,14 @@ def run(
             else:
                 result = net_g.load_state_dict(filtered_ckpt, strict=False)
 
-            # Log information
+            # Log information about skipped decoder keys
+            if skipped_decoder_keys and rank == 0:
+                print(f"\n{'='*60}")
+                print(f"VOCODER MISMATCH: Skipped {len(skipped_decoder_keys)} decoder weights from pretrained.")
+                print(f"  The decoder (vocoder) will be randomly initialized for '{effective_vocoder}'.")
+                print(f"  Encoder, flow, and embedding weights were loaded from pretrained.")
+                print(f"{'='*60}\n")
+
             if skipped_keys and rank == 0:
                 print(f"Skipped loading layers due to dimension mismatch (will be randomly initialized):")
                 for key in skipped_keys:
@@ -642,30 +660,39 @@ def run(
                     print(f"Note: This is expected when using {text_enc_hidden_dim}-dim embedders with 768-dim pretrained models.")
 
             if result.missing_keys and rank == 0:
-                print(f"Missing keys (randomly initialized): {result.missing_keys}")
+                # Don't show decoder missing keys if we intentionally skipped them
+                missing_non_decoder = [k for k in result.missing_keys if not k.startswith("dec.")]
+                if missing_non_decoder:
+                    print(f"Missing keys (randomly initialized): {missing_non_decoder}")
             if result.unexpected_keys and rank == 0:
                 print(f"Unexpected keys (ignored): {result.unexpected_keys}")
 
             del ckpt, filtered_ckpt
 
         if pretrainD not in ("", "None"):
-            if rank == 0:
-                print(f"Loaded pretrained (D) '{pretrainD}'")
-            try:
-                ckpt = torch.load(pretrainD, map_location="cpu", weights_only=True)[
-                    "model"
-                ]
-                if hasattr(net_d, "module"):
-                    net_d.module.load_state_dict(ckpt)
-                else:
-                    net_d.load_state_dict(ckpt)
-                del ckpt
-            except Exception as e:
-                print(
-                    "The parameters of the pretrain model such as the sample rate or architecture do not match the selected model."
-                )
-                print(e)
-                sys.exit(1)
+            if pretrained_vocoder_mismatch:
+                # Skip discriminator loading if vocoder architecture is different
+                if rank == 0:
+                    print(f"Skipping discriminator pretrained due to vocoder mismatch.")
+                    print(f"  Discriminator will be randomly initialized for '{effective_vocoder}'.")
+            else:
+                if rank == 0:
+                    print(f"Loaded pretrained (D) '{pretrainD}'")
+                try:
+                    ckpt = torch.load(pretrainD, map_location="cpu", weights_only=True)[
+                        "model"
+                    ]
+                    if hasattr(net_d, "module"):
+                        net_d.module.load_state_dict(ckpt)
+                    else:
+                        net_d.load_state_dict(ckpt)
+                    del ckpt
+                except Exception as e:
+                    print(
+                        "The parameters of the pretrain model such as the sample rate or architecture do not match the selected model."
+                    )
+                    print(e)
+                    sys.exit(1)
 
     # Initialize schedulers
     scheduler_g = torch.optim.lr_scheduler.ExponentialLR(
