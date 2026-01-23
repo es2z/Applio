@@ -195,7 +195,7 @@ def detect_vocoder_from_checkpoint(checkpoint_path: str) -> str:
         str: Detected vocoder type - one of:
             - "BigVGAN": Has Snake activation keys (dec.resblocks.X.activations.Y.act.alpha)
             - "RefineGAN": Has RefineGAN-specific keys (dec.resblocks.X.conv_blocks)
-            - "MRF HiFi-GAN": Has MRF-specific keys with harmonic patterns
+            - "MRF HiFi-GAN": Has MRF-specific keys (dec.mrfs.X with conv1/conv2)
             - "HiFi-GAN": Default/fallback for standard weight_g/weight_v patterns
     """
     import torch
@@ -227,15 +227,20 @@ def detect_vocoder_from_checkpoint(checkpoint_path: str) -> str:
                 return "RefineGAN"
 
         # Check for MRF HiFi-GAN specific keys
-        # MRF uses: dec.noise_convs and specific harmonic patterns
-        has_noise_convs = any("noise_convs" in key for key in model_keys)
-        has_mrf_resblocks = any("resblocks" in key and "convs1" in key for key in model_keys)
-        if has_noise_convs and has_mrf_resblocks:
-            # Could be either MRF HiFi-GAN or standard HiFi-GAN NSF
-            # Check for MRF-specific upsampling patterns
-            has_ups_weight_g = any("ups" in key and "weight_g" in key for key in model_keys)
-            if has_ups_weight_g:
-                return "MRF HiFi-GAN"
+        # MRF HiFi-GAN uses: dec.mrfs (ModuleList of MRFBlock) with layers.X.conv1/conv2
+        # NOT to be confused with BigVGAN which uses dec.resblocks with convs1/convs2
+        has_mrfs = any("dec.mrfs" in key for key in model_keys)
+        has_upsamples = any("dec.upsamples" in key for key in model_keys)
+        if has_mrfs and has_upsamples:
+            return "MRF HiFi-GAN"
+
+        # HiFi-GAN NSF uses dec.ups and dec.resblocks (with standard ResBlock)
+        # Standard ResBlock has convs1/convs2 but no activations (uses LeakyReLU)
+        has_ups = any("dec.ups" in key and "weight" in key for key in model_keys)
+        has_noise_convs = any("dec.noise_convs" in key for key in model_keys)
+        has_resblocks = any("dec.resblocks" in key for key in model_keys)
+        if has_ups and has_noise_convs and has_resblocks:
+            return "HiFi-GAN"
 
         # Default to HiFi-GAN for standard weight_g/weight_v patterns
         return "HiFi-GAN"

@@ -410,16 +410,12 @@ def run(
     # defaults
     embedder_name = "contentvec"
     spk_dim = config.model.spk_embed_dim  # 109 default speakers
-    saved_vocoder = None  # Vocoder saved from previous training session
 
     try:
         with open(model_info_path, "r") as f:
             model_info = json.load(f)
             embedder_name = model_info["embedder_model"]
             spk_dim = model_info["speakers_id"]
-            saved_vocoder = model_info.get("vocoder", None)
-            if saved_vocoder:
-                print(f"Loaded vocoder from model_info.json: {saved_vocoder}")
     except Exception as e:
         print(f"Could not load model info file: {e}. Using defaults.")
 
@@ -464,10 +460,11 @@ def run(
     from rvc.lib.algorithm.synthesizers import Synthesizer
     from rvc.lib.utils import detect_vocoder_from_checkpoint
 
-    # Auto-detect vocoder from checkpoint or use saved vocoder
+    # Auto-detect vocoder from checkpoint to ensure architecture consistency
     effective_vocoder = vocoder
 
     # Priority 1: Check existing checkpoint in experiment directory
+    # This takes precedence because we must match the architecture of existing weights
     last_g = latest_checkpoint_path(experiment_dir, "G_*.pth")
     if last_g:
         detected_vocoder = detect_vocoder_from_checkpoint(last_g)
@@ -481,16 +478,8 @@ def run(
             effective_vocoder = detected_vocoder
         else:
             print(f"Vocoder match confirmed: {vocoder}")
-    # Priority 2: Check saved vocoder from model_info.json
-    elif saved_vocoder and saved_vocoder != vocoder:
-        print(f"\n{'='*60}")
-        print(f"INFO: Using vocoder from previous training session")
-        print(f"  - Saved vocoder in model_info.json: {saved_vocoder}")
-        print(f"  - Selected vocoder in UI: {vocoder}")
-        print(f"  Using '{saved_vocoder}' to maintain consistency.")
-        print(f"{'='*60}\n")
-        effective_vocoder = saved_vocoder
-    # Priority 3: Check custom pretrained if provided
+    # Priority 2: Check custom pretrained if provided
+    # This is checked because custom pretrained specifies explicit weights to load
     elif pretrainG not in ("", "None") and os.path.exists(pretrainG):
         detected_vocoder = detect_vocoder_from_checkpoint(pretrainG)
         if detected_vocoder != vocoder:
@@ -503,6 +492,10 @@ def run(
             effective_vocoder = detected_vocoder
         else:
             print(f"Vocoder match confirmed: {vocoder}")
+    # Priority 3: Use user's selected vocoder
+    # Note: We no longer override based on saved_vocoder from model_info.json
+    # because the user explicitly selected a vocoder in the UI. The saved_vocoder
+    # was only intended for continuing training, which is handled by Priority 1.
     else:
         print(f"Using selected vocoder: {vocoder}")
 
