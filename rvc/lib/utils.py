@@ -181,7 +181,7 @@ def get_embedder_dim(embedder_model: str) -> int:
     return embedder_dims.get(embedder_model, 768)
 
 
-def detect_vocoder_from_checkpoint(checkpoint_path: str) -> str:
+def detect_vocoder_from_checkpoint(checkpoint_path: str, debug: bool = False) -> str:
     """
     Detects the vocoder type from a checkpoint file by analyzing its weight keys.
 
@@ -190,6 +190,7 @@ def detect_vocoder_from_checkpoint(checkpoint_path: str) -> str:
 
     Args:
         checkpoint_path (str): Path to the checkpoint file (.pth)
+        debug (bool): If True, print debug information about detected keys
 
     Returns:
         str: Detected vocoder type - one of:
@@ -206,24 +207,92 @@ def detect_vocoder_from_checkpoint(checkpoint_path: str) -> str:
 
         if isinstance(ckpt, dict) and "model" in ckpt:
             model_keys = list(ckpt["model"].keys())
+            ckpt_format = "training checkpoint (model key)"
         elif isinstance(ckpt, dict) and "weight" in ckpt:
             # Exported model format
             model_keys = list(ckpt["weight"].keys())
+            ckpt_format = "exported model (weight key)"
         else:
             model_keys = list(ckpt.keys()) if isinstance(ckpt, dict) else []
+            ckpt_format = "unknown format"
+
+        # Also check if vocoder is explicitly stored in the checkpoint
+        stored_vocoder = None
+        if isinstance(ckpt, dict):
+            stored_vocoder = ckpt.get("vocoder", None)
 
         del ckpt  # Free memory
 
+        if debug:
+            print(f"[DEBUG] Checkpoint format: {ckpt_format}")
+            print(f"[DEBUG] Total keys: {len(model_keys)}")
+            print(f"[DEBUG] Stored vocoder field: {stored_vocoder}")
+
+            # Show ALL decoder keys (critical for debugging)
+            dec_keys = [k for k in model_keys if k.startswith("dec.")]
+            print(f"[DEBUG] Total decoder keys: {len(dec_keys)}")
+            print(f"[DEBUG] First 30 decoder keys:")
+            for i, key in enumerate(dec_keys[:30]):
+                print(f"  [{i}] {key}")
+
+            # Check for specific patterns
+            activation_keys = [k for k in model_keys if "activations" in k]
+            print(f"[DEBUG] Keys with 'activations': {len(activation_keys)}")
+            if activation_keys:
+                print(f"[DEBUG] All activation keys: {activation_keys[:10]}")
+
+            # Check for any alpha keys anywhere
+            alpha_keys = [k for k in model_keys if "alpha" in k.lower()]
+            print(f"[DEBUG] Keys with 'alpha' (any case): {len(alpha_keys)}")
+            if alpha_keys:
+                print(f"[DEBUG] All alpha keys: {alpha_keys[:10]}")
+
+            act_alpha_keys = [k for k in model_keys if ".act.alpha" in k]
+            print(f"[DEBUG] Keys with '.act.alpha': {len(act_alpha_keys)}")
+
+            # Check for BigVGAN-specific patterns
+            snake_keys = [k for k in model_keys if "snake" in k.lower()]
+            print(f"[DEBUG] Keys with 'snake' (any case): {len(snake_keys)}")
+
+            # Check for mrfs (MRF HiFi-GAN)
+            mrf_keys = [k for k in model_keys if "mrfs" in k]
+            print(f"[DEBUG] Keys with 'mrfs': {len(mrf_keys)}")
+
+            # Check for ups vs upsamples
+            ups_keys = [k for k in model_keys if "dec.ups" in k]
+            upsamples_keys = [k for k in model_keys if "dec.upsamples" in k]
+            print(f"[DEBUG] Keys with 'dec.ups': {len(ups_keys)}")
+            print(f"[DEBUG] Keys with 'dec.upsamples': {len(upsamples_keys)}")
+
+        # If vocoder is explicitly stored in checkpoint, use it directly
+        if stored_vocoder and stored_vocoder in ["BigVGAN", "RefineGAN", "MRF HiFi-GAN", "HiFi-GAN"]:
+            if debug:
+                print(f"[DEBUG] Using stored vocoder from checkpoint: {stored_vocoder}")
+            return stored_vocoder
+
         # Check for BigVGAN-specific keys (Snake/SnakeBeta activations)
         # BigVGAN uses: dec.resblocks.X.activations.Y.act.alpha/beta
+        # Also: dec.activation_post.act.alpha
         for key in model_keys:
-            if "activations" in key and ".act.alpha" in key:
+            # Check for .act.alpha or .act.beta (Snake/SnakeBeta parameters)
+            if ".act.alpha" in key or ".act.beta" in key:
+                if debug:
+                    print(f"[DEBUG] Detected BigVGAN by key: {key}")
+                return "BigVGAN"
+
+        # Alternative check: look for activation_post with nested alpha (BigVGAN-specific)
+        for key in model_keys:
+            if "activation_post" in key and "alpha" in key:
+                if debug:
+                    print(f"[DEBUG] Detected BigVGAN by activation_post key: {key}")
                 return "BigVGAN"
 
         # Check for RefineGAN-specific keys
         # RefineGAN uses: dec.resblocks.X.conv_blocks.Y.conv.weight
         for key in model_keys:
             if "dec.resblocks" in key and "conv_blocks" in key:
+                if debug:
+                    print(f"[DEBUG] Detected RefineGAN by key: {key}")
                 return "RefineGAN"
 
         # Check for MRF HiFi-GAN specific keys
@@ -232,6 +301,8 @@ def detect_vocoder_from_checkpoint(checkpoint_path: str) -> str:
         has_mrfs = any("dec.mrfs" in key for key in model_keys)
         has_upsamples = any("dec.upsamples" in key for key in model_keys)
         if has_mrfs and has_upsamples:
+            if debug:
+                print(f"[DEBUG] Detected MRF HiFi-GAN by mrfs+upsamples")
             return "MRF HiFi-GAN"
 
         # HiFi-GAN NSF uses dec.ups and dec.resblocks (with standard ResBlock)
@@ -240,9 +311,13 @@ def detect_vocoder_from_checkpoint(checkpoint_path: str) -> str:
         has_noise_convs = any("dec.noise_convs" in key for key in model_keys)
         has_resblocks = any("dec.resblocks" in key for key in model_keys)
         if has_ups and has_noise_convs and has_resblocks:
+            if debug:
+                print(f"[DEBUG] Detected HiFi-GAN by ups+noise_convs+resblocks")
             return "HiFi-GAN"
 
         # Default to HiFi-GAN for standard weight_g/weight_v patterns
+        if debug:
+            print(f"[DEBUG] Defaulting to HiFi-GAN (no specific patterns matched)")
         return "HiFi-GAN"
 
     except Exception as e:

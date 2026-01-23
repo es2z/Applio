@@ -468,7 +468,8 @@ def run(
     # This takes precedence because we must match the architecture of existing weights
     last_g = latest_checkpoint_path(experiment_dir, "G_*.pth")
     if last_g:
-        detected_vocoder = detect_vocoder_from_checkpoint(last_g)
+        print(f"\n[DEBUG] Checking existing checkpoint: {last_g}")
+        detected_vocoder = detect_vocoder_from_checkpoint(last_g, debug=True)
         if detected_vocoder != vocoder:
             print(f"\n{'='*60}")
             print(f"INFO: Continuing training with existing checkpoint")
@@ -483,7 +484,8 @@ def run(
     # If user explicitly selects a vocoder, use it even if pretrained is different
     # Incompatible decoder weights will be skipped during loading
     elif pretrainG not in ("", "None") and os.path.exists(pretrainG):
-        detected_vocoder = detect_vocoder_from_checkpoint(pretrainG)
+        print(f"\n[DEBUG] Checking custom pretrained: {pretrainG}")
+        detected_vocoder = detect_vocoder_from_checkpoint(pretrainG, debug=True)
         if detected_vocoder != vocoder:
             print(f"\n{'='*60}")
             print(f"INFO: Vocoder architecture difference detected")
