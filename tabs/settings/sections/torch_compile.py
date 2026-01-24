@@ -66,6 +66,8 @@ def setup_torch_compile_cache():
     """Enable torch.compile cache for faster startup on subsequent runs (PyTorch 2.4+).
 
     Sets up persistent caching so that compiled models are reused across application restarts.
+    Also disables CUDA graphs to allow dynamic input sizes (required for realtime inference
+    where chunk size can change).
     """
     # Set up persistent cache directory in the current working directory
     cache_dir = os.path.join(os.getcwd(), ".torch_compile_cache")
@@ -76,10 +78,17 @@ def setup_torch_compile_cache():
     os.environ["TORCHINDUCTOR_CACHE_DIR"] = cache_dir
     os.environ["TORCHINDUCTOR_FX_GRAPH_CACHE"] = "1"
 
+    # Disable CUDA graphs to support dynamic input sizes
+    # CUDA graphs require fixed input sizes, which breaks when chunk size changes
+    os.environ["TORCHINDUCTOR_CUDAGRAPH_TREES"] = "0"
+
     # Configure inductor settings programmatically if available
     if hasattr(torch, "_inductor") and hasattr(torch._inductor, "config"):
         torch._inductor.config.fx_graph_cache = True
         torch._inductor.config.autotune_local_cache = True
+        # Disable CUDA graphs for dynamic input support
+        if hasattr(torch._inductor.config, "triton"):
+            torch._inductor.config.triton.cudagraphs = False
         # Set cache directory for autotune results if available
         if hasattr(torch._inductor.config, "autotune_local_cache_dir"):
             torch._inductor.config.autotune_local_cache_dir = cache_dir
