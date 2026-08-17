@@ -18,12 +18,12 @@
     "monitor_device": "pa-output-98cef3d96d04ada6ae99",
     "model_file": "logs\\naru_A2\\naru_A2_105e_78540s.pth",
     "index_file": "logs\\naru_A2\\naru_A2.index",
-    "processing_mode": "overlap",
+    "processing_mode": "fixed_chunk",
     "overlap_hop_mode": "manual",
     "manual_hop_size": 800.0
   },
   "torch_compile_enabled": true,
   "torch_compile_crepe_enabled": true,
   "torch_compile_rvc_enabled": true,
-  "torch_compile_mode": "reduce-overhead"
+  "torch_compile_mode": "max-autotune"
 }

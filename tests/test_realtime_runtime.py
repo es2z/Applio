@@ -98,9 +98,26 @@ class AudioTransportTests(unittest.TestCase):
             fingerprint=f"device-{direction}-{index}",
         )
 
-    def test_same_host_api_different_devices_use_separate_streams(self):
+    def test_distinct_wasapi_devices_can_attempt_one_duplex_stream(self):
         input_device = self._device(28, "input")
         output_device = self._device(22, "output")
+        self.assertTrue(Audio._can_use_native_duplex(input_device, output_device))
+
+    def test_distinct_non_wasapi_devices_stay_on_separate_streams(self):
+        input_device = AudioDeviceRef(
+            **{
+                **self._device(37, "input").__dict__,
+                "host_api": "Windows WDM-KS",
+                "host_api_index": 4,
+            }
+        )
+        output_device = AudioDeviceRef(
+            **{
+                **self._device(42, "output").__dict__,
+                "host_api": "Windows WDM-KS",
+                "host_api_index": 4,
+            }
+        )
         self.assertFalse(Audio._can_use_native_duplex(input_device, output_device))
 
     def test_one_bidirectional_portaudio_device_can_use_duplex(self):
@@ -164,7 +181,7 @@ class AudioTransportTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     audio.output_ring.capacity,
-                    max(shape.hop_frames + 14_880 + 8_192, 16_384),
+                    max(shape.hop_frames + 5_280 + 8_192, 16_384),
                 )
 
     def test_worker_catches_up_to_latest_context_after_backlog(self):
@@ -213,6 +230,32 @@ class AudioTransportTests(unittest.TestCase):
         self.assertEqual(
             audio.output_ring.available, len(residual) + shape.hop_frames
         )
+
+    def test_single_duplex_disables_dynamic_ten_ms_reserve_changes(self):
+        class PassThroughCallbacks:
+            def change_voice(self, samples, *_args):
+                return samples.copy(), 0.0, [0.0, 0.0, 0.0], None
+
+        shape = RuntimeAudioShape.create(128)
+        audio = Audio(callbacks=PassThroughCallbacks(), runtime_shape=shape)
+        audio._create_buffers(separate_stream_clocks=False)
+        audio._pending_underflows = 1
+        audio.input_ring.write(np.zeros(shape.context_frames, dtype=np.float32))
+        audio.running = True
+        worker = threading.Thread(target=audio._worker_loop, daemon=True)
+        worker.start()
+        audio._input_event.set()
+        deadline = time.monotonic() + 1.0
+        while audio.output_ring.available < shape.hop_frames:
+            if time.monotonic() >= deadline:
+                self.fail("duplex worker did not produce output")
+            time.sleep(0.001)
+        audio.running = False
+        audio._input_event.set()
+        worker.join(1.0)
+        self.assertFalse(audio._adaptive_reserve_enabled)
+        self.assertEqual(audio.elastic.extra_buffer_ms, 0)
+        self.assertEqual(audio._pending_underflows, 0)
 
 
 class ElasticBufferTests(unittest.TestCase):

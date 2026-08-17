@@ -109,6 +109,7 @@ class Audio:
         self.output_resampler = None
         self.monitor_resampler = None
         self._separate_stream_clocks = False
+        self._adaptive_reserve_enabled = True
         self.output_clock_correction_ppm = 0.0
         self.device_latency_ms = 0.0
         self.input_device_index: int | None = None
@@ -315,19 +316,26 @@ class Audio:
     def _can_use_native_duplex(
         input_device: AudioDeviceRef, output_device: AudioDeviceRef
     ) -> bool:
-        """Return true only for one PortAudio device with both directions.
+        """Return true for a safe single PortAudio full-duplex attempt.
 
-        Sharing a host API does not imply sharing a hardware sample clock. For
-        example, a MOTU WASAPI capture endpoint and a VB-Audio WASAPI render
-        endpoint are independent devices and must not be forced into one
-        PortAudio full-duplex stream.
+        One bidirectional PA device is natively eligible. Distinct WASAPI
+        endpoints on the same WASAPI host are also attempted as one callback
+        stream; reported latency and callback-rate probes reject a pathological
+        driver pairing before inference starts. Other distinct-device host APIs
+        stay on separate streams.
         """
-        return bool(
+        same_bidirectional_device = bool(
             input_device.index == output_device.index
             and input_device.host_api_index == output_device.host_api_index
             and input_device.max_input_channels > 0
             and output_device.max_output_channels > 0
         )
+        same_wasapi_host = bool(
+            _is_wasapi(input_device)
+            and _is_wasapi(output_device)
+            and input_device.host_api_index == output_device.host_api_index
+        )
+        return same_bidirectional_device or same_wasapi_host
 
     @staticmethod
     def _validate_observed_rate(
@@ -394,6 +402,7 @@ class Audio:
 
     def _create_buffers(self, *, separate_stream_clocks: bool) -> None:
         self._separate_stream_clocks = separate_stream_clocks
+        self._adaptive_reserve_enabled = separate_stream_clocks
         internal_grace_frames = round(
             INPUT_BACKLOG_GRACE_MS * INTERNAL_SAMPLE_RATE / 1000
         )
@@ -418,9 +427,12 @@ class Audio:
             * self.output_rate
             / INTERNAL_SAMPLE_RATE
         )
+        maximum_extra_ms = (
+            self.elastic.max_extra_buffer_ms if self._adaptive_reserve_enabled else 0
+        )
         maximum_reserve_ms = (
             self.elastic.base_reserve_ms
-            + self.elastic.max_extra_buffer_ms
+            + maximum_extra_ms
             + OUTPUT_QUEUE_GRACE_MS
         )
         output_capacity = max(
@@ -647,18 +659,24 @@ class Audio:
                     self.inference_times.append(elapsed_ms)
 
                     silent = bool(len(out_wav) == 0 or np.max(np.abs(out_wav)) < 1e-6)
-                    self.elastic.record_inference(
-                        elapsed_ms, self.runtime_shape.effective_hop_ms
-                    )
-                    if self._pending_underflows:
+                    if self._adaptive_reserve_enabled:
+                        self.elastic.record_inference(
+                            elapsed_ms, self.runtime_shape.effective_hop_ms
+                        )
+                        if self._pending_underflows:
+                            self._pending_underflows = 0
+                            self.elastic.record_underflow()
+                        shrink_frames = self.elastic.observe_silence(silent)
+                        if shrink_frames < 0 and silent:
+                            # Removing silence is click-free and lets the real queue
+                            # follow the reduced 10 ms reserve target immediately.
+                            remove = min(-shrink_frames, max(0, len(out_wav) - 1))
+                            out_wav = out_wav[remove:]
+                    else:
+                        # A single duplex callback has one PortAudio cadence.
+                        # Keep only the fixed startup reserve; do not apply the
+                        # separate-clock 10 ms grow/shrink controller.
                         self._pending_underflows = 0
-                        self.elastic.record_underflow()
-                    shrink_frames = self.elastic.observe_silence(silent)
-                    if shrink_frames < 0 and silent:
-                        # Removing silence is click-free and lets the real queue
-                        # follow the reduced 10 ms reserve target immediately.
-                        remove = min(-shrink_frames, max(0, len(out_wav) - 1))
-                        out_wav = out_wav[remove:]
 
                     self._last_output_silent = silent
                     self._write_processed(np.asarray(out_wav, dtype=np.float32))
@@ -887,8 +905,9 @@ class Audio:
         try:
             if native_duplex:
                 try:
-                    # A single stream is safe only when PortAudio exposes one
-                    # actual device with both input and output directions.
+                    # Distinct WASAPI endpoints may still share one PortAudio
+                    # full-duplex callback. Validation below rejects a driver
+                    # pairing that reports or delivers pathological timing.
                     self._open_duplex(
                         input_device,
                         output_device,
@@ -919,6 +938,38 @@ class Audio:
                     asio_output_channel,
                 )
 
+            if self.stream is not None:
+                try:
+                    self._probe_stream_clocks()
+                except Exception as duplex_probe_error:
+                    try:
+                        self.stream.stop()
+                    except Exception:
+                        pass
+                    self.stream.close()
+                    self.stream = None
+                    self.open_warnings.append(
+                        "WASAPI duplex timing probe failed; using separate streams"
+                    )
+                    print(
+                        "[Audio] Duplex timing probe failed "
+                        f"({duplex_probe_error}); using separate streams"
+                    )
+                    self._input_heartbeat.clear()
+                    self._output_heartbeat.clear()
+                    self._input_callback_frames = 0
+                    self._output_callback_frames = 0
+                    self._open_separate(
+                        input_device,
+                        output_device,
+                        exclusive_mode,
+                        asio_input_channel,
+                        asio_output_channel,
+                    )
+                    self._probe_stream_clocks()
+            else:
+                self._probe_stream_clocks()
+
             if output_monitor is not None:
                 self.monitor_rate = int(round(output_monitor.default_samplerate))
                 # Recreate the monitor resampler/ring now that its native rate is known.
@@ -947,7 +998,6 @@ class Audio:
                     exclusive_mode,
                 )
 
-            self._probe_stream_clocks()
             self._worker.start()
             if not self._worker_ready.wait(STREAM_HEARTBEAT_TIMEOUT_SECONDS):
                 raise RuntimeError("Realtime inference worker did not start")
@@ -1049,12 +1099,13 @@ class Audio:
             f"->PA{self.output_device_index}@{self.output_rate}Hz "
             f"(clock {self.observed_input_rate:.0f}/{self.observed_output_rate:.0f}Hz)"
         )
+        reserve_mode = "adaptive" if self._adaptive_reserve_enabled else "fixed"
         return (
             f"{self.transport_mode} | {route_text} "
             f"| Chunk {self.runtime_shape.effective_chunk_ms:.1f} ms "
             f"| Hop {self.runtime_shape.effective_hop_ms:.1f} ms "
             f"| infer p50/p95 {p50:.1f}/{p95:.1f} ms "
-            f"| reserve {self.elastic.total_reserve_ms} ms "
+            f"| reserve {self.elastic.total_reserve_ms} ms ({reserve_mode}) "
             f"| I/O {self.device_latency_ms:.1f} ms "
             f"| lower-bound est. {pipeline_lower_bound:.1f} ms "
             f"| queue in/out {raw_input_ms + internal_input_ms:.1f}/"
