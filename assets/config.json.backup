@@ -1,0 +1,25 @@
+{
+  "theme": {
+    "file": "Applio.py",
+    "class": "Applio"
+  },
+  "plugins": [],
+  "discord_presence": true,
+  "lang": {
+    "override": true,
+    "selected_lang": "en_US"
+  },
+  "version": "3.5.0",
+  "model_author": "None",
+  "precision": "fp16",
+  "realtime": {
+    "input_device": "10: Loopback (MOTU M Series) (Windows WASAPI)",
+    "output_device": "4: Speakers (VB-Audio Point) (Windows WDM-KS)",
+    "monitor_device": "1: CABLE Input (VB-Audio Virtual C (MME)",
+    "model_file": "logs\\naru_A2\\naru_A2_105e_78540s.pth",
+    "index_file": "logs\\naru_A2\\naru_A2.index"
+  },
+  "torch_compile_enabled": true,
+  "torch_compile_mode": "reduce-overhead",
+  "torch_compile_disable_triton": true
+}

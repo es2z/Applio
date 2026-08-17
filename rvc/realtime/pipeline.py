@@ -181,7 +181,9 @@ class Realtime_Pipeline:
                 self.f0_model = CREPE(
                     device=self.device,
                     sample_rate=self.sample_rate,
-                    hop_size=self.window,
+                    # hop_size=self.window,
+                    # hop_size=164,
+                    hop_size=160,
                 )
             f0 = self.f0_model.get_f0(
                 x,

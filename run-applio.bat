@@ -19,6 +19,10 @@ if not exist env (
     exit /b 1
 )
 
+rem PyTorch Inductor templates are UTF-8, while Japanese Windows defaults to cp932.
+rem Set UTF-8 mode before Python starts so compiler subprocesses inherit it too.
+set "PYTHONUTF8=1"
+
 env\python.exe app.py --open
 echo.
 pause

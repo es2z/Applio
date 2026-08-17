@@ -28,3 +28,5 @@ env
 venv
 .venv
 templates
+.torch_compile_cache
+/*torch_compile_cache/
