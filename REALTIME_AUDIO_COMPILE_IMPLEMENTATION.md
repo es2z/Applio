@@ -10,10 +10,10 @@
 - 推論遅れへの対処は Chunk を勝手に拡大する方式ではない。追加出力バッファだけを
   `10 ms` ずつ増減する。2 回の deadline miss で `+10 ms`、実 underflow は即
   `+10 ms`、安定した無音中だけ `-10 ms` とする。2 倍、4 倍には増えない。
-- PortAudio callback から推論・resample・待機ロックを外した。Input と Output が
-  同じ host API なら WDM-KS を含め duplex を先に試し、失敗時だけ separate stream
-  に落とす。別デバイスのクロック差は Chunk/Hop を変えず最大 ±1000 ppm の可変
-  resample で吸収する。
+- PortAudio callback から推論・resample・待機ロックを外した。本当に同じ PA device が
+  input/output の両方向を持つ場合だけ duplex とし、PA ID が異なるdeviceはHost APIが
+  同じでも separate streamにする。別デバイスのクロック差は Chunk/Hop を変えず最大
+  ±1000 ppm の可変resampleで吸収する。
 - デバイスの表示番号を内部 ID として再利用しない。Dropdown は現在の PortAudio ID
   を `PA 37: ...` のように表示する一方、保存値には安定 fingerprint を使う。古い
   `15: Name (Host API)` と template は起動時に移行する。
@@ -74,7 +74,7 @@ reserve と driver latency が加わる。これは「二重実行すれば常�
 処理 cadence 以下か、backlog が増加し続けないかで決まる。
 
 Overlap は初回に Context 分の入力を必要とするが、立ち上がった後の cadence は固定 Hop
-となる。概算表示は次の形で出す。
+となる。当初は次の概算を表示していた。
 
 ```text
 steady estimate ≈ Hop + inference p95 + reserve + driver I/O
@@ -83,6 +83,10 @@ steady estimate ≈ Hop + inference p95 + reserve + driver I/O
 今回の実測では 960 ms Context / 320 ms Hop に対して p95 約 101 ms だったため、
 推論時間だけを見れば cadence の約 31% であり大きな余裕がある。ただしゲーム同時実行時、
 driver 自身の buffering、実ケーブルを含む end-to-end latency は別途測定が必要である。
+
+後の実測で、この表示は初回Context待ちと実ring残量を表さず、正常に見えても古い音を検出できない
+と分かった。現在は`Chunk + inference p95 + reserve + reported I/O`を`lower-bound est.`として
+表示し、実ring残量を`queue in/out`として別表示する。どちらも物理end-to-end実測値ではない。
 
 Auto Hop は warmup の `ceil10(p95 / 0.70)` で一度だけ決める。たとえば p95 が 109.8 ms
 なら 160 ms となる。これは Chunk を変える処理ではなく、固定 Context を何 ms ごとに
@@ -116,9 +120,9 @@ callback は preallocated scratch/ring への copy と xrun signal の記録だ�
 待たずに xrun として記録する。host callback `blocksize=0` を使うため、GUI Chunk Size を
 WDM-KS/WASAPI の host buffer size として渡さない。
 
-同じ host API の Input/Output は、WDM-KS を含め single duplex stream をまず試す。
-失敗したときだけ separate InputStream/OutputStream へ fallback する。異なる API の
-WASAPI -> WDM-KS は separate stream になる。Start は worker、input callback、output
+同じPA device IDがInput/Output両方を持つ場合だけsingle duplex streamを試す。
+PA IDが異なれば、同じWASAPI同士でもseparate InputStream/OutputStreamを使う。異なる API の
+WASAPI -> WDM-KSもseparate streamになる。Start は worker、input callback、output
 callback の heartbeat をすべて確認するまで Ready を返さないため、「表示は動作中だが
 実 stream は固まった」という状態を成功扱いしない。
 
@@ -146,14 +150,14 @@ Chunk/Hop、推論 shape、音声の時間単位を変更する処理ではな�
 | `BUFFER_ADJUST_COOLDOWN_MS` | 2000 ms | 増減の過剰反応防止 |
 | `SILENCE_BEFORE_SHRINK_MS` | 1000 ms | 縮小に必要な連続無音 |
 | `STABLE_BEFORE_SHRINK_MS` | 5000 ms | 最終 miss 後の安定時間 |
-| `MAX_EXTRA_BUFFER_MS` | 2000 ms | 追加 reserve の安全上限 |
+| `DEFAULT_MAX_EXTRA_BUFFER_MS` | 200 ms | GUIで変更できる追加reserve上限の初期値 |
 | `OVERLOAD_DETECTION_MS` | 30000 ms | 維持不能判定の観測時間 |
 | `MAX_CLOCK_CORRECTION_PPM` | 1000 ppm | separate clock 補正上限 |
 
 base reserve は `max(10 ms, ceil10(warmup p95 - p50))`、extra は 0 ms から始まる。
-deadline miss を 2 回観測すると、出力の低 energy 区間を短い crossfade 付きで複製し
-正確に内部 480 frame（10 ms）を足す。実 underflow は既に可聴事故なので次の worker
-処理で即 +10 ms とする。削除は安定した無音 block に限定し、可聴 sample を捨てない。
+deadline missを2回観測するか実underflowが起きるとreserve目標を10 ms増やす。初期実装は
+低energy区間を複製挿入していたが、実音でclickが報告されたため廃止した。現在はseparate stream用
+SOXR rate補正で目標reserveへ徐々に追従する。削除は安定した無音blockに限定する。
 
 平均推論が cadence 以上で backlog が 30 秒にわたり増える場合は `OVERLOADED` を表示する。
 この場合も Chunk/Hop を勝手に変更しない。これは buffer 追加で一時的 jitter は吸収できても、
@@ -266,6 +270,7 @@ Realtime / Performance Settings に以下を追加した。
 - Processing Mode: Fixed Chunk / Overlap (experimental)
 - Overlap Hop: Auto / Manual
 - Manual Hop Size: 10 ms step
+- Maximum Extra Buffer: 0～2000 ms、10 ms step、初期値200 ms
 
 TorchCompile Settings には以下を追加・整理した。
 
@@ -276,8 +281,8 @@ TorchCompile Settings には以下を追加・整理した。
 - Clear inactive compile caches
 
 実行中 status は transport (`duplex/...` または `separate/...`)、Chunk、Hop、推論 p50/p95、
-reserve、PortAudio I/O latency、steady estimate、clock correction ppm、input/output xrun、
-各 compile backend、overload/warning を表示する。
+reserve、PortAudio I/O latency、lower-bound estimate、実queue in/out、clock correction ppm、
+input/output xrun、catch-up/dropped量、各compile backend、overload/warningを表示する。
 
 ## 7. 検証結果
 
@@ -287,7 +292,7 @@ reserve、PortAudio I/O latency、steady estimate、clock correction ppm、input
 .\env\python.exe -X utf8 -m unittest discover -s tests -v
 ```
 
-12 tests passed。対象は以下を含む。
+23 tests passed。対象は以下を含む。
 
 - 複数の可変 Chunk が 128 frame alignment され、Fixed の Hop と一致する
 - 960/320 はあくまで 1 test case として Context/Hop が分離される
@@ -298,6 +303,9 @@ reserve、PortAudio I/O latency、steady estimate、clock correction ppm、input
 - 30 秒の持続的な平均超過と backlog が overload を立てる
 - 10 ms 挿入後の長さと finite sample
 - legacy/new device label の解決と消失 device error
+- 同じHost APIでも異なるPA deviceは別streamを使う
+- 半速device clockとmulti-second I/O latencyを拒否する
+- `running=False`でも残存streamをstop/closeする
 - live compile failure が global cache reset をせず eager fallback する
 
 `py_compile`、`import app`、`pip check` も成功した。
@@ -393,10 +401,212 @@ $env:PYTHONUTF8='1'
 - ASIO device は実機が列挙されなかったため、stable fingerprint と channel selector path は
   実装したが実 stream smoke test は未実施。
 - 3 秒の separate clock test は機能確認であり、数時間の game/voice-chat soak test ではない。
-- driver が報告する I/O latency は status に含めたが、物理 loop cable による end-to-end
-  round-trip latency は測っていない。
+- driver報告I/Oとは別に、MOTU loopback区間41.3 ms、VB-Cable区間76.7 ms、RVCを外した
+  アプリtransport全体約0.98～1.17秒（Chunk 960/Hop 800の試験値）を物理loopで測定した。
+  実RVC + mangio-crepeの最終聴感遅延はユーザー試験が必要である。
 - WDM-KS Loopback の callback は確認したが、MOTU mixer の Loopback routing 自体はこの
   application から設定できない。無音なら device open failure と routing silence を status/xrun
   と mixer meter で分けて確認する。
 - Overlap は実モデルで finite/seamless processing を確認したが、最終的な音質判断はユーザーの
   聴感が基準。Fixed を削除していないので即時比較できる。
+
+## 11. 2026-08-18 WASAPI先行修正
+
+### 11.1 TL;DR
+
+MOTUのWASAPI入力とVB-AudioのWASAPI出力は、異なるdeviceなのに同じHost APIという理由だけで
+1個のduplex streamへまとめられていた。これを別streamへ変更した。PA28→PA22の実機試験では
+I/O 44 msで5回連続Start/Stopに成功したため、この構成ではWDM-KSを使う必要はない。
+
+新しい200 ms reserve UIやbuffer方式の変更は意図的に保留した。まず実モデルのWASAPI同士を
+ユーザーが聴き、問題が残った場合だけ第二段階へ進む。
+
+### 11.2 発見した問題と測定結果
+
+ユーザー環境で次のstatusが報告された。
+
+```text
+duplex/Windows WASAPI | Chunk 960.0 ms | Hop 800.0 ms
+| infer p50/p95 94.5/116.9 ms | reserve 60 ms
+| I/O 4740.7 ms | steady est. 5717.6 ms
+```
+
+4.7秒はモデル推論ではなく`stream.latency`が返したdriver I/Oだった。ただしアプリを完全終了した
+fresh processでは、PA28と全WASAPI出力のduplexは54～55 ms、PA28→PA22の別streamは44 msだった。
+したがってWASAPI固有の不可避な遅延ではなく、誤ったduplex判定または残留streamを含む異常状態で
+ある。
+
+PA37 WDM-KS入力はさらに次の異常を示した。
+
+- 44.1 kHz: 3秒間にcallback 0回
+- 48 kHz指定: 3秒間に72,192 frames、実効約24,060 frames/s
+- PortAudioのreported rateとstatus flagは48 kHz、xrun 0
+
+この半速sample供給が水中音の直接原因であり、通常の数百ppmのclock drift補正では直せない。
+PA37/WDM-KSの修正は今回の対象外とし、WASAPI経路を推奨する。
+
+### 11.3 実装判断
+
+`input.host_api_index == output.host_api_index`は共有clockの証明にならない。今後1個のduplex streamを
+使えるのは、PortAudio indexが同じで、そのraw deviceが入出力の両方を持つ場合だけである。
+異なるPA indexはHost APIが同じでも必ず既存の別stream + SOXR ASRC経路を使う。
+
+ASRCは10分のmono音声を0.60秒で処理し、リアルタイム比0.001だった。推論worker、RVC、CREPEは
+1個のままであり、別stream化によってモデル負荷は増えない。
+
+Start時には1秒のcallback probeを行う。要求sample rateとの差が5%を超えるか、reported I/Oが
+1000 msを超える場合はstreamをcloseして明示的に失敗させる。probe中の入力はringから消去し、
+実セッションへ混ぜない。
+
+UIの`stop_realtime()`は`running`が既にFalseでも`audio_manager`が存在すれば必ずstop/closeする。
+新しいStartも残っている旧managerを先に停止する。これにより、Realtime Stop後もPA28が保持され、
+アプリ全体を終了するまで`-9996 Invalid device`になる経路を塞いだ。
+
+### 11.4 WASAPI先行修正の時点で変更しなかったもの
+
+- Fixed/Overlap、Chunk、Hop、推論shape
+- 既存の10 ms adaptive grow/shrinkと`_insert_sola_style`
+- GUI設定可能な追加reserve上限（初期値200 ms）
+- ring lockとunderflow concealment
+- Torch Compile、Triton、requirements
+- WDM-KS host implementation
+
+短い128 ms無音dummyによるPA28→PA22実機試験では、各Start後にoutput underflowが1～3回発生し、
+一部の試験で既存reserveが10→20 msへ増えた。WASAPI 4.7秒問題とは別のため今回変更していないが、
+実モデルでクリックが残った場合の次の調査点である。
+
+実際のユーザー試験では約10秒の遅延とreserve変化時のclickが残った。そのため、ここで保留した
+ring/adaptive処理を次のSection 12で修正した。I/O 44 msだけを根拠に解決済みと判断したのは誤りで、
+driver報告値と実end-to-end、実queue残量を分けて検証する必要があった。
+
+ユーザー向けの用語説明、推奨経路、Statusの読み方、実音確認手順は
+[`REALTIME_AUDIO_GUIDE_JA.md`](REALTIME_AUDIO_GUIDE_JA.md)に分離した。
+
+## 12. 2026-08-18 実queue追従修正
+
+### 12.1 再調査の契機
+
+Section 11の修正後、ユーザー実音では約10秒の遅延が残り、Fixed/Overlapの両方でadaptive bufferが
+増える瞬間にclickが聞こえた。reported I/O 44 msはPortAudioが返すstream設定値であり、実際に
+何秒前のsampleがringに残っているかを測っていなかった。
+
+調査順序はユーザー指定どおり、(1) WASAPIだけで低遅延、(2) WDM-KS input正常化、
+(3) buffer戦略再設計とした。まずアプリを外した物理loopを相互相関で測った。
+
+| 測定 | 結果 |
+|---|---:|
+| PA23 MOTU WASAPI output → MOTU loopback → PA28 input | 41.3 ms、correlation約1.0 |
+| PA22 VB-Cable WASAPI output → PA26 capture | 76.7 ms、correlation約1.0 |
+| 上記両区間 + アプリpass-through、Chunk 960/Hop 800 | 約0.98～1.17秒 |
+
+最後の960/800は再現試験用のGUI値であり、実装定数ではない。pass-throughでもContext収録時間があるため
+約1秒は説明できるが、10秒は説明できない。WASAPI経路は優先順位1を継続できると判断した。
+
+### 12.2 根本の設計不良
+
+旧`_create_buffers()`はnative input、internal input、outputをそれぞれ最低8秒確保していた。
+`FloatRingBuffer.write()`は満杯になるとincoming tail、つまり新しいsampleを捨て、古いprefixを残した。
+workerはnative inputをinternalへ全量移してから古い順に推論した。
+
+これはファイル変換なら正しいがrealtime voice chatでは正しくない。compile/autotune、GPU contention、
+OS schedulingなどでworkerが一度停止すると、復帰後も過去の時刻を順に処理し続けられる。output ringも
+同じ方針なので、既に変換した古い音をさらに保持できる。`steady est.`にはこれらの実残量が入らない。
+
+### 12.3 `FloatRingBuffer`の追加操作
+
+[`rvc/realtime/runtime.py`](rvc/realtime/runtime.py)へ以下を追加した。
+
+- `overflow_policy="drop_oldest"`: incoming最新sampleを保存するため最古sampleを破棄する。
+- `discard(count)`: oldestから指定数を破棄する。
+- `trim_to_latest(count)`: 最新count sampleだけを残す。
+- `replace(samples)`: queueを新しいblockへatomicに置換する。
+- `overwritten_samples`: realtime catch-upで失ったsample数を診断する。
+
+従来動作を必要とする呼び出しの既定値は`drop_newest`のままにし、audio transportが明示的に
+`drop_oldest`を選ぶ。
+
+### 12.4 容量はruntime shapeから導出
+
+固定8秒を廃止し、Start時の可変Chunk/Hopとdevice rateから次を計算する。
+
+```text
+input capacity
+  = native-rate Chunk context + input grace + worker-copy余裕
+
+internal capacity
+  = 48 kHz Chunk context + input grace + worker-copy余裕
+
+output capacity
+  = native-rate Hop + (base reserve + GUI max extra + output grace) + copy余裕
+```
+
+`INPUT_BACKLOG_GRACE_MS`と`OUTPUT_QUEUE_GRACE_MS`は現在100 ms、`WORKER_READ_FRAMES`は8192である。
+graceは選択Chunkを置き換えず、callback overshootを誤ってcatastrophic backlogと見なさないために使う。
+容量には常にGUIから作った`context_frames`/`hop_frames`を使い、960 ms条件分岐はない。
+
+### 12.5 catch-up state transition
+
+次のいずれかでdiscontinuityと判定する。
+
+- native input ringが満杯になりoldest sampleを上書きした。
+- callbackがring lockを取得できずsampleを失った。
+- internal queueが`context_frames + 100 ms`を超えた。
+
+完全なContextがあれば`trim_to_latest(context_frames)`で最新Contextを残す。不完全なら、gapの前後を
+1 Contextとして接続しないようinternal queueをclearし、新しいContextが溜まるまで待つ。その後:
+
+1. `vc.sola_buffer`をzeroにする。
+2. `vc.vc_model.flush_buffers()`でaudio/convert/pitch historyを消す。
+3. local worker stateをinitialへ戻し、固定Context shapeで再開する。
+4. 次の変換結果が完成してから、残る古いoutput queueを`replace()`する。
+5. callbackが最後に実際に出したsampleから新blockへ`RECOVERY_CROSSFADE_MS = 10`で補間する。
+
+outputを先にclearして推論完了まで無音にするのではなく、新block完成時に置換する。古いoutputがまだ
+残る場合は推論中のgapを減らせる。既にqueueが空ならgapは不可避だが、数秒古い発話の再生は再開しない。
+
+### 12.6 adaptive reserve
+
+`ElasticBufferController`は`max_extra_buffer_ms`をsessionごとに保持する。GUIへ
+`Maximum Extra Buffer (ms)`を追加し、0～2000 ms、10 ms刻み、初期値200 msとした。
+`assets/config.json`の`realtime.max_extra_buffer_ms`へ保存する。設定は次回Startから使われる。
+
+miss判定、10 ms step、cooldown、安定無音時のshrinkは維持する。ただしgrow時の
+`_insert_sola_style()`呼び出しは削除した。音声内へ複製sampleを突然挿入せず、separate-device経路で
+常時使用するSOXR variable-rate feedbackのtargetだけを10 ms動かす。これにより実queueは小さな
+rate差で徐々に目標へ近づく。silent blockのshrinkだけは無音sampleを10 ms削除できる。
+
+最大値を200 msとするのは既定値であって固定要件ではない。ユーザーはGUIで0にも2000にも変更できる。
+Chunk/Hop/model shapeには影響しない。
+
+### 12.7 Statusとテスト
+
+Status変更:
+
+- `steady est.`を`lower-bound est.`へ変更し、式をChunk基準にした。
+- `queue in/out`でnative+internal inputとoutputのsnapshotをms表示する。
+- `catch-up`で復旧回数を表示する。
+- `dropped in/out`で古い時刻を意図的に破棄した累計msを表示する。
+
+追加unit testは以下を検証する。
+
+- ring wraparound order。
+- `drop_oldest`が最新sampleを残すこと。
+- `trim_to_latest`と`replace`が古いprefixを残さないこと。
+- 代表shapeでbufferが固定8秒ではなくChunk/Hopから導出されること。
+- `Chunk + grace`を超えたworker backlogが最新Contextへcatch-upすること。
+- 通常のHop出力後に残るsawtooth queueをstale backlogと誤判定しないこと。
+- extra reserveがGUI由来上限を超えないこと。
+- Chunkが複数の値で可変、Overlap context/hopが固定shapeであること。
+
+### 12.8 残る検証と次の判断
+
+自動試験とpass-through物理loopではtransportを検証できるが、mangio-crepe最重量設定の聴感click、
+ゲーム同時負荷、長時間clock driftはユーザーの実運転が必要である。次回はStatus全文、特に
+`queue in/out`、`catch-up`、`dropped`、`xruns`を約10秒が再現した時点で保存する。
+
+- WASAPI実モデルで低遅延になればWDM-KS対応は不要。
+- queueが小さいまま約10秒なら、RVC/CREPE内部またはVB-Cable後段の消費アプリをcontent timestampで測る。
+- PA37 WDM-KSは約24 ksample/sの半速供給があるため、WASAPI失敗時だけhost-specific pin/rateを調べる。
+
+今回のqueue修正ではdependencyを追加・更新していない。Torch/Triton/torchcrepeのrequirements固定は
+既存Sectionのままである。

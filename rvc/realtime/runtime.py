@@ -29,7 +29,7 @@ MISS_WINDOW_MS = 5_000
 SILENCE_BEFORE_SHRINK_MS = 1_000
 STABLE_BEFORE_SHRINK_MS = 5_000
 BUFFER_ADJUST_COOLDOWN_MS = 2_000
-MAX_EXTRA_BUFFER_MS = 2_000
+DEFAULT_MAX_EXTRA_BUFFER_MS = 200
 OVERLOAD_DETECTION_MS = 30_000
 SILENCE_FLUSH_MS = 1_000
 
@@ -139,6 +139,7 @@ class FloatRingBuffer:
         self._size = 0
         self._lock = threading.Lock()
         self.dropped_writes = 0
+        self.overwritten_samples = 0
         self.underrun_reads = 0
 
     @property
@@ -164,13 +165,49 @@ class FloatRingBuffer:
         with self._lock:
             self._read = self._write = self._size = 0
 
-    def write(self, samples: np.ndarray, *, blocking: bool = True) -> int:
+    def _discard_locked(self, count: int) -> int:
+        discarded = min(max(0, int(count)), self._size)
+        self._read = (self._read + discarded) % self.capacity
+        self._size -= discarded
+        return discarded
+
+    def discard(self, count: int) -> int:
+        """Discard up to ``count`` oldest samples and return the actual count."""
+        with self._lock:
+            return self._discard_locked(count)
+
+    def trim_to_latest(self, count: int) -> int:
+        """Keep only the newest ``count`` samples and return discarded samples."""
+        with self._lock:
+            return self._discard_locked(self._size - max(0, int(count)))
+
+    def write(
+        self,
+        samples: np.ndarray,
+        *,
+        blocking: bool = True,
+        overflow_policy: Literal["drop_newest", "drop_oldest"] = "drop_newest",
+    ) -> int:
         source = np.asarray(samples, dtype=np.float32).reshape(-1)
+        if overflow_policy not in ("drop_newest", "drop_oldest"):
+            raise ValueError(f"Unknown overflow policy: {overflow_policy}")
         acquired = self._lock.acquire(blocking=blocking)
         if not acquired:
             self.dropped_writes += len(source)
             return 0
         try:
+            if overflow_policy == "drop_oldest" and len(source) > self.capacity:
+                # The newest part of an oversized callback is the only part that
+                # can still satisfy realtime semantics.
+                skipped = len(source) - self.capacity
+                source = source[skipped:]
+                self.dropped_writes += skipped
+            if overflow_policy == "drop_oldest":
+                overwritten = self._discard_locked(
+                    max(0, self._size + len(source) - self.capacity)
+                )
+                self.overwritten_samples += overwritten
+
             count = min(len(source), self.capacity - self._size)
             if count <= 0:
                 self.dropped_writes += len(source)
@@ -187,6 +224,23 @@ class FloatRingBuffer:
             return count
         finally:
             self._lock.release()
+
+    def replace(self, samples: np.ndarray) -> int:
+        """Atomically replace queued audio with the newest supplied samples."""
+        source = np.asarray(samples, dtype=np.float32).reshape(-1)
+        if len(source) > self.capacity:
+            skipped = len(source) - self.capacity
+            source = source[skipped:]
+            self.dropped_writes += skipped
+        with self._lock:
+            self.overwritten_samples += self._size
+            self._read = self._write = self._size = 0
+            count = len(source)
+            if count:
+                self._data[:count] = source
+                self._write = count % self.capacity
+                self._size = count
+            return count
 
     def read_into(self, destination: np.ndarray, *, blocking: bool = True) -> int:
         target = np.asarray(destination).reshape(-1)
@@ -218,8 +272,13 @@ class FloatRingBuffer:
 class ElasticBufferController:
     """Additive, never-exponential elastic latency controller."""
 
-    def __init__(self, base_reserve_ms: int = MIN_OUTPUT_RESERVE_MS):
+    def __init__(
+        self,
+        base_reserve_ms: int = MIN_OUTPUT_RESERVE_MS,
+        max_extra_buffer_ms: int = DEFAULT_MAX_EXTRA_BUFFER_MS,
+    ):
         self.base_reserve_ms = max(MIN_OUTPUT_RESERVE_MS, int(base_reserve_ms))
+        self.max_extra_buffer_ms = max(0, int(max_extra_buffer_ms))
         self.extra_buffer_ms = 0
         self._misses: deque[float] = deque()
         self._inference: deque[tuple[float, float]] = deque()
@@ -281,7 +340,7 @@ class ElasticBufferController:
             return 0
         old = self.extra_buffer_ms
         self.extra_buffer_ms = min(
-            MAX_EXTRA_BUFFER_MS, self.extra_buffer_ms + BUFFER_STEP_MS
+            self.max_extra_buffer_ms, self.extra_buffer_ms + BUFFER_STEP_MS
         )
         if self.extra_buffer_ms == old:
             return 0

@@ -24,7 +24,7 @@ from rvc.realtime.devices import (
 )
 from rvc.realtime.runtime import (
     INTERNAL_SAMPLE_RATE,
-    BUFFER_STEP_MS,
+    DEFAULT_MAX_EXTRA_BUFFER_MS,
     ElasticBufferController,
     FloatRingBuffer,
     RuntimeAudioShape,
@@ -34,9 +34,15 @@ from rvc.realtime.runtime import (
 
 CALLBACK_SCRATCH_FRAMES = 65_536
 STREAM_HEARTBEAT_TIMEOUT_SECONDS = 3.0
+STREAM_CLOCK_PROBE_SECONDS = 1.0
+STREAM_RATE_TOLERANCE = 0.05
+MAX_REPORTED_IO_LATENCY_MS = 1_000.0
 WORKER_READ_FRAMES = 8_192
 MAX_CLOCK_CORRECTION_PPM = 1_000.0
 CLOCK_CORRECTION_GAIN_PPM_PER_MS = 40.0
+INPUT_BACKLOG_GRACE_MS = 100
+OUTPUT_QUEUE_GRACE_MS = 100
+RECOVERY_CROSSFADE_MS = 10
 
 
 def _is_wasapi(device: AudioDeviceRef) -> bool:
@@ -64,6 +70,7 @@ class Audio:
         monitor_audio_gain: float = 1.0,
         monitor: bool = False,
         runtime_shape: RuntimeAudioShape | None = None,
+        max_extra_buffer_ms: int = DEFAULT_MAX_EXTRA_BUFFER_MS,
     ):
         self.callbacks = callbacks
         self.runtime_shape = runtime_shape or RuntimeAudioShape.create(512)
@@ -71,6 +78,7 @@ class Audio:
         self.output_audio_gain = output_audio_gain
         self.monitor_audio_gain = monitor_audio_gain
         self.use_monitor = monitor
+        self.max_extra_buffer_ms = max(0, int(max_extra_buffer_ms))
         self.f0_up_key = f0_up_key
         self.index_rate = index_rate
         self.protect = protect
@@ -103,6 +111,10 @@ class Audio:
         self._separate_stream_clocks = False
         self.output_clock_correction_ppm = 0.0
         self.device_latency_ms = 0.0
+        self.input_device_index: int | None = None
+        self.output_device_index: int | None = None
+        self.observed_input_rate = 0.0
+        self.observed_output_rate = 0.0
         self.open_warnings: list[str] = []
 
         self._worker = None
@@ -110,10 +122,15 @@ class Audio:
         self._input_heartbeat = threading.Event()
         self._output_heartbeat = threading.Event()
         self._worker_ready = threading.Event()
+        self._input_callback_frames = 0
+        self._output_callback_frames = 0
         self._capture_scratch = np.zeros(CALLBACK_SCRATCH_FRAMES, dtype=np.float32)
         self._playback_started = False
         self._startup_reserve_remaining = 0
         self._monitor_playback_started = False
+        self._capture_discontinuity = threading.Event()
+        self._replace_output_on_next_write = False
+        self._last_rendered_sample = 0.0
 
         self.inference_times = deque(maxlen=512)
         self.latency = 0.0
@@ -123,7 +140,12 @@ class Audio:
         self._last_output_silent = True
         self._pending_underflows = 0
         self._warmup_times: list[float] = []
-        self.elastic = ElasticBufferController()
+        self.stale_input_dropped_frames = 0
+        self.stale_output_dropped_frames = 0
+        self.backlog_recoveries = 0
+        self.elastic = ElasticBufferController(
+            max_extra_buffer_ms=self.max_extra_buffer_ms
+        )
 
     def configure_warmup(self, timings_ms: list[float]) -> None:
         self._warmup_times = [float(value) for value in timings_ms if value >= 0]
@@ -131,7 +153,9 @@ class Audio:
             p50 = float(np.percentile(self._warmup_times, 50))
             p95 = float(np.percentile(self._warmup_times, 95))
             reserve = max(10, ceil_to_grid(max(0.0, p95 - p50)))
-            self.elastic = ElasticBufferController(reserve)
+            self.elastic = ElasticBufferController(
+                reserve, max_extra_buffer_ms=self.max_extra_buffer_ms
+            )
 
     def _process(self, samples: np.ndarray):
         return self.callbacks.change_voice(
@@ -147,6 +171,7 @@ class Audio:
         )
 
     def _capture_callback(self, indata: np.ndarray, frames: int, status) -> None:
+        self._input_callback_frames += frames
         self._input_heartbeat.set()
         if status:
             self.callback_status_events += 1
@@ -163,15 +188,25 @@ class Audio:
             # This is outside normal host callback sizes. Preserve transport
             # rather than writing past the preallocated callback scratch.
             mono = indata[:, 0]
-        written = self.input_ring.write(mono, blocking=False)
-        if written < frames:
+        overwritten_before = self.input_ring.overwritten_samples
+        written = self.input_ring.write(
+            mono, blocking=False, overflow_policy="drop_oldest"
+        )
+        overwritten = self.input_ring.overwritten_samples - overwritten_before
+        if written < frames or overwritten > 0:
             self.input_overflows += 1
+            lost_native = overwritten + max(0, frames - written)
+            self.stale_input_dropped_frames += round(
+                lost_native * INTERNAL_SAMPLE_RATE / self.input_rate
+            )
+            self._capture_discontinuity.set()
         self._input_event.set()
 
     def input_callback(self, indata, frames, times, status):
         self._capture_callback(indata, frames, status)
 
     def _render_callback(self, outdata: np.ndarray, frames: int, status) -> None:
+        self._output_callback_frames += frames
         self._output_heartbeat.set()
         outdata.fill(0)
         if status:
@@ -200,6 +235,8 @@ class Audio:
             # Do not acquire the elastic-controller lock in the callback. The
             # inference worker turns this signal into an additive 10 ms step.
             self._pending_underflows += 1
+        if read:
+            self._last_rendered_sample = float(target[read - 1])
         target *= self.output_audio_gain
         for channel in range(1, outdata.shape[1]):
             outdata[:, channel] = outdata[:, 0]
@@ -274,25 +311,129 @@ class Audio:
                 continue
         raise RuntimeError("Input and output devices have no compatible sample rate")
 
+    @staticmethod
+    def _can_use_native_duplex(
+        input_device: AudioDeviceRef, output_device: AudioDeviceRef
+    ) -> bool:
+        """Return true only for one PortAudio device with both directions.
+
+        Sharing a host API does not imply sharing a hardware sample clock. For
+        example, a MOTU WASAPI capture endpoint and a VB-Audio WASAPI render
+        endpoint are independent devices and must not be forced into one
+        PortAudio full-duplex stream.
+        """
+        return bool(
+            input_device.index == output_device.index
+            and input_device.host_api_index == output_device.host_api_index
+            and input_device.max_input_channels > 0
+            and output_device.max_output_channels > 0
+        )
+
+    @staticmethod
+    def _validate_observed_rate(
+        direction: str, device_index: int, requested_rate: int, observed_rate: float
+    ) -> None:
+        relative_error = abs(float(observed_rate) - requested_rate) / requested_rate
+        if relative_error > STREAM_RATE_TOLERANCE:
+            raise RuntimeError(
+                f"PA {device_index} {direction} device clock mismatch: requested "
+                f"{requested_rate} Hz, observed approximately {observed_rate:.0f} Hz"
+            )
+
+    def _validate_reported_io_latency(self) -> None:
+        if self.device_latency_ms > MAX_REPORTED_IO_LATENCY_MS:
+            raise RuntimeError(
+                "Audio driver reported an abnormal I/O latency of "
+                f"{self.device_latency_ms:.1f} ms; the stream was closed instead "
+                "of starting with multi-second delay"
+            )
+
+    def _probe_stream_clocks(self) -> None:
+        """Reject streams whose callbacks do not match their requested rates."""
+        if not self._input_heartbeat.wait(STREAM_HEARTBEAT_TIMEOUT_SECONDS):
+            raise RuntimeError("Input stream opened but produced no callbacks")
+        if not self._output_heartbeat.wait(STREAM_HEARTBEAT_TIMEOUT_SECONDS):
+            raise RuntimeError("Output stream opened but requested no callbacks")
+
+        input_start = self._input_callback_frames
+        output_start = self._output_callback_frames
+        started = time.perf_counter()
+        time.sleep(STREAM_CLOCK_PROBE_SECONDS)
+        elapsed = max(time.perf_counter() - started, 1e-9)
+        self.observed_input_rate = (
+            self._input_callback_frames - input_start
+        ) / elapsed
+        self.observed_output_rate = (
+            self._output_callback_frames - output_start
+        ) / elapsed
+
+        self._validate_observed_rate(
+            "input",
+            int(self.input_device_index),
+            self.input_rate,
+            self.observed_input_rate,
+        )
+        self._validate_observed_rate(
+            "output",
+            int(self.output_device_index),
+            self.output_rate,
+            self.observed_output_rate,
+        )
+
+        # The probe deliberately runs before inference. Do not feed its captured
+        # audio into the model when the real session begins.
+        for ring in (self.input_ring, self.internal_input_ring, self.output_ring):
+            if ring is not None:
+                ring.clear()
+        self._input_event.clear()
+        self._capture_discontinuity.clear()
+        self._playback_started = False
+        self._startup_reserve_remaining = round(
+            self.elastic.total_reserve_ms * self.output_rate / 1000
+        )
+
     def _create_buffers(self, *, separate_stream_clocks: bool) -> None:
         self._separate_stream_clocks = separate_stream_clocks
-        internal_capacity = max(
-            self.runtime_shape.context_frames * 4,
-            INTERNAL_SAMPLE_RATE * 8,
+        internal_grace_frames = round(
+            INPUT_BACKLOG_GRACE_MS * INTERNAL_SAMPLE_RATE / 1000
         )
-        input_capacity = max(int(self.input_rate * 8), WORKER_READ_FRAMES * 4)
+        internal_capacity = (
+            self.runtime_shape.context_frames
+            + internal_grace_frames
+            + WORKER_READ_FRAMES
+        )
+        native_context_frames = math.ceil(
+            self.runtime_shape.context_frames
+            * self.input_rate
+            / INTERNAL_SAMPLE_RATE
+        )
+        input_capacity = max(
+            native_context_frames
+            + round(INPUT_BACKLOG_GRACE_MS * self.input_rate / 1000)
+            + WORKER_READ_FRAMES,
+            WORKER_READ_FRAMES * 2,
+        )
+        native_hop_frames = math.ceil(
+            self.runtime_shape.hop_frames
+            * self.output_rate
+            / INTERNAL_SAMPLE_RATE
+        )
+        maximum_reserve_ms = (
+            self.elastic.base_reserve_ms
+            + self.elastic.max_extra_buffer_ms
+            + OUTPUT_QUEUE_GRACE_MS
+        )
         output_capacity = max(
-            int(self.output_rate * 8),
-            int(
-                self.output_rate
-                * (self.runtime_shape.effective_chunk_ms / 1000 + 4)
-            ),
+            native_hop_frames
+            + round(maximum_reserve_ms * self.output_rate / 1000)
+            + WORKER_READ_FRAMES,
+            WORKER_READ_FRAMES * 2,
         )
         self.input_ring = FloatRingBuffer(input_capacity)
         self.internal_input_ring = FloatRingBuffer(internal_capacity)
         self.output_ring = FloatRingBuffer(output_capacity)
         if self.use_monitor:
-            self.monitor_ring = FloatRingBuffer(max(int(self.monitor_rate * 8), 4096))
+            self.monitor_ring = FloatRingBuffer(output_capacity)
 
         self.input_resampler = (
             soxr.ResampleStream(
@@ -333,37 +474,29 @@ class Audio:
             self.elastic.total_reserve_ms * self.output_rate / 1000
         )
 
-    @staticmethod
-    def _insert_sola_style(audio: np.ndarray, frames: int) -> np.ndarray:
-        """Duplicate the quietest short region to add exactly ``frames`` samples."""
-        if frames <= 0 or len(audio) == 0:
-            return audio
-        frames = min(frames, len(audio))
-        if np.max(np.abs(audio)) < 1e-6:
-            return np.concatenate((audio, np.zeros(frames, dtype=np.float32)))
-        best_start = 0
-        best_energy = math.inf
-        stride = max(1, frames // 2)
-        for start in range(0, max(1, len(audio) - frames + 1), stride):
-            segment = audio[start : start + frames]
-            energy = float(np.dot(segment, segment))
-            if energy < best_energy:
-                best_energy = energy
-                best_start = start
-        segment = audio[best_start : best_start + frames].copy()
-        fade = min(96, frames // 4, best_start, len(audio) - (best_start + frames))
-        if fade > 0:
-            ramp = np.linspace(0.0, 1.0, fade, dtype=np.float32)
-            segment[:fade] = (
-                audio[best_start - fade : best_start] * (1 - ramp)
-                + segment[:fade] * ramp
+    def _fade_from_last_rendered(self, audio: np.ndarray) -> np.ndarray:
+        """Join a realtime catch-up block without a hard sample discontinuity."""
+        result = np.asarray(audio, dtype=np.float32).copy()
+        fade_frames = min(
+            len(result), round(RECOVERY_CROSSFADE_MS * self.output_rate / 1000)
+        )
+        if fade_frames:
+            ramp = np.linspace(0.0, 1.0, fade_frames, dtype=np.float32)
+            result[:fade_frames] = (
+                self._last_rendered_sample * (1.0 - ramp)
+                + result[:fade_frames] * ramp
             )
-            segment[-fade:] = (
-                segment[-fade:] * (1 - ramp)
-                + audio[best_start + frames : best_start + frames + fade] * ramp
-            )
-        insert_at = best_start + frames
-        return np.concatenate((audio[:insert_at], segment, audio[insert_at:]))
+        return result
+
+    def _flush_model_history(self) -> None:
+        vc = getattr(self.callbacks, "vc", None)
+        if vc is None:
+            return
+        if getattr(vc, "sola_buffer", None) is not None:
+            vc.sola_buffer.zero_()
+        model = getattr(vc, "vc_model", None)
+        if model is not None:
+            model.flush_buffers()
 
     def _update_output_clock_ratio(self, output_frames: int) -> None:
         """Compensate independent input/output device-clock drift.
@@ -405,15 +538,41 @@ class Audio:
             if self.output_resampler is not None
             else output
         )
+        replace = False
         if self.output_ring is not None:
-            self.output_ring.write(output_native)
+            capacity_recovery = (
+                self.output_ring.available + len(output_native)
+                > self.output_ring.capacity
+            )
+            replace = self._replace_output_on_next_write or capacity_recovery
+            if replace:
+                if capacity_recovery and not self._replace_output_on_next_write:
+                    self.backlog_recoveries += 1
+                dropped = self.output_ring.available
+                output_native = self._fade_from_last_rendered(output_native)
+                self.output_ring.replace(output_native)
+                self.stale_output_dropped_frames += dropped
+                self._replace_output_on_next_write = False
+            else:
+                overwritten_before = self.output_ring.overwritten_samples
+                self.output_ring.write(
+                    output_native, overflow_policy="drop_oldest"
+                )
+                self.stale_output_dropped_frames += (
+                    self.output_ring.overwritten_samples - overwritten_before
+                )
         if self.use_monitor and self.monitor_ring is not None:
             monitor_native = (
                 self.monitor_resampler.resample_chunk(output, last=False)
                 if self.monitor_resampler is not None
                 else output
             )
-            self.monitor_ring.write(monitor_native)
+            if replace:
+                self.monitor_ring.replace(monitor_native)
+            else:
+                self.monitor_ring.write(
+                    monitor_native, overflow_policy="drop_oldest"
+                )
 
     def _worker_loop(self) -> None:
         initial = True
@@ -435,8 +594,42 @@ class Audio:
                         if self.input_resampler is not None
                         else raw
                     )
-                    self.internal_input_ring.write(internal)
+                    overwritten_before = self.internal_input_ring.overwritten_samples
+                    self.internal_input_ring.write(
+                        internal, overflow_policy="drop_oldest"
+                    )
+                    overwritten = (
+                        self.internal_input_ring.overwritten_samples
+                        - overwritten_before
+                    )
+                    if overwritten:
+                        self.stale_input_dropped_frames += overwritten
+                        self._capture_discontinuity.set()
                     available = self.input_ring.available
+
+                discontinuity = self._capture_discontinuity.is_set()
+                if discontinuity:
+                    self._capture_discontinuity.clear()
+                backlog_limit = self.runtime_shape.context_frames + round(
+                    INPUT_BACKLOG_GRACE_MS * INTERNAL_SAMPLE_RATE / 1000
+                )
+                backlog = self.internal_input_ring.available
+                if discontinuity or backlog > backlog_limit:
+                    if backlog >= self.runtime_shape.context_frames:
+                        dropped = self.internal_input_ring.trim_to_latest(
+                            self.runtime_shape.context_frames
+                        )
+                    else:
+                        # A callback was lost before a complete fresh context was
+                        # available. Do not join audio from opposite sides of the
+                        # gap inside the model history.
+                        dropped = self.internal_input_ring.available
+                        self.internal_input_ring.clear()
+                    self.stale_input_dropped_frames += dropped
+                    self.backlog_recoveries += 1
+                    self._flush_model_history()
+                    self._replace_output_on_next_write = True
+                    initial = True
 
                 required = (
                     self.runtime_shape.context_frames
@@ -454,16 +647,16 @@ class Audio:
                     self.inference_times.append(elapsed_ms)
 
                     silent = bool(len(out_wav) == 0 or np.max(np.abs(out_wav)) < 1e-6)
-                    grow_frames = self.elastic.record_inference(
+                    self.elastic.record_inference(
                         elapsed_ms, self.runtime_shape.effective_hop_ms
                     )
                     if self._pending_underflows:
                         self._pending_underflows = 0
-                        grow_frames += self.elastic.record_underflow()
-                    if grow_frames > 0:
-                        out_wav = self._insert_sola_style(out_wav, grow_frames)
+                        self.elastic.record_underflow()
                     shrink_frames = self.elastic.observe_silence(silent)
                     if shrink_frames < 0 and silent:
+                        # Removing silence is click-free and lets the real queue
+                        # follow the reduced 10 ms reserve target immediately.
                         remove = min(-shrink_frames, max(0, len(out_wav) - 1))
                         out_wav = out_wav[remove:]
 
@@ -565,6 +758,7 @@ class Audio:
         input_latency, output_latency = self.stream.latency
         self.device_latency_ms = float(input_latency + output_latency) * 1000
         self.transport_mode = f"duplex/{input_device.host_api}"
+        self._validate_reported_io_latency()
 
     def _open_separate(
         self,
@@ -647,6 +841,7 @@ class Audio:
         self.transport_mode = (
             f"separate/{input_device.host_api}->{output_device.host_api}"
         )
+        self._validate_reported_io_latency()
 
     def start(
         self,
@@ -666,22 +861,34 @@ class Audio:
         self.running = True
         self.last_error = None
         self.open_warnings.clear()
+        self.input_device_index = input_device.index
+        self.output_device_index = output_device.index
+        self.observed_input_rate = 0.0
+        self.observed_output_rate = 0.0
+        self._input_callback_frames = 0
+        self._output_callback_frames = 0
+        self.stale_input_dropped_frames = 0
+        self.stale_output_dropped_frames = 0
+        self.backlog_recoveries = 0
         self._input_heartbeat.clear()
         self._output_heartbeat.clear()
         self._worker_ready.clear()
+        self._capture_discontinuity.clear()
         self._playback_started = False
+        self._replace_output_on_next_write = False
+        self._last_rendered_sample = 0.0
         self._worker = threading.Thread(
             target=self._worker_loop,
             name="realtime-inference",
             daemon=True,
         )
 
-        same_host = input_device.host_api_index == output_device.host_api_index
+        native_duplex = self._can_use_native_duplex(input_device, output_device)
         try:
-            if same_host:
+            if native_duplex:
                 try:
-                    # Allocate buffers before the worker starts. Duplex open is
-                    # attempted for WDM-KS too; the exact selected pair decides.
+                    # A single stream is safe only when PortAudio exposes one
+                    # actual device with both input and output directions.
                     self._open_duplex(
                         input_device,
                         output_device,
@@ -715,7 +922,14 @@ class Audio:
             if output_monitor is not None:
                 self.monitor_rate = int(round(output_monitor.default_samplerate))
                 # Recreate the monitor resampler/ring now that its native rate is known.
-                self.monitor_ring = FloatRingBuffer(max(int(self.monitor_rate * 8), 4096))
+                output_capacity_ms = (
+                    self.output_ring.capacity / self.output_rate * 1000
+                    if self.output_ring is not None
+                    else self.runtime_shape.effective_hop_ms
+                )
+                self.monitor_ring = FloatRingBuffer(
+                    max(round(output_capacity_ms * self.monitor_rate / 1000), 4096)
+                )
                 self.monitor_resampler = (
                     soxr.ResampleStream(
                         INTERNAL_SAMPLE_RATE,
@@ -733,13 +947,10 @@ class Audio:
                     exclusive_mode,
                 )
 
+            self._probe_stream_clocks()
             self._worker.start()
             if not self._worker_ready.wait(STREAM_HEARTBEAT_TIMEOUT_SECONDS):
                 raise RuntimeError("Realtime inference worker did not start")
-            if not self._input_heartbeat.wait(STREAM_HEARTBEAT_TIMEOUT_SECONDS):
-                raise RuntimeError("Input stream opened but produced no callbacks")
-            if not self._output_heartbeat.wait(STREAM_HEARTBEAT_TIMEOUT_SECONDS):
-                raise RuntimeError("Output stream opened but requested no callbacks")
         except Exception:
             self.stop()
             raise
@@ -782,12 +993,7 @@ class Audio:
         ):
             if ring is not None:
                 ring.clear()
-        vc = getattr(self.callbacks, "vc", None)
-        if vc is not None:
-            if vc.sola_buffer is not None:
-                vc.sola_buffer.zero_()
-            if getattr(vc, "vc_model", None) is not None:
-                vc.vc_model.flush_buffers()
+        self._flush_model_history()
 
     def status_text(self) -> str:
         if self.last_error:
@@ -809,21 +1015,54 @@ class Audio:
         open_warning = (
             f" | {'; '.join(self.open_warnings)}" if self.open_warnings else ""
         )
-        steady_estimate = (
-            self.runtime_shape.effective_hop_ms
+        pipeline_lower_bound = (
+            self.runtime_shape.effective_chunk_ms
             + p95
             + self.elastic.total_reserve_ms
             + self.device_latency_ms
         )
+        raw_input_ms = (
+            self.input_ring.available / self.input_rate * 1000
+            if self.input_ring is not None
+            else 0.0
+        )
+        internal_input_ms = (
+            self.internal_input_ring.available / INTERNAL_SAMPLE_RATE * 1000
+            if self.internal_input_ring is not None
+            else 0.0
+        )
+        output_queue_ms = (
+            self.output_ring.available / self.output_rate * 1000
+            if self.output_ring is not None
+            else 0.0
+        )
+        stale_input_ms = (
+            self.stale_input_dropped_frames / INTERNAL_SAMPLE_RATE * 1000
+        )
+        stale_output_ms = (
+            self.stale_output_dropped_frames / self.output_rate * 1000
+            if self.output_rate
+            else 0.0
+        )
+        route_text = (
+            f"route PA{self.input_device_index}@{self.input_rate}Hz"
+            f"->PA{self.output_device_index}@{self.output_rate}Hz "
+            f"(clock {self.observed_input_rate:.0f}/{self.observed_output_rate:.0f}Hz)"
+        )
         return (
-            f"{self.transport_mode} | Chunk {self.runtime_shape.effective_chunk_ms:.1f} ms "
+            f"{self.transport_mode} | {route_text} "
+            f"| Chunk {self.runtime_shape.effective_chunk_ms:.1f} ms "
             f"| Hop {self.runtime_shape.effective_hop_ms:.1f} ms "
             f"| infer p50/p95 {p50:.1f}/{p95:.1f} ms "
             f"| reserve {self.elastic.total_reserve_ms} ms "
             f"| I/O {self.device_latency_ms:.1f} ms "
-            f"| steady est. {steady_estimate:.1f} ms "
+            f"| lower-bound est. {pipeline_lower_bound:.1f} ms "
+            f"| queue in/out {raw_input_ms + internal_input_ms:.1f}/"
+            f"{output_queue_ms:.1f} ms "
             f"| drift {self.output_clock_correction_ppm:+.0f} ppm "
             f"| xruns in/out {self.input_overflows}/{self.output_underflows} "
+            f"| catch-up {self.backlog_recoveries} "
+            f"(dropped in/out {stale_input_ms:.1f}/{stale_output_ms:.1f} ms) "
             f"| compile {compile_text}{overload}{open_warning}"
             + (
                 f" | compile warning {'; '.join(compile_warnings)}"

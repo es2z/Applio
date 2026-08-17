@@ -14,7 +14,7 @@ sys.path.append(now_dir)
 from rvc.realtime.callbacks import AudioCallbacks
 from rvc.realtime.devices import get_audio_device_registry
 from rvc.realtime.core import AUDIO_SAMPLE_RATE
-from rvc.realtime.runtime import RuntimeAudioShape
+from rvc.realtime.runtime import DEFAULT_MAX_EXTRA_BUFFER_MS, RuntimeAudioShape
 from tabs.settings.sections.torch_compile import load_realtime_compile_settings
 from rvc.configs.config_utils import load_config, save_config, update_nested_config
 
@@ -318,6 +318,9 @@ def load_realtime_settings():
             "processing_mode": realtime_config.get("processing_mode", "fixed_chunk"),
             "overlap_hop_mode": realtime_config.get("overlap_hop_mode", "auto"),
             "manual_hop_size": realtime_config.get("manual_hop_size", 320),
+            "max_extra_buffer_ms": realtime_config.get(
+                "max_extra_buffer_ms", DEFAULT_MAX_EXTRA_BUFFER_MS
+            ),
         }
     except Exception as e:
         print(f"Error loading realtime settings: {e}")
@@ -330,6 +333,7 @@ def load_realtime_settings():
             "processing_mode": "fixed_chunk",
             "overlap_hop_mode": "auto",
             "manual_hop_size": 320,
+            "max_extra_buffer_ms": DEFAULT_MAX_EXTRA_BUFFER_MS,
         }
 
 
@@ -342,6 +346,14 @@ def save_runtime_shape_settings(processing_mode, hop_mode, manual_hop_size):
             "overlap_hop_mode": hop_mode,
             "manual_hop_size": float(manual_hop_size),
         },
+    )
+
+
+def save_max_extra_buffer_setting(max_extra_buffer_ms):
+    update_nested_config(
+        CONFIG_PATH,
+        "realtime",
+        {"max_extra_buffer_ms": int(max_extra_buffer_ms)},
     )
 
 
@@ -405,6 +417,7 @@ def start_realtime(
     processing_mode: str,
     overlap_hop_mode: str,
     manual_hop_size: float,
+    max_extra_buffer_ms: int,
     cross_fade_overlap_size: float,
     extra_convert_size: float,
     silent_threshold: int,
@@ -425,7 +438,15 @@ def start_realtime(
     embedder_model_custom: str = None,
 ):
     global running, callbacks, audio_manager, device_registry
+    previous_audio_manager = audio_manager
     running = False
+    audio_manager = None
+    callbacks = None
+    if previous_audio_manager is not None:
+        try:
+            previous_audio_manager.stop()
+        except Exception as error:
+            print(f"Error stopping previous audio manager: {error}")
 
     if not input_audio_device or not output_audio_device:
         yield (
@@ -515,6 +536,7 @@ def start_realtime(
             hybrid_blend_ratio=hybrid_blend_ratio,
             runtime_shape=runtime_shape,
             compile_settings=compile_settings,
+            max_extra_buffer_ms=max_extra_buffer_ms,
         )
 
         warmup_times = callbacks.warmup()
@@ -585,29 +607,24 @@ def start_realtime(
 def stop_realtime():
     global running, callbacks, audio_manager
 
-    # Always attempt to stop if running flag is True, regardless of other states
-    if running:
-        running = False  # Set flag first to stop the main loop
+    had_pipeline = running or audio_manager is not None or callbacks is not None
+    manager_to_stop = audio_manager
+    running = False
+    audio_manager = None
+    callbacks = None
 
-        # Stop audio manager if it exists
-        if audio_manager is not None:
-            try:
-                audio_manager.stop()
-            except Exception as e:
-                print(f"Error stopping audio manager: {e}")
+    # A failed worker or a cancelled Gradio generator can clear ``running``
+    # before the Stop button is pressed. Closing must therefore depend on the
+    # stream reference, not on the UI flag.
+    if manager_to_stop is not None:
+        try:
+            manager_to_stop.stop()
+        except Exception as error:
+            print(f"Error stopping audio manager: {error}")
 
-            if hasattr(audio_manager, "latency"):
-                try:
-                    del audio_manager.latency
-                except:
-                    pass
-
-        # Clean up references
-        audio_manager = callbacks = None
-
+    if had_pipeline:
         return gr.update(value="Stopping..."), interactive_true, interactive_false
-    else:
-        return "Realtime pipeline not found!", interactive_true, interactive_false
+    return "Realtime pipeline not found!", interactive_true, interactive_false
 
 
 def get_audio_devices_formatted():
@@ -1066,6 +1083,17 @@ def realtime_tab():
                     ),
                     interactive=True,
                 )
+                max_extra_buffer_ms = gr.Slider(
+                    minimum=0,
+                    maximum=2000,
+                    value=saved_settings["max_extra_buffer_ms"],
+                    step=10,
+                    label=i18n("Maximum Extra Buffer (ms)"),
+                    info=i18n(
+                        "Upper limit for temporary jitter reserve. It changes in 10 ms steps and never changes Chunk or Hop. Set 0 to disable extra growth."
+                    ),
+                    interactive=True,
+                )
                 cross_fade_overlap_size = gr.Slider(
                     minimum=0.05,
                     maximum=0.2,
@@ -1176,6 +1204,11 @@ def realtime_tab():
             inputs=[processing_mode, overlap_hop_mode, manual_hop_size],
             outputs=[],
         )
+        max_extra_buffer_ms.change(
+            fn=save_max_extra_buffer_setting,
+            inputs=[max_extra_buffer_ms],
+            outputs=[],
+        )
         chunk_size.change(
             fn=update_effective_chunk,
             inputs=[chunk_size],
@@ -1237,6 +1270,7 @@ def realtime_tab():
                 processing_mode,
                 overlap_hop_mode,
                 manual_hop_size,
+                max_extra_buffer_ms,
                 cross_fade_overlap_size,
                 extra_convert_size,
                 silent_threshold,
