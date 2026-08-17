@@ -2,6 +2,11 @@ import gradio as gr
 import sys
 import os
 import logging
+
+from tabs.settings.sections.torch_compile import bootstrap_torch_compile_environment
+
+bootstrap_torch_compile_environment()
+
 import torch
 
 from typing import Any
@@ -34,13 +39,12 @@ from tabs.settings.settings import settings_tab
 from tabs.realtime.realtime import realtime_tab
 from tabs.settings.sections.torch_compile import (
     load_torch_compile_enabled,
+    load_torch_compile_rvc_enabled,
     load_torch_compile_mode,
-    load_torch_compile_disable_triton,
-    save_torch_compile_enabled,
-    save_torch_compile_mode,
-    save_torch_compile_disable_triton,
+    save_realtime_compile_settings,
     is_torch_compile_available,
-    is_triton_available,
+    get_triton_status,
+    clear_inactive_compile_caches,
     TORCH_COMPILE_MODES,
 )
 
@@ -94,8 +98,9 @@ with gr.Blocks(
 
     # TorchCompile Settings (collapsible, initially collapsed)
     torch_compile_available = is_torch_compile_available()
-    triton_available = is_triton_available()
+    triton_available, triton_status = get_triton_status()
     torch_compile_initial_enabled = load_torch_compile_enabled()
+    torch_compile_rvc_initial_enabled = load_torch_compile_rvc_enabled()
     with gr.Accordion(i18n("TorchCompile Settings"), open=False):
         if not torch_compile_available:
             if not torch.cuda.is_available():
@@ -104,56 +109,89 @@ with gr.Blocks(
                         "Note: CUDA is not available. TorchCompile requires CUDA."
                     )
                 )
+        gr.Markdown(
+            i18n(
+                f"Backend: {triton_status}. Changes are saved now and applied only on the next Realtime Start."
+            )
+        )
         with gr.Row():
-            torch_compile_checkbox = gr.Checkbox(
-                label=i18n("Enable TorchCompile"),
+            torch_compile_crepe_checkbox = gr.Checkbox(
+                label=i18n("Compile CREPE / Mangio-CREPE"),
                 info=i18n(
-                    "Enable torch.compile for CREPE and other inference models. Improves performance after initial compilation."
+                    "Compile the dominant CREPE pitch model before audio streams start."
                 ),
                 value=torch_compile_initial_enabled,
+                interactive=True,
+            )
+            torch_compile_rvc_checkbox = gr.Checkbox(
+                label=i18n("Compile RVC generator (experimental)"),
+                info=i18n(
+                    "Compile the RVC generator independently; failures fall back to eager without disabling CREPE."
+                ),
+                value=torch_compile_rvc_initial_enabled,
                 interactive=True,
             )
             torch_compile_mode_dropdown = gr.Dropdown(
                 label=i18n("TorchCompile Mode"),
                 info=i18n(
-                    "Select the torch.compile optimization mode. 'default' is standard, 'reduce-overhead' is optimized for repeated inference, 'max-autotune' provides maximum optimization but slower initial compile."
+                    "default is the stable baseline. reduce-overhead enables CUDA Graphs and may use more VRAM. max-autotune-no-cudagraphs tunes kernels without CUDA Graphs."
                 ),
                 choices=TORCH_COMPILE_MODES,
                 value=load_torch_compile_mode(),
                 interactive=True,
-                visible=torch_compile_initial_enabled,
+                visible=torch_compile_initial_enabled
+                or torch_compile_rvc_initial_enabled,
             )
-            torch_compile_disable_triton_checkbox = gr.Checkbox(
-                label=i18n("Disable Triton"),
-                info=i18n(
-                    "Force disable triton optimization even when installed. Useful when running alongside games to reduce GPU resource contention."
-                ),
-                value=load_torch_compile_disable_triton(),
-                interactive=triton_available,
-                visible=torch_compile_initial_enabled and triton_available,
+            clear_compile_cache_button = gr.Button(
+                i18n("Clear inactive compile caches")
+            )
+        compile_cache_status = gr.Markdown("")
+
+        def on_torch_compile_change(crepe_enabled, rvc_enabled, mode):
+            save_realtime_compile_settings(crepe_enabled, rvc_enabled, mode)
+            return gr.update(
+                visible=bool(crepe_enabled or rvc_enabled)
             )
 
-        def on_torch_compile_change(enabled):
-            save_torch_compile_enabled(enabled)
-            return (
-                gr.update(visible=enabled),
-                gr.update(visible=enabled and triton_available),
-            )
+        def clear_compile_cache_when_stopped():
+            import importlib
 
-        torch_compile_checkbox.change(
+            realtime_state = importlib.import_module("tabs.realtime.realtime")
+            if realtime_state.running:
+                return "Stop Realtime before clearing compile caches."
+            return clear_inactive_compile_caches()
+
+        torch_compile_crepe_checkbox.change(
             fn=on_torch_compile_change,
-            inputs=[torch_compile_checkbox],
-            outputs=[torch_compile_mode_dropdown, torch_compile_disable_triton_checkbox],
+            inputs=[
+                torch_compile_crepe_checkbox,
+                torch_compile_rvc_checkbox,
+                torch_compile_mode_dropdown,
+            ],
+            outputs=[torch_compile_mode_dropdown],
+        )
+        torch_compile_rvc_checkbox.change(
+            fn=on_torch_compile_change,
+            inputs=[
+                torch_compile_crepe_checkbox,
+                torch_compile_rvc_checkbox,
+                torch_compile_mode_dropdown,
+            ],
+            outputs=[torch_compile_mode_dropdown],
         )
         torch_compile_mode_dropdown.change(
-            fn=save_torch_compile_mode,
-            inputs=[torch_compile_mode_dropdown],
-            outputs=[],
+            fn=on_torch_compile_change,
+            inputs=[
+                torch_compile_crepe_checkbox,
+                torch_compile_rvc_checkbox,
+                torch_compile_mode_dropdown,
+            ],
+            outputs=[torch_compile_mode_dropdown],
         )
-        torch_compile_disable_triton_checkbox.change(
-            fn=save_torch_compile_disable_triton,
-            inputs=[torch_compile_disable_triton_checkbox],
-            outputs=[],
+        clear_compile_cache_button.click(
+            fn=clear_compile_cache_when_stopped,
+            inputs=[],
+            outputs=[compile_cache_status],
         )
 
     with gr.Tab(i18n("Inference")):

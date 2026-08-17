@@ -89,7 +89,6 @@
     "Delay Seconds": "Delay Seconds",
     "Detect overtraining to prevent the model from learning the training data too well and losing the ability to generalize to new data.": "Detect overtraining to prevent the model from learning the training data too well and losing the ability to generalize to new data.",
     "Determine at how many epochs the model will saved at.": "Determine at how many epochs the model will saved at.",
-    "Disable Triton": "Disable Triton",
     "Distortion": "Distortion",
     "Distortion Gain": "Distortion Gain",
     "Download": "Download",

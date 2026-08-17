@@ -13,6 +13,9 @@ import numpy as np
 import onnxruntime as ort
 from rvc.lib.predictors import onnxcrepe
 from tabs.settings.sections.torch_compile import get_torch_compile_settings
+from tabs.settings.sections.torch_compile import (
+    RealtimeCompileSettings,
+)
 
 
 class RMVPE:
@@ -31,10 +34,43 @@ class RMVPE:
 
 
 class CREPE:
-    def __init__(self, device, sample_rate=16000, hop_size=160):
+    def __init__(
+        self,
+        device,
+        sample_rate=16000,
+        hop_size=160,
+        compile_settings: RealtimeCompileSettings | None = None,
+        compile_signature: str = "offline",
+    ):
         self.device = device
         self.sample_rate = sample_rate
         self.hop_size = hop_size
+        self.compile_settings = compile_settings
+        self.compile_signature = compile_signature
+        self._sessions = {}
+
+    def _predict(self, model, *args, **kwargs):
+        if self.compile_settings is None:
+            compile_enabled, compile_mode = get_torch_compile_settings()
+            kwargs["compile_model"] = compile_enabled
+            kwargs["compile_mode"] = compile_mode
+            return torchcrepe.predict(*args, model=model, **kwargs)
+        from rvc.realtime.compile_session import CrepeSession
+
+        session = self._sessions.get(model)
+        if session is None:
+            session = CrepeSession(
+                self.device,
+                model,
+                self.compile_settings,
+                self.compile_signature,
+            )
+            self._sessions[model] = session
+        return session.predict(*args, model=model, **kwargs)
+
+    def finish_compile_warmup(self):
+        for session in self._sessions.values():
+            session.finish_warmup()
 
     def get_f0(self, x, f0_min=50, f0_max=1100, p_len=None, model="full"):
         if p_len is None:
@@ -45,22 +81,17 @@ class CREPE:
 
         batch_size = 512
 
-        # Get torch.compile settings
-        compile_enabled, compile_mode = get_torch_compile_settings()
-
-        f0, pd = torchcrepe.predict(
+        f0, pd = self._predict(
+            model,
             x.float().to(self.device).unsqueeze(dim=0),
             self.sample_rate,
             self.hop_size,
             f0_min,
             f0_max,
-            model=model,
             batch_size=batch_size,
             device=self.device,
             return_periodicity=True,
             decoder=torchcrepe.decode.weighted_argmax,
-            compile_model=compile_enabled,
-            compile_mode=compile_mode,
         )
         # Apply median filter to both f0 and periodicity (matching reference implementation)
         f0 = torchcrepe.filter.median(f0, 3)
@@ -71,11 +102,22 @@ class CREPE:
         return f0
 
 
-class MANGIO_CREPE:
-    def __init__(self, device, sample_rate=16000, hop_size=160):
-        self.device = device
-        self.sample_rate = sample_rate
-        self.hop_size = hop_size
+class MANGIO_CREPE(CREPE):
+    def __init__(
+        self,
+        device,
+        sample_rate=16000,
+        hop_size=160,
+        compile_settings: RealtimeCompileSettings | None = None,
+        compile_signature: str = "offline",
+    ):
+        super().__init__(
+            device,
+            sample_rate,
+            hop_size,
+            compile_settings,
+            compile_signature,
+        )
 
     def get_f0(self, x, f0_min=50, f0_max=1100, p_len=None, model="full"):
         if p_len is None:
@@ -86,7 +128,10 @@ class MANGIO_CREPE:
 
         # Normalize audio (mangio-crepe specific)
         x = x.astype(np.float32)
-        x /= np.quantile(np.abs(x), 0.999)
+        scale = float(np.quantile(np.abs(x), 0.999))
+        if not np.isfinite(scale) or scale <= np.finfo(np.float32).eps:
+            return np.zeros(p_len, dtype=np.float32)
+        x /= scale
 
         # Convert to tensor and move to device
         audio = torch.from_numpy(x).to(self.device, copy=True)
@@ -97,23 +142,18 @@ class MANGIO_CREPE:
             audio = torch.mean(audio, dim=0, keepdim=True).detach()
         audio = audio.detach()
 
-        # Get torch.compile settings
-        compile_enabled, compile_mode = get_torch_compile_settings()
-
         # Predict using torchcrepe with periodicity (Applio improvement)
-        pitch, pd = torchcrepe.predict(
+        pitch, pd = self._predict(
+            model,
             audio,
             self.sample_rate,
             self.hop_size,
             f0_min,
             f0_max,
-            model=model,
             batch_size=self.hop_size * 2,
             device=self.device,
             pad=True,
             return_periodicity=True,
-            compile_model=compile_enabled,
-            compile_mode=compile_mode,
         )
 
         # Apply periodicity filter (Applio improvement for noise reduction)

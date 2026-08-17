@@ -220,7 +220,7 @@ class RealtimeTemplateManager:
             gr.update(value=audio.get("monitor", {}).get("device", "")),
             gr.update(value=audio.get("monitor", {}).get("gain", 100)),
             gr.update(value=audio.get("monitor", {}).get("asio_channel", -1)),
-            gr.update(value=audio.get("exclusive_mode", True)),
+            gr.update(value=audio.get("exclusive_mode", False)),
             gr.update(value=audio.get("vad_enabled", True)),
             # Model tab (15 items)
             gr.update(value=model.get("voice", {}).get("model_path", "")),

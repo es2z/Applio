@@ -33,7 +33,8 @@ torchaudio==2.11.0; sys_platform == 'linux' or sys_platform == 'win32'
 torchvision==0.22.1; sys_platform == 'darwin'
 # torchvision==0.22.1+cu128; sys_platform == 'linux' or sys_platform == 'win32'
 torchvision==0.28.0+cu132; sys_platform == 'linux' or sys_platform == 'win32'
-torchcrepe @ git+https://github.com/es2z/torchcrepe_plus.git
+triton-windows==3.7.1.post27; sys_platform == 'win32'
+torchcrepe @ git+https://github.com/es2z/torchcrepe_plus.git@fb524c97c2f4bb74f1da4ae7b53b097072b872bf
 torchfcpe
 swift_f0
 einops

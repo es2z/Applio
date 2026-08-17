@@ -1,5 +1,4 @@
 import gradio as gr
-import sounddevice as sd
 import os
 import sys
 import time
@@ -7,13 +6,16 @@ import json
 import regex as re
 import shutil
 import torch
+import numpy as np
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 
 from rvc.realtime.callbacks import AudioCallbacks
-from rvc.realtime.audio import list_audio_device
+from rvc.realtime.devices import get_audio_device_registry
 from rvc.realtime.core import AUDIO_SAMPLE_RATE
+from rvc.realtime.runtime import RuntimeAudioShape
+from tabs.settings.sections.torch_compile import load_realtime_compile_settings
 from rvc.configs.config_utils import load_config, save_config, update_nested_config
 
 from assets.i18n.i18n import I18nAuto
@@ -273,6 +275,7 @@ PASS_THROUGH = False
 interactive_true = gr.update(interactive=True)
 interactive_false = gr.update(interactive=False)
 running, callbacks, audio_manager = False, None, None
+device_registry = None
 
 CONFIG_PATH = os.path.join(now_dir, "assets", "config.json")
 
@@ -312,6 +315,9 @@ def load_realtime_settings():
             "monitor_device": realtime_config.get("monitor_device", ""),
             "model_file": realtime_config.get("model_file", ""),
             "index_file": realtime_config.get("index_file", ""),
+            "processing_mode": realtime_config.get("processing_mode", "fixed_chunk"),
+            "overlap_hop_mode": realtime_config.get("overlap_hop_mode", "auto"),
+            "manual_hop_size": realtime_config.get("manual_hop_size", 320),
         }
     except Exception as e:
         print(f"Error loading realtime settings: {e}")
@@ -321,17 +327,33 @@ def load_realtime_settings():
             "monitor_device": "",
             "model_file": "",
             "index_file": "",
+            "processing_mode": "fixed_chunk",
+            "overlap_hop_mode": "auto",
+            "manual_hop_size": 320,
         }
+
+
+def save_runtime_shape_settings(processing_mode, hop_mode, manual_hop_size):
+    update_nested_config(
+        CONFIG_PATH,
+        "realtime",
+        {
+            "processing_mode": processing_mode,
+            "overlap_hop_mode": hop_mode,
+            "manual_hop_size": float(manual_hop_size),
+        },
+    )
 
 
 def get_safe_dropdown_value(saved_value, choices, fallback_value=None):
     """Safely get a dropdown value, ensuring it exists in choices"""
-    if saved_value and saved_value in choices:
+    values = [choice[1] if isinstance(choice, (tuple, list)) else choice for choice in choices]
+    if saved_value and saved_value in values:
         return saved_value
-    elif fallback_value and fallback_value in choices:
+    elif fallback_value and fallback_value in values:
         return fallback_value
-    elif choices:
-        return choices[0]
+    elif values:
+        return values[0]
     else:
         return None
 
@@ -380,6 +402,9 @@ def start_realtime(
     exclusive_mode: bool,
     vad_enabled: bool,
     chunk_size: float,
+    processing_mode: str,
+    overlap_hop_mode: str,
+    manual_hop_size: float,
     cross_fade_overlap_size: float,
     extra_convert_size: float,
     silent_threshold: int,
@@ -399,8 +424,8 @@ def start_realtime(
     embedder_model: str,
     embedder_model_custom: str = None,
 ):
-    global running, callbacks, audio_manager
-    running = True
+    global running, callbacks, audio_manager, device_registry
+    running = False
 
     if not input_audio_device or not output_audio_device:
         yield (
@@ -426,7 +451,17 @@ def start_realtime(
 
     yield "Starting Realtime...", interactive_false, interactive_true
 
-    read_chunk_size = int(chunk_size * AUDIO_SAMPLE_RATE / 1000 / 128)
+    try:
+        runtime_shape = RuntimeAudioShape.create(
+            chunk_size,
+            processing_mode=processing_mode,
+            hop_mode=overlap_hop_mode,
+            manual_hop_ms=manual_hop_size,
+        )
+    except ValueError as error:
+        yield f"Invalid realtime shape: {error}", interactive_true, interactive_false
+        return
+    read_chunk_size = runtime_shape.context_frames // 128
 
     sid = int(sid) if sid is not None else 0
 
@@ -435,58 +470,91 @@ def start_realtime(
     monitor_audio_gain /= 100.0
 
     try:
-        input_devices, output_devices = get_audio_devices_formatted()
-        input_device_id = input_devices[input_audio_device]
-        output_device_id = output_devices[output_audio_device]
-        output_monitor_id = (
-            output_devices[monitor_output_device] if use_monitor_device else None
+        if device_registry is None:
+            device_registry = get_audio_device_registry()
+        input_device_ref = device_registry.resolve(input_audio_device, "input")
+        output_device_ref = device_registry.resolve(output_audio_device, "output")
+        output_monitor_ref = (
+            device_registry.resolve(monitor_output_device, "output")
+            if use_monitor_device
+            else None
         )
-    except (ValueError, IndexError):
-        yield "Incorrectly formatted audio device. Stopping.", interactive_true, interactive_false
+    except (ValueError, KeyError) as error:
+        yield f"Audio device error: {error}", interactive_true, interactive_false
         return
 
-    callbacks = AudioCallbacks(
-        pass_through=PASS_THROUGH,
-        read_chunk_size=read_chunk_size,
-        cross_fade_overlap_size=cross_fade_overlap_size,
-        extra_convert_size=extra_convert_size,
-        model_path=pth_path,
-        index_path=str(index_path),
-        f0_method=f0_method,
-        embedder_model=embedder_model,
-        embedder_model_custom=embedder_model_custom,
-        silent_threshold=silent_threshold,
-        f0_up_key=pitch,
-        index_rate=index_rate,
-        protect=protect,
-        volume_envelope=volume_envelope,
-        f0_autotune=f0_autotune,
-        f0_autotune_strength=f0_autotune_strength,
-        proposed_pitch=proposed_pitch,
-        proposed_pitch_threshold=proposed_pitch_threshold,
-        input_audio_gain=input_audio_gain,
-        output_audio_gain=output_audio_gain,
-        monitor_audio_gain=monitor_audio_gain,
-        monitor=use_monitor_device,
-        vad_enabled=vad_enabled,
-        vad_sensitivity=3,
-        vad_frame_ms=30,
-        sid=sid,
-        hybrid_blend_ratio=hybrid_blend_ratio,
-    )
+    compile_settings = load_realtime_compile_settings()
+    try:
+        callbacks = AudioCallbacks(
+            pass_through=PASS_THROUGH,
+            read_chunk_size=read_chunk_size,
+            cross_fade_overlap_size=cross_fade_overlap_size,
+            extra_convert_size=extra_convert_size,
+            model_path=pth_path,
+            index_path=str(index_path),
+            f0_method=f0_method,
+            embedder_model=embedder_model,
+            embedder_model_custom=embedder_model_custom,
+            silent_threshold=silent_threshold,
+            f0_up_key=pitch,
+            index_rate=index_rate,
+            protect=protect,
+            volume_envelope=volume_envelope,
+            f0_autotune=f0_autotune,
+            f0_autotune_strength=f0_autotune_strength,
+            proposed_pitch=proposed_pitch,
+            proposed_pitch_threshold=proposed_pitch_threshold,
+            input_audio_gain=input_audio_gain,
+            output_audio_gain=output_audio_gain,
+            monitor_audio_gain=monitor_audio_gain,
+            monitor=use_monitor_device,
+            vad_enabled=vad_enabled,
+            vad_sensitivity=3,
+            vad_frame_ms=30,
+            sid=sid,
+            hybrid_blend_ratio=hybrid_blend_ratio,
+            runtime_shape=runtime_shape,
+            compile_settings=compile_settings,
+        )
 
-    audio_manager = callbacks.audio
-    audio_manager.start(
-        input_device_id=input_device_id,
-        output_device_id=output_device_id,
-        output_monitor_id=output_monitor_id,
-        exclusive_mode=exclusive_mode,
-        asio_input_channel=input_asio_channels,
-        asio_output_channel=output_asio_channels,
-        asio_output_monitor_channel=monitor_asio_channels,
-        read_chunk_size=read_chunk_size,
-    )
+        warmup_times = callbacks.warmup()
+        if processing_mode == "overlap" and overlap_hop_mode == "auto":
+            measured_p95 = float(np.percentile(warmup_times, 95))
+            final_shape = RuntimeAudioShape.create(
+                chunk_size,
+                processing_mode=processing_mode,
+                hop_mode=overlap_hop_mode,
+                manual_hop_ms=manual_hop_size,
+                measured_p95_ms=measured_p95,
+            )
+            if final_shape != runtime_shape:
+                callbacks.configure_runtime_shape(final_shape)
+                runtime_shape = final_shape
 
+        audio_manager = callbacks.audio
+        audio_manager.configure_warmup(warmup_times)
+        audio_manager.start(
+            input_device=input_device_ref,
+            output_device=output_device_ref,
+            output_monitor=output_monitor_ref,
+            exclusive_mode=exclusive_mode,
+            asio_input_channel=input_asio_channels,
+            asio_output_channel=output_asio_channels,
+            asio_output_monitor_channel=monitor_asio_channels,
+        )
+    except Exception as error:
+        if audio_manager is not None:
+            audio_manager.stop()
+        callbacks = None
+        audio_manager = None
+        yield (
+            f"Failed to start realtime: {type(error).__name__}: {error}",
+            interactive_true,
+            interactive_false,
+        )
+        return
+
+    running = True
     yield "Realtime is ready!", interactive_false, interactive_true
 
     while running and callbacks is not None and audio_manager is not None:
@@ -499,17 +567,17 @@ def start_realtime(
             yield "Reconnected successfully! Realtime is ready!", interactive_false, interactive_true
             time.sleep(0.5)  # Show message briefly
         elif hasattr(audio_manager, "last_error") and audio_manager.last_error:
-            # Reconnection failed - show error but keep stop button enabled
             error_msg = audio_manager.last_error
-            audio_manager.last_error = None  # Clear error after displaying once
-            yield f"Error: {error_msg}", interactive_false, interactive_true
-            time.sleep(1.0)  # Show error message for 1 second
+            running = False
+            audio_manager.stop()
+            audio_manager = callbacks = None
+            yield f"Error: {error_msg}", interactive_true, interactive_false
+            return
         elif hasattr(audio_manager, "reconnect_in_progress") and audio_manager.reconnect_in_progress:
             # Reconnection in progress
             yield "Reconnecting...", interactive_false, interactive_true
-        elif hasattr(audio_manager, "latency"):
-            # Normal operation - show latency
-            yield f"Latency: {audio_manager.latency:.2f} ms", interactive_false, interactive_true
+        elif hasattr(audio_manager, "status_text"):
+            yield audio_manager.status_text(), interactive_false, interactive_true
 
     return gr.update(), gr.update(), gr.update()
 
@@ -543,44 +611,31 @@ def stop_realtime():
 
 
 def get_audio_devices_formatted():
+    global device_registry
     try:
-        input_devices, output_devices = list_audio_device()
-
-        def priority(name: str) -> int:
-            n = name.lower()
-            if "virtual" in n:
-                return 0
-            if "vb" in n:
-                return 1
-            return 2
-
-        output_sorted = sorted(output_devices, key=lambda d: priority(d.name))
-        input_sorted = sorted(
-            input_devices, key=lambda d: priority(d.name), reverse=True
-        )
-
-        input_device_list = {
-            f"{input_sorted.index(d)+1}: {d.name} ({d.host_api})": d.index
-            for d in input_sorted
-        }
-        output_device_list = {
-            f"{output_sorted.index(d)+1}: {d.name} ({d.host_api})": d.index
-            for d in output_sorted
-        }
-
-        return input_device_list, output_device_list
-    except Exception:
+        device_registry = get_audio_device_registry(refresh=True)
+        return device_registry.choices("input"), device_registry.choices("output")
+    except Exception as error:
+        print(f"Failed to enumerate audio devices: {error}")
         return [], []
 
 
 def realtime_tab():
+    global device_registry
     input_devices, output_devices = get_audio_devices_formatted()
-    input_devices, output_devices = list(input_devices.keys()), list(
-        output_devices.keys()
-    )
 
     # Load saved settings
     saved_settings = load_realtime_settings()
+    if device_registry is not None:
+        saved_settings["input_device"] = device_registry.migrate_saved_value(
+            saved_settings["input_device"], "input"
+        )
+        saved_settings["output_device"] = device_registry.migrate_saved_value(
+            saved_settings["output_device"], "output"
+        )
+        saved_settings["monitor_device"] = device_registry.migrate_saved_value(
+            saved_settings["monitor_device"], "output"
+        )
 
     # Initialize template manager
     template_manager = RealtimeTemplateManager()
@@ -638,7 +693,7 @@ def realtime_tab():
                             input_audio_device = gr.Dropdown(
                                 label=i18n("Input Device"),
                                 info=i18n(
-                                    "Select the microphone or audio interface you will be speaking into."
+                                    "Select the microphone or audio interface. PA is the global PortAudio ID, so input-only lists have normal gaps."
                                 ),
                                 choices=input_devices,
                                 value=get_safe_dropdown_value(
@@ -673,7 +728,7 @@ def realtime_tab():
                             output_audio_device = gr.Dropdown(
                                 label=i18n("Output Device"),
                                 info=i18n(
-                                    "Select the device where the final converted voice will be sent (e.g., a virtual cable)."
+                                    "Select the output device. PA is the global PortAudio ID, so output-only lists have normal gaps."
                                 ),
                                 choices=output_devices,
                                 value=get_safe_dropdown_value(
@@ -749,7 +804,7 @@ def realtime_tab():
                         info=i18n(
                             "For WASAPI (Windows), gives the app exclusive control for potentially lower latency."
                         ),
-                        value=True,
+                        value=False,
                         interactive=True,
                     )
                     vad_enabled = gr.Checkbox(
@@ -972,6 +1027,45 @@ def realtime_tab():
                     ),
                     interactive=True,
                 )
+                effective_chunk_size = gr.Number(
+                    label=i18n("Effective Chunk Size (ms)"),
+                    value=RuntimeAudioShape.create(512).effective_chunk_ms,
+                    interactive=False,
+                    info=i18n(
+                        "Actual 128-frame-aligned value used for this Start session."
+                    ),
+                )
+                processing_mode = gr.Radio(
+                    choices=[
+                        (i18n("Fixed Chunk"), "fixed_chunk"),
+                        (i18n("Overlap (experimental)"), "overlap"),
+                    ],
+                    value=saved_settings["processing_mode"],
+                    label=i18n("Processing Mode"),
+                    info=i18n(
+                        "Fixed Chunk uses Chunk Size as the cadence. Overlap keeps the same context but emits a shorter fixed Hop."
+                    ),
+                    interactive=True,
+                )
+                overlap_hop_mode = gr.Radio(
+                    choices=[(i18n("Auto"), "auto"), (i18n("Manual"), "manual")],
+                    value=saved_settings["overlap_hop_mode"],
+                    label=i18n("Overlap Hop"),
+                    visible=saved_settings["processing_mode"] == "overlap",
+                    interactive=True,
+                )
+                manual_hop_size = gr.Slider(
+                    minimum=10,
+                    maximum=2730,
+                    value=saved_settings["manual_hop_size"],
+                    step=10,
+                    label=i18n("Manual Hop Size (ms)"),
+                    visible=(
+                        saved_settings["processing_mode"] == "overlap"
+                        and saved_settings["overlap_hop_mode"] == "manual"
+                    ),
+                    interactive=True,
+                )
                 cross_fade_overlap_size = gr.Slider(
                     minimum=0.05,
                     maximum=0.2,
@@ -1031,13 +1125,7 @@ def realtime_tab():
             ), gr.update(choices=new_sids, value=0 if new_sids else None)
 
         def refresh_devices():
-            sd._terminate()
-            sd._initialize()
-
             input_choices, output_choices = get_audio_devices_formatted()
-            input_choices, output_choices = list(input_choices.keys()), list(
-                output_choices.keys()
-            )
             return (
                 gr.update(choices=input_choices),
                 gr.update(choices=output_choices),
@@ -1046,6 +1134,17 @@ def realtime_tab():
 
         def toggle_visible(checkbox):
             return {"visible": checkbox, "__type__": "update"}
+
+        def update_processing_controls(mode, hop_mode, manual_hop):
+            overlap = mode == "overlap"
+            save_runtime_shape_settings(mode, hop_mode, manual_hop)
+            return (
+                gr.update(visible=overlap),
+                gr.update(visible=overlap and hop_mode == "manual"),
+            )
+
+        def update_effective_chunk(value):
+            return RuntimeAudioShape.create(value).effective_chunk_ms
 
         def toggle_visible_embedder_custom(embedder_model):
             if embedder_model == "custom":
@@ -1060,6 +1159,27 @@ def realtime_tab():
         refresh_devices_button.click(
             fn=refresh_devices,
             outputs=[input_audio_device, output_audio_device, monitor_output_device],
+        )
+
+        processing_mode.change(
+            fn=update_processing_controls,
+            inputs=[processing_mode, overlap_hop_mode, manual_hop_size],
+            outputs=[overlap_hop_mode, manual_hop_size],
+        )
+        overlap_hop_mode.change(
+            fn=update_processing_controls,
+            inputs=[processing_mode, overlap_hop_mode, manual_hop_size],
+            outputs=[overlap_hop_mode, manual_hop_size],
+        )
+        manual_hop_size.change(
+            fn=save_runtime_shape_settings,
+            inputs=[processing_mode, overlap_hop_mode, manual_hop_size],
+            outputs=[],
+        )
+        chunk_size.change(
+            fn=update_effective_chunk,
+            inputs=[chunk_size],
+            outputs=[effective_chunk_size],
         )
 
         autotune.change(
@@ -1114,6 +1234,9 @@ def realtime_tab():
                 exclusive_mode,
                 vad_enabled,
                 chunk_size,
+                processing_mode,
+                overlap_hop_mode,
+                manual_hop_size,
                 cross_fade_overlap_size,
                 extra_convert_size,
                 silent_threshold,
@@ -1198,9 +1321,6 @@ def realtime_tab():
             new_names = get_files("model")
             new_indexes = get_files("index")
             input_choices, output_choices = get_audio_devices_formatted()
-            input_choices, output_choices = list(input_choices.keys()), list(
-                output_choices.keys()
-            )
             return (
                 gr.update(choices=sorted(new_names, key=extract_model_and_epoch)),
                 gr.update(choices=new_indexes),
@@ -1228,15 +1348,23 @@ def realtime_tab():
             input_dev = audio_tab.get("input", {}).get("device", "")
             output_dev = audio_tab.get("output", {}).get("device", "")
             monitor_dev = audio_tab.get("monitor", {}).get("device", "")
+            if device_registry is not None:
+                input_dev = device_registry.migrate_saved_value(input_dev, "input")
+                output_dev = device_registry.migrate_saved_value(output_dev, "output")
+                monitor_dev = device_registry.migrate_saved_value(
+                    monitor_dev, "output"
+                )
             model_file = model_tab.get("voice", {}).get("model_path", "")
             index_file = model_tab.get("voice", {}).get("index_path", "")
 
             missing_devices = []
-            if input_dev and input_dev not in input_devices:
+            input_values = [value for _, value in input_devices]
+            output_values = [value for _, value in output_devices]
+            if input_dev and input_dev not in input_values:
                 missing_devices.append(f"Input: {input_dev}")
-            if output_dev and output_dev not in output_devices:
+            if output_dev and output_dev not in output_values:
                 missing_devices.append(f"Output: {output_dev}")
-            if monitor_dev and monitor_dev not in output_devices:
+            if monitor_dev and monitor_dev not in output_values:
                 missing_devices.append(f"Monitor: {monitor_dev}")
 
             if missing_devices:
@@ -1251,7 +1379,15 @@ def realtime_tab():
                 "index_file": index_file or "",
             })
 
-            return template_manager.extract_settings_to_gradio_updates(template_data)
+            updates = list(
+                template_manager.extract_settings_to_gradio_updates(template_data)
+            )
+            # Template files may still contain the old display string. Return
+            # the resolved snapshot token to the dropdown, not that stale text.
+            updates[0] = gr.update(value=input_dev)
+            updates[3] = gr.update(value=output_dev)
+            updates[7] = gr.update(value=monitor_dev)
+            return tuple(updates)
 
         def on_apply_template(template_name):
             """Apply template without confirmation"""

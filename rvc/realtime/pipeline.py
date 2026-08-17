@@ -17,6 +17,7 @@ from rvc.infer.pipeline import Autotune, AudioProcessor
 from rvc.lib.algorithm.synthesizers import Synthesizer
 from rvc.lib.predictors.f0 import FCPE, RMVPE, SWIFT, CREPE, MANGIO_CREPE
 from rvc.lib.utils import load_embedding, HubertModelWithFinalProj
+from rvc.realtime.compile_session import RvcCompileSession
 
 
 class RealtimeVoiceConverter:
@@ -24,7 +25,7 @@ class RealtimeVoiceConverter:
     A class for performing realtime voice conversion using the Retrieval-Based Voice Conversion (RVC) method.
     """
 
-    def __init__(self, weight_root):
+    def __init__(self, weight_root, compile_settings=None, compile_signature="realtime"):
         """
         Initializes the RealtimeVoiceConverter with default configuration, and sets up models and parameters.
         """
@@ -34,6 +35,9 @@ class RealtimeVoiceConverter:
         self.cpt = None  # Checkpoint for loading model weights
         self.version = None  # Model version
         self.use_f0 = None  # Whether the model uses F0
+        self.compile_settings = compile_settings
+        self.compile_signature = compile_signature
+        self.compile_session = None
         # load weights and setup model network.
         self.load_model(weight_root)
         self.setup_network()
@@ -75,6 +79,12 @@ class RealtimeVoiceConverter:
             strip_parametrizations(self.net_g)
             self.net_g = self.net_g.to(self.config.device).float()
             self.net_g.eval()
+            if self.compile_settings is not None:
+                self.compile_session = RvcCompileSession(
+                    self.net_g,
+                    self.compile_settings,
+                    self.compile_signature,
+                )
             # self.net_g.remove_weight_norm()
 
     def inference(
@@ -85,7 +95,8 @@ class RealtimeVoiceConverter:
         pitch: Tensor,
         pitchf: Tensor,
     ):
-        output = self.net_g.infer(feats, p_len, pitch, pitchf, sid)[0][0, 0]
+        infer = self.compile_session or self.net_g.infer
+        output = infer(feats, p_len, pitch, pitchf, sid)[0][0, 0]
 
         return torch.clip(output, -1.0, 1.0, out=output)
 
@@ -100,6 +111,8 @@ class Realtime_Pipeline:
         f0_method: str = "rmvpe",
         sid: int = 0,
         hybrid_blend_ratio: float = 0.5,
+        compile_settings=None,
+        compile_signature: str = "realtime",
     ):
         self.vc = vc
         self.hubert_model = hubert_model
@@ -122,6 +135,16 @@ class Realtime_Pipeline:
         self.resamplers = {}
         self.f0_model = None
         self.f0_model_secondary = None
+        self.compile_settings = compile_settings
+        self.compile_signature = compile_signature
+
+    def finish_compile_warmup(self):
+        if self.vc.compile_session is not None:
+            self.vc.compile_session.finish_warmup()
+        for model in (self.f0_model, self.f0_model_secondary):
+            finish = getattr(model, "finish_compile_warmup", None)
+            if finish is not None:
+                finish()
 
     def get_f0(
         self,
@@ -184,6 +207,8 @@ class Realtime_Pipeline:
                     # hop_size=self.window,
                     # hop_size=164,
                     hop_size=160,
+                    compile_settings=self.compile_settings,
+                    compile_signature=self.compile_signature,
                 )
             f0 = self.f0_model.get_f0(
                 x,
@@ -201,6 +226,8 @@ class Realtime_Pipeline:
                     device=self.device,
                     sample_rate=self.sample_rate,
                     hop_size=self.window,
+                    compile_settings=self.compile_settings,
+                    compile_signature=self.compile_signature,
                 )
             f0 = self.f0_model.get_f0(
                 x,
@@ -412,12 +439,14 @@ def create_pipeline(
     # device: str = "cuda",
     sid: int = 0,
     hybrid_blend_ratio: float = 0.5,
+    compile_settings=None,
+    compile_signature: str = "realtime",
 ):
     """
     Initialize real-time voice conversion pipeline.
     """
 
-    vc = RealtimeVoiceConverter(model_path)
+    vc = RealtimeVoiceConverter(model_path, compile_settings, compile_signature)
     index, big_npy = load_faiss_index(
         index_path.strip()
         .strip('"')
@@ -439,6 +468,8 @@ def create_pipeline(
         f0_method,
         sid,
         hybrid_blend_ratio,
+        compile_settings,
+        compile_signature,
     )
 
     return pipeline

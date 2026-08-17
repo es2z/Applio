@@ -1,141 +1,50 @@
-import os
-import sys
-import librosa
+"""Non-blocking realtime audio transport.
+
+PortAudio callbacks only copy samples. Model inference, resampling and elastic
+buffer maintenance run on a dedicated worker so a long GUI Chunk Size never
+becomes the host callback block size.
+"""
+
+from __future__ import annotations
+
+import math
+import threading
+import time
 import traceback
+from collections import deque
+
 import numpy as np
 import sounddevice as sd
-from queue import Queue
-from dataclasses import dataclass
+import soxr
 
-now_dir = os.getcwd()
-sys.path.append(now_dir)
-
-from rvc.realtime.core import AUDIO_SAMPLE_RATE
-
-
-@dataclass
-class ServerAudioDevice:
-    index: int = 0
-    name: str = ""
-    host_api: str = ""
-    max_input_channels: int = 0
-    max_output_channels: int = 0
-    default_samplerate: int = 0
+from rvc.realtime.devices import (
+    AudioDeviceRef,
+    get_audio_device_registry,
+    list_audio_device,
+)
+from rvc.realtime.runtime import (
+    INTERNAL_SAMPLE_RATE,
+    BUFFER_STEP_MS,
+    ElasticBufferController,
+    FloatRingBuffer,
+    RuntimeAudioShape,
+    ceil_to_grid,
+)
 
 
-def check_the_device(device, type: str = "input", hostapis=None):
-    """
-    Check if an audio device is available and working.
-
-    For WDM-KS devices: Uses a lenient test since they only support callback-based
-    (non-blocking) mode and may fail standard blocking tests. WDM-KS devices are
-    accepted if the error indicates they're valid but just don't support blocking mode.
-    """
-    # Get host API name if available
-    host_api_name = ""
-    if hostapis and "hostapi" in device:
-        try:
-            host_api_name = hostapis[device["hostapi"]]["name"]
-        except (IndexError, KeyError):
-            pass
-
-    stream_cls = sd.InputStream if type == "input" else sd.OutputStream
-
-    # For WDM-KS devices, use a more lenient test with explicit device specification
-    if "WDM-KS" in host_api_name or "Windows WDM-KS" in host_api_name:
-        try:
-            # Test with a smaller blocksize and explicit latency for WDM-KS
-            with stream_cls(
-                device=device["index"],
-                dtype=np.float32,
-                samplerate=device["default_samplerate"],
-                channels=1,  # Test with mono
-                blocksize=512,
-                latency='low',
-            ):
-                return True
-        except Exception as e:
-            # WDM-KS devices might fail to open if already in use, but still valid
-            # Only reject if it's clearly not a valid device
-            if "Invalid device" in str(e) or "Device unavailable" in str(e):
-                return False
-            # For other errors (like "Blocking API not supported"), assume device is valid
-            # WDM-KS only supports callback-based (non-blocking) mode, so this is expected
-            return True
-
-    # Standard test for non-WDM-KS devices
-    try:
-        with stream_cls(
-            device=device["index"],
-            dtype=np.float32,
-            samplerate=device["default_samplerate"],
-        ):
-            return True
-    except Exception:
-        return False
+CALLBACK_SCRATCH_FRAMES = 65_536
+STREAM_HEARTBEAT_TIMEOUT_SECONDS = 3.0
+WORKER_READ_FRAMES = 8_192
+MAX_CLOCK_CORRECTION_PPM = 1_000.0
+CLOCK_CORRECTION_GAIN_PPM_PER_MS = 40.0
 
 
-def list_audio_device():
-    """
-    Function to query audio devices and host api.
-    """
-    try:
-        audio_device_list = sd.query_devices()
-    except Exception as e:
-        print("An error occurred while querying the audio device:", e)
-        audio_device_list = []
-    except OSError as e:
-        # This error can occur when the libportaudio2 library is missing.
-        print("An error occurred while querying the audio device:", e)
-        audio_device_list = []
+def _is_wasapi(device: AudioDeviceRef) -> bool:
+    return "WASAPI" in device.host_api
 
-    try:
-        hostapis = sd.query_hostapis()
-    except Exception as e:
-        print("An error occurred while querying the host api:", e)
-        hostapis = []
-    except OSError as e:
-        # This error can occur when the libportaudio2 library is missing.
-        print("An error occurred while querying the host api:", e)
-        hostapis = []
 
-    input_audio_device_list = [
-        d
-        for d in audio_device_list
-        if d["max_input_channels"] > 0 and check_the_device(d, "input", hostapis)
-    ]
-    output_audio_device_list = [
-        d
-        for d in audio_device_list
-        if d["max_output_channels"] > 0 and check_the_device(d, "output", hostapis)
-    ]
-
-    audio_input_device = []
-    audio_output_device = []
-
-    for d in input_audio_device_list:
-        input_audio_device = ServerAudioDevice(
-            index=d["index"],
-            name=d["name"],
-            host_api=hostapis[d["hostapi"]]["name"],
-            max_input_channels=d["max_input_channels"],
-            max_output_channels=d["max_output_channels"],
-            default_samplerate=d["default_samplerate"],
-        )
-        audio_input_device.append(input_audio_device)
-
-    for d in output_audio_device_list:
-        output_audio_device = ServerAudioDevice(
-            index=d["index"],
-            name=d["name"],
-            host_api=hostapis[d["hostapi"]]["name"],
-            max_input_channels=d["max_input_channels"],
-            max_output_channels=d["max_output_channels"],
-            default_samplerate=d["default_samplerate"],
-        )
-        audio_output_device.append(output_audio_device)
-
-    return audio_input_device, audio_output_device
+def _is_asio(device: AudioDeviceRef) -> bool:
+    return "ASIO" in device.host_api
 
 
 class Audio:
@@ -148,24 +57,16 @@ class Audio:
         volume_envelope: float = 1,
         f0_autotune: bool = False,
         f0_autotune_strength: float = 1,
-        proposed_pitch=False,
+        proposed_pitch: bool = False,
         proposed_pitch_threshold: float = 155.0,
         input_audio_gain: float = 1.0,
         output_audio_gain: float = 1.0,
         monitor_audio_gain: float = 1.0,
         monitor: bool = False,
+        runtime_shape: RuntimeAudioShape | None = None,
     ):
         self.callbacks = callbacks
-        self.mon_queue = Queue()  # Queue for monitor audio
-        self.io_queue = Queue()  # Queue for separate input/output streams (WDM-KS support)
-
-        # Stream objects - either use duplex stream OR separate input/output streams
-        self.stream = None  # Duplex stream (used for WASAPI, ASIO, etc.)
-        self.input_stream = None  # Separate input stream (used for WDM-KS compatibility)
-        self.output_stream = None  # Separate output stream (used for WDM-KS compatibility)
-        self.monitor = None  # Optional monitor stream
-
-        self.running = False
+        self.runtime_shape = runtime_shape or RuntimeAudioShape.create(512)
         self.input_audio_gain = input_audio_gain
         self.output_audio_gain = output_audio_gain
         self.monitor_audio_gain = monitor_audio_gain
@@ -179,39 +80,62 @@ class Audio:
         self.proposed_pitch = proposed_pitch
         self.proposed_pitch_threshold = proposed_pitch_threshold
 
-        # Auto-reconnect settings
-        self.auto_reconnect_enabled = True
-        self.consecutive_errors = 0
-        self.max_consecutive_errors = 150  # Trigger reconnect after 150 consecutive errors (increased from 50 for stability with large extra_infer_size)
+        self.stream = None
+        self.input_stream = None
+        self.output_stream = None
+        self.monitor = None
+        self.running = False
+        self.last_error: str | None = None
         self.reconnect_in_progress = False
-        self.last_stream_params = None  # Store parameters for reconnection
-        self.reconnect_success = False  # Flag to indicate successful reconnection
-        self.last_error = None  # Store last error message for UI display
+        self.reconnect_success = False
+        self.transport_mode = "stopped"
 
-        # Track consecutive silent outputs for queue management
-        # Note: silence detection is done in core.py, this just tracks output
-        self.consecutive_silent_outputs = 0
-        self.silent_output_threshold_to_stop_adding = 3  # Stop adding to queue after 3 silent outputs
-        self.silent_output_threshold_to_clear_queue = 5  # Clear queue after 5 silent outputs (fast cleanup)
+        self.input_ring: FloatRingBuffer | None = None
+        self.internal_input_ring: FloatRingBuffer | None = None
+        self.output_ring: FloatRingBuffer | None = None
+        self.monitor_ring: FloatRingBuffer | None = None
+        self.input_rate = INTERNAL_SAMPLE_RATE
+        self.output_rate = INTERNAL_SAMPLE_RATE
+        self.monitor_rate = INTERNAL_SAMPLE_RATE
+        self.input_resampler = None
+        self.output_resampler = None
+        self.monitor_resampler = None
+        self._separate_stream_clocks = False
+        self.output_clock_correction_ppm = 0.0
+        self.device_latency_ms = 0.0
+        self.open_warnings: list[str] = []
 
-    def get_input_audio_device(self, index: int):
-        audioinput, _ = list_audio_device()
-        serverAudioDevice = [x for x in audioinput if x.index == index]
+        self._worker = None
+        self._input_event = threading.Event()
+        self._input_heartbeat = threading.Event()
+        self._output_heartbeat = threading.Event()
+        self._worker_ready = threading.Event()
+        self._capture_scratch = np.zeros(CALLBACK_SCRATCH_FRAMES, dtype=np.float32)
+        self._playback_started = False
+        self._startup_reserve_remaining = 0
+        self._monitor_playback_started = False
 
-        return serverAudioDevice[0] if len(serverAudioDevice) > 0 else None
+        self.inference_times = deque(maxlen=512)
+        self.latency = 0.0
+        self.input_overflows = 0
+        self.output_underflows = 0
+        self.callback_status_events = 0
+        self._last_output_silent = True
+        self._pending_underflows = 0
+        self._warmup_times: list[float] = []
+        self.elastic = ElasticBufferController()
 
-    def get_output_audio_device(self, index: int):
-        _, audiooutput = list_audio_device()
-        serverAudioDevice = [x for x in audiooutput if x.index == index]
+    def configure_warmup(self, timings_ms: list[float]) -> None:
+        self._warmup_times = [float(value) for value in timings_ms if value >= 0]
+        if self._warmup_times:
+            p50 = float(np.percentile(self._warmup_times, 50))
+            p95 = float(np.percentile(self._warmup_times, 95))
+            reserve = max(10, ceil_to_grid(max(0.0, p95 - p50)))
+            self.elastic = ElasticBufferController(reserve)
 
-        return serverAudioDevice[0] if len(serverAudioDevice) > 0 else None
-
-    def process_data(self, indata: np.ndarray):
-        indata = indata * self.input_audio_gain
-        unpacked_data = librosa.to_mono(indata.T)
-
+    def _process(self, samples: np.ndarray):
         return self.callbacks.change_voice(
-            unpacked_data,
+            samples * self.input_audio_gain,
             self.f0_up_key,
             self.index_rate,
             self.protect,
@@ -222,718 +146,693 @@ class Audio:
             self.proposed_pitch_threshold,
         )
 
-    def process_data_with_time(self, indata: np.ndarray):
-        out_wav, _, perf, _ = self.process_data(indata)
-        performance_ms = perf[1]
-        # print(f"real-time voice conversion performance: {performance_ms:.2f} ms")
-        self.latency = performance_ms  # latency to display on the application interface
-
-        return out_wav
-
-    def audio_stream_callback(
-        self, indata: np.ndarray, outdata: np.ndarray, frames, times, status
-    ):
-        try:
-            # Check for buffer overflow/underflow
-            if status:
-                print(f"[Audio Stream Warning] {status}")
-                self.consecutive_errors += 1
+    def _capture_callback(self, indata: np.ndarray, frames: int, status) -> None:
+        self._input_heartbeat.set()
+        if status:
+            self.callback_status_events += 1
+        if not self.running or self.input_ring is None:
+            return
+        if frames <= len(self._capture_scratch):
+            mono = self._capture_scratch[:frames]
+            if indata.shape[1] == 1:
+                mono[:] = indata[:, 0]
             else:
-                # Reset error count on successful processing
-                self.consecutive_errors = 0
+                np.sum(indata, axis=1, out=mono)
+                mono /= indata.shape[1]
+        else:
+            # This is outside normal host callback sizes. Preserve transport
+            # rather than writing past the preallocated callback scratch.
+            mono = indata[:, 0]
+        written = self.input_ring.write(mono, blocking=False)
+        if written < frames:
+            self.input_overflows += 1
+        self._input_event.set()
 
-            out_wav = self.process_data_with_time(indata)
+    def input_callback(self, indata, frames, times, status):
+        self._capture_callback(indata, frames, status)
 
-            output_channels = outdata.shape[1]
-            if self.use_monitor:
-                self.mon_queue.put(out_wav)
-
-            outdata[:] = (
-                np.repeat(out_wav, output_channels).reshape(-1, output_channels)
-                * self.output_audio_gain
-            )
-
-            # Check if we need to reconnect
-            self._check_and_reconnect()
-
-        except Exception as error:
-            self.consecutive_errors += 1
-            print(f"An error occurred while running the audio stream: {error}")
-            print(traceback.format_exc())
-            # Output silence on error to avoid glitches
-            outdata[:] = 0
-            # Check if we need to reconnect
-            self._check_and_reconnect()
-
-    def audio_queue(self, outdata: np.ndarray, frames, times, status):
-        try:
-            # Check for buffer overflow/underflow
-            if status:
-                print(f"[Monitor Stream Warning] {status}")
-
-            mon_wav = self.mon_queue.get()
-
-            while self.mon_queue.qsize() > 0:
-                self.mon_queue.get()
-
-            output_channels = outdata.shape[1]
-            outdata[:] = (
-                np.repeat(mon_wav, output_channels).reshape(-1, output_channels)
-                * self.monitor_audio_gain
-            )
-        except Exception as error:
-            print(f"An error occurred while running the audio queue: {error}")
-            print(traceback.format_exc())
-            # Output silence on error
-            outdata[:] = 0
-
-    def input_callback(self, indata: np.ndarray, frames, times, status):
-        """
-        Callback for input-only stream (used when input and output use separate streams).
-        Processes the input audio and puts it in the queue for the output stream.
-        """
-        try:
-            # Check for buffer overflow/underflow
-            if status:
-                print(f"[Input Stream Warning] {status}")
-                self.consecutive_errors += 1
-            else:
-                # Reset error count on successful processing
-                self.consecutive_errors = 0
-
-            out_wav = self.process_data_with_time(indata)
-
-            # Check if the output is silence (all values near zero)
-            # Silence detection is done in core.py, this just checks output
-            is_silent_output = np.abs(out_wav).max() < 1e-5
-
-            if is_silent_output:
-                self.consecutive_silent_outputs += 1
-            else:
-                self.consecutive_silent_outputs = 0
-
-            if self.use_monitor:
-                self.mon_queue.put(out_wav)
-
-            # Put processed audio into queue for output stream
-            # IMPORTANT: Keep queue small to minimize latency
-            # max_queue_size = 1 means we only keep the latest frame
-            # This prevents queue buildup during startup and reduces latency
-            max_queue_size = 1
-            min_queue_size = 0
-
-            # Silent output handling strategy:
-            # 1. Stop adding silence after threshold to let queue drain naturally
-            # 2. Clear queue only after extended silent output (audio completely stopped)
-            if is_silent_output and self.consecutive_silent_outputs > self.silent_output_threshold_to_stop_adding:
-                # Stop adding silence to queue to allow natural draining
-                # Output callback will continue to output remaining data
-
-                # Reset output queue empty counter during silence (this is normal, not an error)
-                if hasattr(self, '_queue_empty_count'):
-                    self._queue_empty_count = 0
-
-                # If silent output continues for a very long time, clear the queue
-                # This prevents stale data from playing when new audio starts
-                if self.consecutive_silent_outputs > self.silent_output_threshold_to_clear_queue:
-                    # Clear queue only after extended silent output (audio completely finished)
-                    while not self.io_queue.empty():
-                        try:
-                            self.io_queue.get_nowait()
-                        except:
-                            break
-                # Don't add silence to queue
-                pass
-            else:
-                # Normal operation: add data to queue and manage queue size
-                current_size = self.io_queue.qsize()
-                if current_size > max_queue_size:
-                    print(f"[Input] Queue size too large ({current_size}), clearing to {min_queue_size}")
-                    cleared = 0
-                    while self.io_queue.qsize() > min_queue_size:
-                        try:
-                            self.io_queue.get_nowait()
-                            cleared += 1
-                        except:
-                            break
-                    print(f"[Input] Cleared {cleared} items from queue")
-
-                self.io_queue.put(out_wav)
-
-            # Check if we need to reconnect
-            self._check_and_reconnect()
-
-        except Exception as error:
-            self.consecutive_errors += 1
-            print(f"An error occurred in input callback: {error}")
-            print(traceback.format_exc())
-            # Put silence in queue to maintain synchronization
-            try:
-                self.io_queue.put(np.zeros(indata.shape[0], dtype=np.float32))
-            except:
-                pass
-            # Check if we need to reconnect
-            self._check_and_reconnect()
-
-    def output_callback(self, outdata: np.ndarray, frames, times, status):
-        """
-        Callback for output-only stream (used when input and output use separate streams).
-        Gets processed audio from the queue and outputs it.
-        """
-        try:
-            # Check for buffer overflow/underflow
-            if status:
-                print(f"[Output Stream Warning] {status}")
-                self.consecutive_errors += 1
-
-            # Get processed audio from queue with timeout to avoid blocking indefinitely
-            try:
-                out_wav = self.io_queue.get(timeout=0.1)
-            except:
-                # Queue is empty
-                # This is normal during startup or when input processing is slower than output
-                if not hasattr(self, '_queue_empty_count'):
-                    self._queue_empty_count = 0
-                self._queue_empty_count += 1
-
-                # Only log if queue has been empty for an extended period (potential problem)
-                # First 100 empties are ignored (startup period)
-                # After that, log every 50th occurrence to detect persistent issues
-                if self._queue_empty_count > 100 and self._queue_empty_count % 50 == 1:
-                    print(f"[Output] Queue empty (count: {self._queue_empty_count}), outputting silence - this may indicate processing is too slow")
-
-                # Increment error count for empty queue
-                self.consecutive_errors += 1
-                outdata[:] = 0
-                return
-
-            # Reset empty count and error count on successful get
-            if hasattr(self, '_queue_empty_count'):
-                self._queue_empty_count = 0
-            self.consecutive_errors = 0
-
-            # Latency reduction: Use only the latest frame if queue has accumulated
-            # This ensures minimal latency by discarding old buffered data
-            queue_size = self.io_queue.qsize()
-            if queue_size > 1:
-                # Discard old frames, keep only the latest
-                skipped = 0
-                while self.io_queue.qsize() > 1:
-                    try:
-                        self.io_queue.get_nowait()
-                        skipped += 1
-                    except:
-                        break
-                # Now get the latest frame
-                out_wav = self.io_queue.get_nowait()
-                if skipped > 0:
-                    print(f"[Output] Skipped {skipped} old frames to reduce latency (queue had {queue_size} items)")
-
-            output_channels = outdata.shape[1]
-            outdata[:] = (
-                np.repeat(out_wav, output_channels).reshape(-1, output_channels)
-                * self.output_audio_gain
-            )
-        except Exception as error:
-            self.consecutive_errors += 1
-            print(f"An error occurred in output callback: {error}")
-            print(traceback.format_exc())
-            # Output silence on error
-            outdata[:] = 0
-
-    def run_audio_stream(
-        self,
-        block_frame: int,
-        input_device_id: int,
-        output_device_id: int,
-        output_monitor_id: int,
-        input_max_channel: int,
-        output_max_channel: int,
-        output_monitor_max_channel: int,
-        input_extra_setting,
-        output_extra_setting,
-        output_monitor_extra_setting,
-        latency_mode: str = "low",
-    ):
-        # Use latency_mode to balance between responsiveness and stability
-        self.stream = sd.Stream(
-            callback=self.audio_stream_callback,
-            latency=latency_mode,
-            dtype=np.float32,
-            device=(input_device_id, output_device_id),
-            blocksize=block_frame,
-            samplerate=AUDIO_SAMPLE_RATE,
-            channels=(input_max_channel, output_max_channel),
-            extra_settings=(input_extra_setting, output_extra_setting),
-        )
-        self.stream.start()
-
-        if self.use_monitor:
-            self.monitor = sd.OutputStream(
-                callback=self.audio_queue,
-                dtype=np.float32,
-                device=output_monitor_id,
-                blocksize=block_frame,
-                samplerate=AUDIO_SAMPLE_RATE,
-                channels=output_monitor_max_channel,
-                extra_settings=output_monitor_extra_setting,
-            )
-            self.monitor.start()
-
-    def run_audio_stream_separate(
-        self,
-        block_frame: int,
-        input_device_id: int,
-        output_device_id: int,
-        output_monitor_id: int,
-        input_max_channel: int,
-        output_max_channel: int,
-        output_monitor_max_channel: int,
-        input_extra_setting,
-        output_extra_setting,
-        output_monitor_extra_setting,
-        latency_mode: str = "low",
-    ):
-        """
-        Run audio with separate input and output streams.
-
-        This method is used when WDM-KS devices are involved or when input and output
-        use different host APIs. Separate streams avoid compatibility issues that can
-        occur with duplex streams across different audio APIs.
-
-        The input stream captures audio, processes it, and puts it in a queue.
-        The output stream retrieves processed audio from the queue and outputs it.
-        """
-        # Create input stream
-        # Use latency_mode to balance between responsiveness and stability
-        self.input_stream = sd.InputStream(
-            callback=self.input_callback,
-            latency=latency_mode,
-            dtype=np.float32,
-            device=input_device_id,
-            blocksize=block_frame,
-            samplerate=AUDIO_SAMPLE_RATE,
-            channels=input_max_channel,
-            extra_settings=input_extra_setting,
-        )
-
-        # Create output stream
-        # Use latency_mode to balance between responsiveness and stability
-        self.output_stream = sd.OutputStream(
-            callback=self.output_callback,
-            latency=latency_mode,
-            dtype=np.float32,
-            device=output_device_id,
-            blocksize=block_frame,
-            samplerate=AUDIO_SAMPLE_RATE,
-            channels=output_max_channel,
-            extra_settings=output_extra_setting,
-        )
-
-        # Start streams - IMPORTANT: Start output first to prevent queue buildup
-        # If input starts first, it will process and queue data before output can consume it
-        # This causes initial latency as the queue fills up
-        self.output_stream.start()
-        self.input_stream.start()
-
-        if self.use_monitor:
-            self.monitor = sd.OutputStream(
-                callback=self.audio_queue,
-                dtype=np.float32,
-                device=output_monitor_id,
-                blocksize=block_frame,
-                samplerate=AUDIO_SAMPLE_RATE,
-                channels=output_monitor_max_channel,
-                extra_settings=output_monitor_extra_setting,
-            )
-            self.monitor.start()
-
-    def _check_and_reconnect(self):
-        """
-        Check if we need to trigger auto-reconnect based on consecutive errors.
-        """
-        if not self.auto_reconnect_enabled or self.reconnect_in_progress:
+    def _render_callback(self, outdata: np.ndarray, frames: int, status) -> None:
+        self._output_heartbeat.set()
+        outdata.fill(0)
+        if status:
+            self.callback_status_events += 1
+        if not self.running or self.output_ring is None:
             return
 
-        if self.consecutive_errors >= self.max_consecutive_errors:
-            print(f"\n[Auto-Reconnect] Detected {self.consecutive_errors} consecutive errors. Attempting to reconnect...")
-            self.reconnect_in_progress = True
-            self._attempt_reconnect()
+        if not self._playback_started:
+            if self.output_ring.available_approx <= 0:
+                return
+            if self._startup_reserve_remaining > 0:
+                consumed = min(frames, self._startup_reserve_remaining)
+                self._startup_reserve_remaining -= consumed
+                if consumed == frames:
+                    return
+                target = outdata[consumed:, 0]
+            else:
+                self._playback_started = True
+                target = outdata[:, 0]
+        else:
+            target = outdata[:, 0]
 
-    def _attempt_reconnect(self):
-        """
-        Attempt to reconnect the audio streams.
-        """
-        import threading
-        import time
+        read = self.output_ring.read_into(target, blocking=False)
+        if read < len(target):
+            self.output_underflows += 1
+            # Do not acquire the elastic-controller lock in the callback. The
+            # inference worker turns this signal into an additive 10 ms step.
+            self._pending_underflows += 1
+        target *= self.output_audio_gain
+        for channel in range(1, outdata.shape[1]):
+            outdata[:, channel] = outdata[:, 0]
 
-        def reconnect_worker():
+    def output_callback(self, outdata, frames, times, status):
+        self._render_callback(outdata, frames, status)
+
+    def audio_stream_callback(self, indata, outdata, frames, times, status):
+        self._capture_callback(indata, frames, status)
+        self._render_callback(outdata, frames, status)
+
+    def audio_queue(self, outdata, frames, times, status):
+        outdata.fill(0)
+        if status:
+            self.callback_status_events += 1
+        if not self.running or self.monitor_ring is None:
+            return
+        read = self.monitor_ring.read_into(outdata[:, 0], blocking=False)
+        if read:
+            outdata[:, 0] *= self.monitor_audio_gain
+        for channel in range(1, outdata.shape[1]):
+            outdata[:, channel] = outdata[:, 0]
+
+    @staticmethod
+    def _device_channels(device: AudioDeviceRef, selected_channel: int) -> int:
+        if selected_channel >= 0 and _is_asio(device):
+            return 1
+        return max(1, min(2, device.channels))
+
+    @staticmethod
+    def _extra_settings(
+        device: AudioDeviceRef, exclusive: bool, selected_channel: int
+    ):
+        if _is_wasapi(device):
+            return sd.WasapiSettings(
+                exclusive=bool(exclusive), auto_convert=not bool(exclusive)
+            )
+        if _is_asio(device) and selected_channel >= 0:
+            return sd.AsioSettings(channel_selectors=[selected_channel])
+        return None
+
+    @staticmethod
+    def _supported_rate(
+        input_device: AudioDeviceRef, output_device: AudioDeviceRef
+    ) -> int:
+        candidates = []
+        for value in (
+            INTERNAL_SAMPLE_RATE,
+            input_device.default_samplerate,
+            output_device.default_samplerate,
+            44_100,
+        ):
+            rate = int(round(value))
+            if rate not in candidates:
+                candidates.append(rate)
+        for rate in candidates:
             try:
-                print("[Auto-Reconnect] Stopping current streams...")
-                # Close current streams (but keep last_stream_params)
-                if self.stream is not None:
-                    try:
-                        self.stream.close()
-                    except:
-                        pass
-                    self.stream = None
+                sd.check_input_settings(
+                    device=input_device.index,
+                    channels=max(1, min(2, input_device.max_input_channels)),
+                    dtype=np.float32,
+                    samplerate=rate,
+                )
+                sd.check_output_settings(
+                    device=output_device.index,
+                    channels=max(1, min(2, output_device.max_output_channels)),
+                    dtype=np.float32,
+                    samplerate=rate,
+                )
+                return rate
+            except Exception:
+                continue
+        raise RuntimeError("Input and output devices have no compatible sample rate")
 
-                if self.input_stream is not None:
-                    try:
-                        self.input_stream.close()
-                    except:
-                        pass
-                    self.input_stream = None
-
-                if self.output_stream is not None:
-                    try:
-                        self.output_stream.close()
-                    except:
-                        pass
-                    self.output_stream = None
-
-                if self.monitor is not None:
-                    try:
-                        self.monitor.close()
-                    except:
-                        pass
-                    self.monitor = None
-
-                # Clear queues
-                while not self.io_queue.empty():
-                    try:
-                        self.io_queue.get_nowait()
-                    except:
-                        break
-
-                while not self.mon_queue.empty():
-                    try:
-                        self.mon_queue.get_nowait()
-                    except:
-                        break
-
-                # Wait a bit before reconnecting
-                time.sleep(0.5)
-
-                # Attempt to restart streams with saved parameters
-                if self.last_stream_params is not None:
-                    print("[Auto-Reconnect] Restarting streams with saved parameters...")
-                    params = self.last_stream_params
-
-                    # Determine if we should use separate streams
-                    use_separate_streams = params.get('use_separate_streams', False)
-                    latency_mode = params.get('latency_mode', 'low')
-
-                    try:
-                        if use_separate_streams:
-                            self.run_audio_stream_separate(
-                                params['block_frame'],
-                                params['input_device_id'],
-                                params['output_device_id'],
-                                params['output_monitor_id'],
-                                params['input_max_channel'],
-                                params['output_max_channel'],
-                                params['output_monitor_max_channel'],
-                                params['input_extra_setting'],
-                                params['output_extra_setting'],
-                                params['output_monitor_extra_setting'],
-                                latency_mode,
-                            )
-                        else:
-                            self.run_audio_stream(
-                                params['block_frame'],
-                                params['input_device_id'],
-                                params['output_device_id'],
-                                params['output_monitor_id'],
-                                params['input_max_channel'],
-                                params['output_max_channel'],
-                                params['output_monitor_max_channel'],
-                                params['input_extra_setting'],
-                                params['output_extra_setting'],
-                                params['output_monitor_extra_setting'],
-                                latency_mode,
-                            )
-
-                        # Reset error counter on successful reconnect
-                        self.consecutive_errors = 0
-                        self.reconnect_success = True  # Set flag for UI to detect
-                        self.last_error = None  # Clear error
-                        print("[Auto-Reconnect] Successfully reconnected streams!")
-
-                    except Exception as e:
-                        self.last_error = f"Reconnect failed: {e}"
-                        print(f"[Auto-Reconnect] Failed to reconnect: {e}")
-                        print(traceback.format_exc())
-                else:
-                    print("[Auto-Reconnect] No saved parameters found. Cannot reconnect.")
-
-            except Exception as e:
-                print(f"[Auto-Reconnect] Error during reconnection: {e}")
-                print(traceback.format_exc())
-            finally:
-                self.reconnect_in_progress = False
-
-        # Run reconnection in a separate thread to avoid blocking the audio callback
-        reconnect_thread = threading.Thread(target=reconnect_worker, daemon=True)
-        reconnect_thread.start()
-
-    def stop(self):
-        self.running = False
-        self.auto_reconnect_enabled = False  # Disable auto-reconnect when explicitly stopping
-        self.reconnect_success = False  # Reset reconnect flag
-        self.last_error = None  # Clear error
-
-        if self.stream is not None:
-            self.stream.close()
-            self.stream = None
-
-        if self.input_stream is not None:
-            self.input_stream.close()
-            self.input_stream = None
-
-        if self.output_stream is not None:
-            self.output_stream.close()
-            self.output_stream = None
-
-        if self.monitor is not None:
-            self.monitor.close()
-            self.monitor = None
-
-        # Clear all queues and reset counters to ensure clean state
-        while not self.io_queue.empty():
-            try:
-                self.io_queue.get_nowait()
-            except:
-                break
-
+    def _create_buffers(self, *, separate_stream_clocks: bool) -> None:
+        self._separate_stream_clocks = separate_stream_clocks
+        internal_capacity = max(
+            self.runtime_shape.context_frames * 4,
+            INTERNAL_SAMPLE_RATE * 8,
+        )
+        input_capacity = max(int(self.input_rate * 8), WORKER_READ_FRAMES * 4)
+        output_capacity = max(
+            int(self.output_rate * 8),
+            int(
+                self.output_rate
+                * (self.runtime_shape.effective_chunk_ms / 1000 + 4)
+            ),
+        )
+        self.input_ring = FloatRingBuffer(input_capacity)
+        self.internal_input_ring = FloatRingBuffer(internal_capacity)
+        self.output_ring = FloatRingBuffer(output_capacity)
         if self.use_monitor:
-            while not self.mon_queue.empty():
-                try:
-                    self.mon_queue.get_nowait()
-                except:
-                    break
+            self.monitor_ring = FloatRingBuffer(max(int(self.monitor_rate * 8), 4096))
 
-        # Reset counters
-        self.consecutive_silent_outputs = 0
-        if hasattr(self, '_queue_empty_count'):
-            self._queue_empty_count = 0
-        self.consecutive_errors = 0
+        self.input_resampler = (
+            soxr.ResampleStream(
+                self.input_rate,
+                INTERNAL_SAMPLE_RATE,
+                1,
+                dtype="float32",
+                quality="HQ",
+            )
+            if self.input_rate != INTERNAL_SAMPLE_RATE
+            else None
+        )
+        self.output_resampler = (
+            soxr.ResampleStream(
+                INTERNAL_SAMPLE_RATE,
+                self.output_rate,
+                1,
+                dtype="float32",
+                quality="HQ",
+                vr=separate_stream_clocks,
+            )
+            if self.output_rate != INTERNAL_SAMPLE_RATE or separate_stream_clocks
+            else None
+        )
+        self.monitor_resampler = (
+            soxr.ResampleStream(
+                INTERNAL_SAMPLE_RATE,
+                self.monitor_rate,
+                1,
+                dtype="float32",
+                quality="HQ",
+            )
+            if self.use_monitor and self.monitor_rate != INTERNAL_SAMPLE_RATE
+            else None
+        )
 
-    def clear_buffers(self):
+        self._startup_reserve_remaining = round(
+            self.elastic.total_reserve_ms * self.output_rate / 1000
+        )
+
+    @staticmethod
+    def _insert_sola_style(audio: np.ndarray, frames: int) -> np.ndarray:
+        """Duplicate the quietest short region to add exactly ``frames`` samples."""
+        if frames <= 0 or len(audio) == 0:
+            return audio
+        frames = min(frames, len(audio))
+        if np.max(np.abs(audio)) < 1e-6:
+            return np.concatenate((audio, np.zeros(frames, dtype=np.float32)))
+        best_start = 0
+        best_energy = math.inf
+        stride = max(1, frames // 2)
+        for start in range(0, max(1, len(audio) - frames + 1), stride):
+            segment = audio[start : start + frames]
+            energy = float(np.dot(segment, segment))
+            if energy < best_energy:
+                best_energy = energy
+                best_start = start
+        segment = audio[best_start : best_start + frames].copy()
+        fade = min(96, frames // 4, best_start, len(audio) - (best_start + frames))
+        if fade > 0:
+            ramp = np.linspace(0.0, 1.0, fade, dtype=np.float32)
+            segment[:fade] = (
+                audio[best_start - fade : best_start] * (1 - ramp)
+                + segment[:fade] * ramp
+            )
+            segment[-fade:] = (
+                segment[-fade:] * (1 - ramp)
+                + audio[best_start + frames : best_start + frames + fade] * ramp
+            )
+        insert_at = best_start + frames
+        return np.concatenate((audio[:insert_at], segment, audio[insert_at:]))
+
+    def _update_output_clock_ratio(self, output_frames: int) -> None:
+        """Compensate independent input/output device-clock drift.
+
+        This changes only the native-rate resampling ratio (bounded to ±1000
+        ppm); it never changes Chunk, Hop, or model tensor shapes.
         """
-        Clear all buffers and reset state for clean startup.
-        This reduces initial latency when connecting by ensuring no old data remains.
-        """
-        # Clear queues (already done in stop(), but ensure they're empty)
-        while not self.io_queue.empty():
-            try:
-                self.io_queue.get_nowait()
-            except:
-                break
+        if not self._separate_stream_clocks or self.output_resampler is None:
+            self.output_clock_correction_ppm = 0.0
+            return
+        available = self.output_ring.available if self.output_ring is not None else 0
+        target = round(self.elastic.total_reserve_ms * self.output_rate / 1000)
+        error_ms = (target - available) / self.output_rate * 1000
+        requested = float(
+            np.clip(
+                error_ms * CLOCK_CORRECTION_GAIN_PPM_PER_MS,
+                -MAX_CLOCK_CORRECTION_PPM,
+                MAX_CLOCK_CORRECTION_PPM,
+            )
+        )
+        # Low-pass the control value so inference jitter does not become pitch
+        # modulation. set_io_ratio slews the remaining transition per block.
+        self.output_clock_correction_ppm = (
+            0.9 * self.output_clock_correction_ppm + 0.1 * requested
+        )
+        adjusted_rate = self.output_rate * (
+            1.0 + self.output_clock_correction_ppm / 1_000_000
+        )
+        self.output_resampler.set_io_ratio(
+            INTERNAL_SAMPLE_RATE,
+            adjusted_rate,
+            slew_len=max(1, int(output_frames)),
+        )
 
-        if self.use_monitor:
-            while not self.mon_queue.empty():
-                try:
-                    self.mon_queue.get_nowait()
-                except:
-                    break
+    def _write_processed(self, output: np.ndarray) -> None:
+        self._update_output_clock_ratio(len(output))
+        output_native = (
+            self.output_resampler.resample_chunk(output, last=False)
+            if self.output_resampler is not None
+            else output
+        )
+        if self.output_ring is not None:
+            self.output_ring.write(output_native)
+        if self.use_monitor and self.monitor_ring is not None:
+            monitor_native = (
+                self.monitor_resampler.resample_chunk(output, last=False)
+                if self.monitor_resampler is not None
+                else output
+            )
+            self.monitor_ring.write(monitor_native)
 
-        # Reset counters
-        self.consecutive_silent_outputs = 0
-        if hasattr(self, '_queue_empty_count'):
-            self._queue_empty_count = 0
-        self.consecutive_errors = 0
+    def _worker_loop(self) -> None:
+        initial = True
+        self._worker_ready.set()
+        try:
+            while self.running:
+                self._input_event.wait(0.05)
+                self._input_event.clear()
+                if self.input_ring is None or self.internal_input_ring is None:
+                    continue
 
-        # Clear VoiceChanger buffers
-        if hasattr(self, 'callbacks') and hasattr(self.callbacks, 'vc'):
-            vc = self.callbacks.vc
+                available = self.input_ring.available
+                while available > 0:
+                    raw = self.input_ring.read(min(available, WORKER_READ_FRAMES))
+                    if not len(raw):
+                        break
+                    internal = (
+                        self.input_resampler.resample_chunk(raw, last=False)
+                        if self.input_resampler is not None
+                        else raw
+                    )
+                    self.internal_input_ring.write(internal)
+                    available = self.input_ring.available
 
-            # Clear sola_buffer
-            if vc.sola_buffer is not None:
-                vc.sola_buffer.zero_()
+                required = (
+                    self.runtime_shape.context_frames
+                    if initial
+                    else self.runtime_shape.hop_frames
+                )
+                while self.internal_input_ring.available >= required and self.running:
+                    block = self.internal_input_ring.read(required)
+                    started = time.perf_counter()
+                    out_wav, _, perf, _ = self._process(block)
+                    elapsed_ms = (time.perf_counter() - started) * 1000
+                    if perf and len(perf) > 1:
+                        elapsed_ms = float(perf[1])
+                    self.latency = elapsed_ms
+                    self.inference_times.append(elapsed_ms)
 
-            # Clear Realtime model buffers
-            if hasattr(vc, 'vc_model') and vc.vc_model is not None:
-                vc.vc_model.flush_buffers()
-                vc.vc_model.consecutive_silence_frames = 0
+                    silent = bool(len(out_wav) == 0 or np.max(np.abs(out_wav)) < 1e-6)
+                    grow_frames = self.elastic.record_inference(
+                        elapsed_ms, self.runtime_shape.effective_hop_ms
+                    )
+                    if self._pending_underflows:
+                        self._pending_underflows = 0
+                        grow_frames += self.elastic.record_underflow()
+                    if grow_frames > 0:
+                        out_wav = self._insert_sola_style(out_wav, grow_frames)
+                    shrink_frames = self.elastic.observe_silence(silent)
+                    if shrink_frames < 0 and silent:
+                        remove = min(-shrink_frames, max(0, len(out_wav) - 1))
+                        out_wav = out_wav[remove:]
+
+                    self._last_output_silent = silent
+                    self._write_processed(np.asarray(out_wav, dtype=np.float32))
+                    initial = False
+                    required = self.runtime_shape.hop_frames
+        except Exception as error:
+            self.last_error = f"Realtime worker failed: {type(error).__name__}: {error}"
+            print(self.last_error)
+            print(traceback.format_exc())
+            self.running = False
+
+    def _open_monitor(
+        self,
+        device: AudioDeviceRef,
+        selected_channel: int,
+        exclusive_mode: bool,
+    ) -> None:
+        channels = self._device_channels(device, selected_channel)
+        kwargs = dict(
+            callback=self.audio_queue,
+            latency="low",
+            dtype=np.float32,
+            device=device.index,
+            blocksize=0,
+            samplerate=self.monitor_rate,
+            channels=channels,
+        )
+        try:
+            self.monitor = sd.OutputStream(
+                **kwargs,
+                extra_settings=self._extra_settings(
+                    device, exclusive_mode, selected_channel
+                ),
+            )
+        except sd.PortAudioError:
+            if not (exclusive_mode and _is_wasapi(device)):
+                raise
+            self.open_warnings.append(
+                f"monitor PA {device.index} rejected WASAPI exclusive; using shared"
+            )
+            self.monitor = sd.OutputStream(
+                **kwargs,
+                extra_settings=self._extra_settings(device, False, selected_channel),
+            )
+        self.monitor.start()
+
+    def _open_duplex(
+        self,
+        input_device: AudioDeviceRef,
+        output_device: AudioDeviceRef,
+        exclusive_mode: bool,
+        input_channel: int,
+        output_channel: int,
+    ) -> None:
+        stream_rate = self._supported_rate(input_device, output_device)
+        self.input_rate = self.output_rate = stream_rate
+        self._create_buffers(separate_stream_clocks=False)
+        kwargs = dict(
+            callback=self.audio_stream_callback,
+            latency="low",
+            dtype=np.float32,
+            device=(input_device.index, output_device.index),
+            blocksize=0,
+            samplerate=stream_rate,
+            channels=(
+                self._device_channels(input_device, input_channel),
+                self._device_channels(output_device, output_channel),
+            ),
+        )
+        try:
+            self.stream = sd.Stream(
+                **kwargs,
+                extra_settings=(
+                    self._extra_settings(input_device, exclusive_mode, input_channel),
+                    self._extra_settings(
+                        output_device, exclusive_mode, output_channel
+                    ),
+                ),
+            )
+        except sd.PortAudioError:
+            if not (
+                exclusive_mode
+                and (_is_wasapi(input_device) or _is_wasapi(output_device))
+            ):
+                raise
+            self.open_warnings.append(
+                "duplex WASAPI exclusive was rejected; using shared"
+            )
+            self.stream = sd.Stream(
+                **kwargs,
+                extra_settings=(
+                    self._extra_settings(input_device, False, input_channel),
+                    self._extra_settings(output_device, False, output_channel),
+                ),
+            )
+        self.stream.start()
+        input_latency, output_latency = self.stream.latency
+        self.device_latency_ms = float(input_latency + output_latency) * 1000
+        self.transport_mode = f"duplex/{input_device.host_api}"
+
+    def _open_separate(
+        self,
+        input_device: AudioDeviceRef,
+        output_device: AudioDeviceRef,
+        exclusive_mode: bool,
+        input_channel: int,
+        output_channel: int,
+    ) -> None:
+        self.input_rate = int(round(input_device.default_samplerate))
+        self.output_rate = int(round(output_device.default_samplerate))
+        self._create_buffers(separate_stream_clocks=True)
+        input_kwargs = dict(
+            callback=self.input_callback,
+            latency="low",
+            dtype=np.float32,
+            device=input_device.index,
+            blocksize=0,
+            samplerate=self.input_rate,
+            channels=self._device_channels(input_device, input_channel),
+        )
+        try:
+            self.input_stream = sd.InputStream(
+                **input_kwargs,
+                extra_settings=self._extra_settings(
+                    input_device, exclusive_mode, input_channel
+                ),
+            )
+        except sd.PortAudioError:
+            if not (exclusive_mode and _is_wasapi(input_device)):
+                raise
+            self.open_warnings.append(
+                f"input PA {input_device.index} rejected WASAPI exclusive; using shared"
+            )
+            self.input_stream = sd.InputStream(
+                **input_kwargs,
+                extra_settings=self._extra_settings(input_device, False, input_channel),
+            )
+
+        output_kwargs = dict(
+            callback=self.output_callback,
+            latency="low",
+            dtype=np.float32,
+            device=output_device.index,
+            blocksize=0,
+            samplerate=self.output_rate,
+            channels=self._device_channels(output_device, output_channel),
+        )
+        try:
+            self.output_stream = sd.OutputStream(
+                **output_kwargs,
+                extra_settings=self._extra_settings(
+                    output_device, exclusive_mode, output_channel
+                ),
+            )
+        except sd.PortAudioError:
+            if self.input_stream is not None:
+                self.input_stream.close()
+                self.input_stream = None
+            if not (exclusive_mode and _is_wasapi(output_device)):
+                raise
+            self.open_warnings.append(
+                f"output PA {output_device.index} rejected WASAPI exclusive; using shared"
+            )
+            # Recreate input too: some WASAPI drivers invalidate a not-yet-started
+            # stream after another exclusive open fails in the same process.
+            self.input_stream = sd.InputStream(
+                **input_kwargs,
+                extra_settings=self._extra_settings(input_device, False, input_channel),
+            )
+            self.output_stream = sd.OutputStream(
+                **output_kwargs,
+                extra_settings=self._extra_settings(output_device, False, output_channel),
+            )
+        self.output_stream.start()
+        self.input_stream.start()
+        self.device_latency_ms = float(
+            self.input_stream.latency + self.output_stream.latency
+        ) * 1000
+        self.transport_mode = (
+            f"separate/{input_device.host_api}->{output_device.host_api}"
+        )
 
     def start(
         self,
-        input_device_id: int,
-        output_device_id: int,
-        output_monitor_id: int = None,
+        input_device: AudioDeviceRef,
+        output_device: AudioDeviceRef,
+        output_monitor: AudioDeviceRef | None = None,
         exclusive_mode: bool = False,
         asio_input_channel: int = -1,
         asio_output_channel: int = -1,
         asio_output_monitor_channel: int = -1,
-        read_chunk_size: int = 192,
-    ):
-        """
-        Start the realtime audio processing with the specified devices.
-
-        Supports WDM-KS devices by automatically detecting them and using separate
-        input/output streams instead of duplex mode when necessary.
-        """
+        **_legacy,
+    ) -> None:
         self.stop()
+        if input_device.direction != "input" or output_device.direction != "output":
+            raise ValueError("Audio device direction does not match the selected role")
 
-        # Clear all buffers and reset state for clean startup
-        # This reduces initial latency by ensuring no old data remains
-        self.clear_buffers()
-
-        # NOTE: Not calling sd._terminate() and sd._initialize() here.
-        # Re-initialization can invalidate device indices obtained before calling start(),
-        # and self.stop() already properly closes all streams.
-
-        input_audio_device, output_audio_device = self.get_input_audio_device(
-            input_device_id
-        ), self.get_output_audio_device(output_device_id)
-        input_channels, output_channels = (
-            input_audio_device.max_input_channels,
-            output_audio_device.max_output_channels,
+        self.running = True
+        self.last_error = None
+        self.open_warnings.clear()
+        self._input_heartbeat.clear()
+        self._output_heartbeat.clear()
+        self._worker_ready.clear()
+        self._playback_started = False
+        self._worker = threading.Thread(
+            target=self._worker_loop,
+            name="realtime-inference",
+            daemon=True,
         )
 
-        (
-            input_extra_setting,
-            output_extra_setting,
-            output_monitor_extra_setting,
-            monitor_channels,
-        ) = (None, None, None, None)
-        wasapi_exclusive_mode = bool(exclusive_mode)
-
-        if input_audio_device and "WASAPI" in input_audio_device.host_api:
-            input_extra_setting = sd.WasapiSettings(
-                exclusive=wasapi_exclusive_mode, auto_convert=not wasapi_exclusive_mode
-            )
-        elif (
-            input_audio_device
-            and "ASIO" in input_audio_device.host_api
-            and asio_input_channel != -1
-        ):
-            input_extra_setting = sd.AsioSettings(
-                channel_selectors=[asio_input_channel]
-            )
-            input_channels = 1
-
-        if output_audio_device and "WASAPI" in output_audio_device.host_api:
-            output_extra_setting = sd.WasapiSettings(
-                exclusive=wasapi_exclusive_mode, auto_convert=not wasapi_exclusive_mode
-            )
-        elif (
-            input_audio_device
-            and "ASIO" in input_audio_device.host_api
-            and asio_output_channel != -1
-        ):
-            output_extra_setting = sd.AsioSettings(
-                channel_selectors=[asio_output_channel]
-            )
-            output_channels = 1
-
-        if self.use_monitor:
-            output_monitor_device = self.get_output_audio_device(output_monitor_id)
-            monitor_channels = output_monitor_device.max_output_channels
-
-            if output_monitor_device and "WASAPI" in output_monitor_device.host_api:
-                output_monitor_extra_setting = sd.WasapiSettings(
-                    exclusive=wasapi_exclusive_mode,
-                    auto_convert=not wasapi_exclusive_mode,
-                )
-            elif (
-                output_monitor_device
-                and "ASIO" in output_monitor_device.host_api
-                and asio_output_monitor_channel != -1
-            ):
-                output_monitor_extra_setting = sd.AsioSettings(
-                    channel_selectors=[asio_output_monitor_channel]
-                )
-                monitor_channels = 1
-
-        block_frame = int((read_chunk_size * 128 / 48000) * AUDIO_SAMPLE_RATE)
-
-        # WDM-KS Support: Check if we need to use separate input/output streams
-        # WDM-KS (Windows Driver Model - Kernel Streaming) provides lower latency but has
-        # compatibility limitations:
-        # 1. Cannot be used in duplex mode (combined input/output stream)
-        # 2. May conflict with WASAPI exclusive mode when used in mixed configurations
-        # 3. Only supports callback-based (non-blocking) operation
-        use_separate_streams = False
-        if input_audio_device and output_audio_device:
-            input_host = input_audio_device.host_api
-            output_host = output_audio_device.host_api
-
-            # Use separate streams if:
-            # 1. Either device uses WDM-KS (known to have compatibility issues with duplex streams)
-            # 2. Input and output use different host APIs (may not be compatible)
-            if "WDM-KS" in input_host or "WDM-KS" in output_host:
-                use_separate_streams = True
-                print(f"[WDM-KS detected] Using separate input/output streams for compatibility")
-
-                # When using separate streams with WDM-KS, disable WASAPI exclusive mode
-                # Exclusive mode can cause device conflicts when mixing WDM-KS and WASAPI
-                # auto_convert=True allows automatic sample rate conversion for compatibility
-                if "WASAPI" in input_host and input_extra_setting:
-                    print(f"[WDM-KS] Disabling WASAPI exclusive mode for compatibility")
-                    input_extra_setting = sd.WasapiSettings(exclusive=False, auto_convert=True)
-                if "WASAPI" in output_host and output_extra_setting:
-                    output_extra_setting = sd.WasapiSettings(exclusive=False, auto_convert=True)
-            elif input_host != output_host:
-                use_separate_streams = True
-                print(f"[Different host APIs] Using separate input/output streams: {input_host} -> {output_host}")
-
-        # Use low latency mode for minimal delay
-        latency_mode = "low"
-
+        same_host = input_device.host_api_index == output_device.host_api_index
         try:
-            # Save parameters for auto-reconnect
-            self.last_stream_params = {
-                'block_frame': block_frame,
-                'input_device_id': input_device_id,
-                'output_device_id': output_device_id,
-                'output_monitor_id': output_monitor_id,
-                'input_max_channel': input_channels,
-                'output_max_channel': output_channels,
-                'output_monitor_max_channel': monitor_channels,
-                'input_extra_setting': input_extra_setting,
-                'output_extra_setting': output_extra_setting,
-                'output_monitor_extra_setting': output_monitor_extra_setting,
-                'use_separate_streams': use_separate_streams,
-                'latency_mode': latency_mode,
-            }
-
-            # Enable auto-reconnect and reset status flags
-            self.auto_reconnect_enabled = True
-            self.consecutive_errors = 0
-            self.reconnect_success = False
-            self.last_error = None
-
-            if use_separate_streams:
-                self.run_audio_stream_separate(
-                    block_frame,
-                    input_device_id,
-                    output_device_id,
-                    output_monitor_id,
-                    input_channels,
-                    output_channels,
-                    monitor_channels,
-                    input_extra_setting,
-                    output_extra_setting,
-                    output_monitor_extra_setting,
-                    latency_mode,
-                )
+            if same_host:
+                try:
+                    # Allocate buffers before the worker starts. Duplex open is
+                    # attempted for WDM-KS too; the exact selected pair decides.
+                    self._open_duplex(
+                        input_device,
+                        output_device,
+                        exclusive_mode,
+                        asio_input_channel,
+                        asio_output_channel,
+                    )
+                except Exception as duplex_error:
+                    if self.stream is not None:
+                        self.stream.close()
+                        self.stream = None
+                    print(
+                        f"[Audio] Duplex open failed ({duplex_error}); using separate streams"
+                    )
+                    self._open_separate(
+                        input_device,
+                        output_device,
+                        exclusive_mode,
+                        asio_input_channel,
+                        asio_output_channel,
+                    )
             else:
-                self.run_audio_stream(
-                    block_frame,
-                    input_device_id,
-                    output_device_id,
-                    output_monitor_id,
-                    input_channels,
-                    output_channels,
-                    monitor_channels,
-                    input_extra_setting,
-                    output_extra_setting,
-                    output_monitor_extra_setting,
-                    latency_mode,
+                self._open_separate(
+                    input_device,
+                    output_device,
+                    exclusive_mode,
+                    asio_input_channel,
+                    asio_output_channel,
                 )
-            self.running = True
-        except Exception as error:
-            print(f"An error occurred while streaming audio: {error}")
-            print(traceback.format_exc())
+
+            if output_monitor is not None:
+                self.monitor_rate = int(round(output_monitor.default_samplerate))
+                # Recreate the monitor resampler/ring now that its native rate is known.
+                self.monitor_ring = FloatRingBuffer(max(int(self.monitor_rate * 8), 4096))
+                self.monitor_resampler = (
+                    soxr.ResampleStream(
+                        INTERNAL_SAMPLE_RATE,
+                        self.monitor_rate,
+                        1,
+                        dtype="float32",
+                        quality="HQ",
+                    )
+                    if self.monitor_rate != INTERNAL_SAMPLE_RATE
+                    else None
+                )
+                self._open_monitor(
+                    output_monitor,
+                    asio_output_monitor_channel,
+                    exclusive_mode,
+                )
+
+            self._worker.start()
+            if not self._worker_ready.wait(STREAM_HEARTBEAT_TIMEOUT_SECONDS):
+                raise RuntimeError("Realtime inference worker did not start")
+            if not self._input_heartbeat.wait(STREAM_HEARTBEAT_TIMEOUT_SECONDS):
+                raise RuntimeError("Input stream opened but produced no callbacks")
+            if not self._output_heartbeat.wait(STREAM_HEARTBEAT_TIMEOUT_SECONDS):
+                raise RuntimeError("Output stream opened but requested no callbacks")
+        except Exception:
+            self.stop()
+            raise
+
+    def stop(self) -> None:
+        self.running = False
+        self._input_event.set()
+        for name in ("stream", "input_stream", "output_stream", "monitor"):
+            stream = getattr(self, name, None)
+            if stream is not None:
+                try:
+                    stream.stop()
+                except Exception:
+                    pass
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+                setattr(self, name, None)
+        worker = self._worker
+        if worker is not None and worker.is_alive() and worker is not threading.current_thread():
+            worker.join(timeout=2.0)
+        self._worker = None
+        for ring in (
+            self.input_ring,
+            self.internal_input_ring,
+            self.output_ring,
+            self.monitor_ring,
+        ):
+            if ring is not None:
+                ring.clear()
+        self.transport_mode = "stopped"
+
+    def clear_buffers(self) -> None:
+        for ring in (
+            self.input_ring,
+            self.internal_input_ring,
+            self.output_ring,
+            self.monitor_ring,
+        ):
+            if ring is not None:
+                ring.clear()
+        vc = getattr(self.callbacks, "vc", None)
+        if vc is not None:
+            if vc.sola_buffer is not None:
+                vc.sola_buffer.zero_()
+            if getattr(vc, "vc_model", None) is not None:
+                vc.vc_model.flush_buffers()
+
+    def status_text(self) -> str:
+        if self.last_error:
+            return f"Error: {self.last_error}"
+        values = list(self.inference_times)
+        p50 = float(np.percentile(values, 50)) if values else 0.0
+        p95 = float(np.percentile(values, 95)) if values else 0.0
+        compile_parts = []
+        compile_warnings = []
+        for status in self.callbacks.compile_statuses():
+            rebuilt = "/cache-rebuilt" if status.cache_rebuilt else ""
+            compile_parts.append(f"{status.component}={status.backend}{rebuilt}")
+            if status.error:
+                compile_warnings.append(
+                    f"{status.component}: {status.error[:160]}"
+                )
+        compile_text = ", ".join(compile_parts) if compile_parts else "eager"
+        overload = ", OVERLOADED" if self.elastic.overloaded else ""
+        open_warning = (
+            f" | {'; '.join(self.open_warnings)}" if self.open_warnings else ""
+        )
+        steady_estimate = (
+            self.runtime_shape.effective_hop_ms
+            + p95
+            + self.elastic.total_reserve_ms
+            + self.device_latency_ms
+        )
+        return (
+            f"{self.transport_mode} | Chunk {self.runtime_shape.effective_chunk_ms:.1f} ms "
+            f"| Hop {self.runtime_shape.effective_hop_ms:.1f} ms "
+            f"| infer p50/p95 {p50:.1f}/{p95:.1f} ms "
+            f"| reserve {self.elastic.total_reserve_ms} ms "
+            f"| I/O {self.device_latency_ms:.1f} ms "
+            f"| steady est. {steady_estimate:.1f} ms "
+            f"| drift {self.output_clock_correction_ppm:+.0f} ppm "
+            f"| xruns in/out {self.input_overflows}/{self.output_underflows} "
+            f"| compile {compile_text}{overload}{open_warning}"
+            + (
+                f" | compile warning {'; '.join(compile_warnings)}"
+                if compile_warnings
+                else ""
+            )
+        )
+
+
+# Compatibility aliases for older imports.
+ServerAudioDevice = AudioDeviceRef
+get_input_audio_device_registry = get_audio_device_registry

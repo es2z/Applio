@@ -89,7 +89,6 @@
     "Delay Seconds": "ディレイの秒数",
     "Detect overtraining to prevent the model from learning the training data too well and losing the ability to generalize to new data.": "モデルがトレーニングデータを学習しすぎて新しいデータへの汎化能力を失うことを防ぐため、過学習を検出します。",
     "Determine at how many epochs the model will saved at.": "モデルを何エポックごとに保存するかを決定します。",
-    "Disable Triton": "Tritonを無効化",
     "Distortion": "ディストーション",
     "Distortion Gain": "ディストーションのゲイン",
     "Download": "ダウンロード",
