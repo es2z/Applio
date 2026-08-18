@@ -8,7 +8,6 @@ sys.path.append(os.getcwd())
 from rvc.realtime.audio import Audio
 from rvc.realtime.core import VoiceChanger
 from rvc.realtime.runtime import RuntimeAudioShape
-from rvc.realtime.runtime import DEFAULT_MAX_EXTRA_BUFFER_MS
 from tabs.settings.sections.torch_compile import RealtimeCompileSettings
 
 
@@ -44,7 +43,6 @@ class AudioCallbacks:
         hybrid_blend_ratio: float = 0.5,
         runtime_shape: RuntimeAudioShape | None = None,
         compile_settings: RealtimeCompileSettings | None = None,
-        max_extra_buffer_ms: int = DEFAULT_MAX_EXTRA_BUFFER_MS,
         # device: str = "cuda",
     ):
         self.pass_through = pass_through
@@ -83,7 +81,6 @@ class AudioCallbacks:
             monitor_audio_gain,
             monitor,
             runtime_shape=self.vc.runtime_shape,
-            max_extra_buffer_ms=max_extra_buffer_ms,
         )
 
     def warmup(self):
