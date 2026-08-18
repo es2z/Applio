@@ -6,7 +6,6 @@ import json
 import regex as re
 import shutil
 import torch
-import numpy as np
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
@@ -14,7 +13,6 @@ sys.path.append(now_dir)
 from rvc.realtime.callbacks import AudioCallbacks
 from rvc.realtime.devices import get_audio_device_registry
 from rvc.realtime.core import AUDIO_SAMPLE_RATE
-from rvc.realtime.runtime import RuntimeAudioShape
 from tabs.settings.sections.torch_compile import load_realtime_compile_settings
 from rvc.configs.config_utils import load_config, save_config, update_nested_config
 
@@ -315,9 +313,6 @@ def load_realtime_settings():
             "monitor_device": realtime_config.get("monitor_device", ""),
             "model_file": realtime_config.get("model_file", ""),
             "index_file": realtime_config.get("index_file", ""),
-            "processing_mode": realtime_config.get("processing_mode", "fixed_chunk"),
-            "overlap_hop_mode": realtime_config.get("overlap_hop_mode", "auto"),
-            "manual_hop_size": realtime_config.get("manual_hop_size", 320),
         }
     except Exception as e:
         print(f"Error loading realtime settings: {e}")
@@ -327,22 +322,7 @@ def load_realtime_settings():
             "monitor_device": "",
             "model_file": "",
             "index_file": "",
-            "processing_mode": "fixed_chunk",
-            "overlap_hop_mode": "auto",
-            "manual_hop_size": 320,
         }
-
-
-def save_runtime_shape_settings(processing_mode, hop_mode, manual_hop_size):
-    update_nested_config(
-        CONFIG_PATH,
-        "realtime",
-        {
-            "processing_mode": processing_mode,
-            "overlap_hop_mode": hop_mode,
-            "manual_hop_size": float(manual_hop_size),
-        },
-    )
 
 
 def get_safe_dropdown_value(saved_value, choices, fallback_value=None):
@@ -402,9 +382,6 @@ def start_realtime(
     exclusive_mode: bool,
     vad_enabled: bool,
     chunk_size: float,
-    processing_mode: str,
-    overlap_hop_mode: str,
-    manual_hop_size: float,
     cross_fade_overlap_size: float,
     extra_convert_size: float,
     silent_threshold: int,
@@ -451,17 +428,7 @@ def start_realtime(
 
     yield "Starting Realtime...", interactive_false, interactive_true
 
-    try:
-        runtime_shape = RuntimeAudioShape.create(
-            chunk_size,
-            processing_mode=processing_mode,
-            hop_mode=overlap_hop_mode,
-            manual_hop_ms=manual_hop_size,
-        )
-    except ValueError as error:
-        yield f"Invalid realtime shape: {error}", interactive_true, interactive_false
-        return
-    read_chunk_size = runtime_shape.context_frames // 128
+    read_chunk_size = int(chunk_size * AUDIO_SAMPLE_RATE / 1000 / 128)
 
     sid = int(sid) if sid is not None else 0
 
@@ -513,26 +480,12 @@ def start_realtime(
             vad_frame_ms=30,
             sid=sid,
             hybrid_blend_ratio=hybrid_blend_ratio,
-            runtime_shape=runtime_shape,
             compile_settings=compile_settings,
         )
-
-        warmup_times = callbacks.warmup()
-        if processing_mode == "overlap" and overlap_hop_mode == "auto":
-            measured_p95 = float(np.percentile(warmup_times, 95))
-            final_shape = RuntimeAudioShape.create(
-                chunk_size,
-                processing_mode=processing_mode,
-                hop_mode=overlap_hop_mode,
-                manual_hop_ms=manual_hop_size,
-                measured_p95_ms=measured_p95,
-            )
-            if final_shape != runtime_shape:
-                callbacks.configure_runtime_shape(final_shape)
-                runtime_shape = final_shape
+        if compile_settings.any_enabled:
+            callbacks.warmup()
 
         audio_manager = callbacks.audio
-        audio_manager.configure_warmup(warmup_times)
         audio_manager.start(
             input_device=input_device_ref,
             output_device=output_device_ref,
@@ -541,6 +494,7 @@ def start_realtime(
             asio_input_channel=input_asio_channels,
             asio_output_channel=output_asio_channels,
             asio_output_monitor_channel=monitor_asio_channels,
+            read_chunk_size=read_chunk_size,
         )
     except Exception as error:
         if audio_manager is not None:
@@ -567,17 +521,17 @@ def start_realtime(
             yield "Reconnected successfully! Realtime is ready!", interactive_false, interactive_true
             time.sleep(0.5)  # Show message briefly
         elif hasattr(audio_manager, "last_error") and audio_manager.last_error:
+            # Reconnection failed - show error but keep stop button enabled
             error_msg = audio_manager.last_error
-            running = False
-            audio_manager.stop()
-            audio_manager = callbacks = None
-            yield f"Error: {error_msg}", interactive_true, interactive_false
-            return
+            audio_manager.last_error = None  # Clear error after displaying once
+            yield f"Error: {error_msg}", interactive_false, interactive_true
+            time.sleep(1.0)  # Show error message for 1 second
         elif hasattr(audio_manager, "reconnect_in_progress") and audio_manager.reconnect_in_progress:
             # Reconnection in progress
             yield "Reconnecting...", interactive_false, interactive_true
-        elif hasattr(audio_manager, "status_text"):
-            yield audio_manager.status_text(), interactive_false, interactive_true
+        elif hasattr(audio_manager, "latency"):
+            # Normal operation - show latency
+            yield f"Latency: {audio_manager.latency:.2f} ms", interactive_false, interactive_true
 
     return gr.update(), gr.update(), gr.update()
 
@@ -1027,45 +981,6 @@ def realtime_tab():
                     ),
                     interactive=True,
                 )
-                effective_chunk_size = gr.Number(
-                    label=i18n("Effective Chunk Size (ms)"),
-                    value=RuntimeAudioShape.create(512).effective_chunk_ms,
-                    interactive=False,
-                    info=i18n(
-                        "Actual 128-frame-aligned value used for this Start session."
-                    ),
-                )
-                processing_mode = gr.Radio(
-                    choices=[
-                        (i18n("Fixed Chunk"), "fixed_chunk"),
-                        (i18n("Overlap (experimental)"), "overlap"),
-                    ],
-                    value=saved_settings["processing_mode"],
-                    label=i18n("Processing Mode"),
-                    info=i18n(
-                        "Fixed Chunk uses Chunk Size as the cadence. Overlap keeps the same context but emits a shorter fixed Hop."
-                    ),
-                    interactive=True,
-                )
-                overlap_hop_mode = gr.Radio(
-                    choices=[(i18n("Auto"), "auto"), (i18n("Manual"), "manual")],
-                    value=saved_settings["overlap_hop_mode"],
-                    label=i18n("Overlap Hop"),
-                    visible=saved_settings["processing_mode"] == "overlap",
-                    interactive=True,
-                )
-                manual_hop_size = gr.Slider(
-                    minimum=10,
-                    maximum=2730,
-                    value=saved_settings["manual_hop_size"],
-                    step=10,
-                    label=i18n("Manual Hop Size (ms)"),
-                    visible=(
-                        saved_settings["processing_mode"] == "overlap"
-                        and saved_settings["overlap_hop_mode"] == "manual"
-                    ),
-                    interactive=True,
-                )
                 cross_fade_overlap_size = gr.Slider(
                     minimum=0.05,
                     maximum=0.2,
@@ -1135,17 +1050,6 @@ def realtime_tab():
         def toggle_visible(checkbox):
             return {"visible": checkbox, "__type__": "update"}
 
-        def update_processing_controls(mode, hop_mode, manual_hop):
-            overlap = mode == "overlap"
-            save_runtime_shape_settings(mode, hop_mode, manual_hop)
-            return (
-                gr.update(visible=overlap),
-                gr.update(visible=overlap and hop_mode == "manual"),
-            )
-
-        def update_effective_chunk(value):
-            return RuntimeAudioShape.create(value).effective_chunk_ms
-
         def toggle_visible_embedder_custom(embedder_model):
             if embedder_model == "custom":
                 return {"visible": True, "__type__": "update"}
@@ -1159,27 +1063,6 @@ def realtime_tab():
         refresh_devices_button.click(
             fn=refresh_devices,
             outputs=[input_audio_device, output_audio_device, monitor_output_device],
-        )
-
-        processing_mode.change(
-            fn=update_processing_controls,
-            inputs=[processing_mode, overlap_hop_mode, manual_hop_size],
-            outputs=[overlap_hop_mode, manual_hop_size],
-        )
-        overlap_hop_mode.change(
-            fn=update_processing_controls,
-            inputs=[processing_mode, overlap_hop_mode, manual_hop_size],
-            outputs=[overlap_hop_mode, manual_hop_size],
-        )
-        manual_hop_size.change(
-            fn=save_runtime_shape_settings,
-            inputs=[processing_mode, overlap_hop_mode, manual_hop_size],
-            outputs=[],
-        )
-        chunk_size.change(
-            fn=update_effective_chunk,
-            inputs=[chunk_size],
-            outputs=[effective_chunk_size],
         )
 
         autotune.change(
@@ -1234,9 +1117,6 @@ def realtime_tab():
                 exclusive_mode,
                 vad_enabled,
                 chunk_size,
-                processing_mode,
-                overlap_hop_mode,
-                manual_hop_size,
                 cross_fade_overlap_size,
                 extra_convert_size,
                 silent_threshold,
@@ -1382,8 +1262,6 @@ def realtime_tab():
             updates = list(
                 template_manager.extract_settings_to_gradio_updates(template_data)
             )
-            # Template files may still contain the old display string. Return
-            # the resolved snapshot token to the dropdown, not that stale text.
             updates[0] = gr.update(value=input_dev)
             updates[3] = gr.update(value=output_dev)
             updates[7] = gr.update(value=monitor_dev)

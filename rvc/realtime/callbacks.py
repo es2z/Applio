@@ -7,7 +7,6 @@ sys.path.append(os.getcwd())
 
 from rvc.realtime.audio import Audio
 from rvc.realtime.core import VoiceChanger
-from rvc.realtime.runtime import RuntimeAudioShape
 from tabs.settings.sections.torch_compile import RealtimeCompileSettings
 
 
@@ -41,7 +40,6 @@ class AudioCallbacks:
         vad_frame_ms: int = 30,
         sid: int = 0,
         hybrid_blend_ratio: float = 0.5,
-        runtime_shape: RuntimeAudioShape | None = None,
         compile_settings: RealtimeCompileSettings | None = None,
         # device: str = "cuda",
     ):
@@ -62,7 +60,6 @@ class AudioCallbacks:
             vad_frame_ms,
             sid,
             hybrid_blend_ratio,
-            runtime_shape,
             compile_settings,
             # device,
         )
@@ -80,17 +77,11 @@ class AudioCallbacks:
             output_audio_gain,
             monitor_audio_gain,
             monitor,
-            runtime_shape=self.vc.runtime_shape,
         )
 
     def warmup(self):
         with self.lock:
             return self.vc.warmup()
-
-    def configure_runtime_shape(self, runtime_shape: RuntimeAudioShape):
-        with self.lock:
-            self.vc.configure_runtime_shape(runtime_shape)
-            self.audio.runtime_shape = runtime_shape
 
     def compile_statuses(self):
         statuses = []
@@ -122,17 +113,37 @@ class AudioCallbacks:
             vol = float(np.sqrt(np.square(received_data).mean(dtype=np.float32)))
             return received_data, vol, [0, 0, 0], None
 
-        with self.lock:
-            audio, vol, perf = self.vc.on_request(
-                received_data,
-                f0_up_key,
-                index_rate,
-                protect,
-                volume_envelope,
-                f0_autotune,
-                f0_autotune_strength,
-                proposed_pitch,
-                proposed_pitch_threshold,
-            )
+        try:
+            with self.lock:
+                audio, vol, perf = self.vc.on_request(
+                    received_data,
+                    f0_up_key,
+                    index_rate,
+                    protect,
+                    volume_envelope,
+                    f0_autotune,
+                    f0_autotune_strength,
+                    proposed_pitch,
+                    proposed_pitch_threshold,
+                )
 
-        return audio, vol, perf, None
+            return audio, vol, perf, None
+        except Exception as error:
+            import traceback
+
+            # Track consecutive errors
+            if not hasattr(self, '_error_count'):
+                self._error_count = 0
+                self._last_error_type = None
+
+            error_type = type(error).__name__
+            self._error_count += 1
+
+            # Only log every 10th occurrence of the same error to avoid spam
+            if self._last_error_type != error_type or self._error_count % 10 == 1:
+                print(f"[Voice Conversion Error] {error_type}: {error} (count: {self._error_count})")
+                print(traceback.format_exc())
+                self._last_error_type = error_type
+
+            # Return silence with same length as input
+            return np.zeros(len(received_data), dtype=np.float32), 0, [0, 0, 0], None

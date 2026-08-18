@@ -1,10 +1,10 @@
-"""Offline benchmark for Fixed Chunk/Overlap and torch.compile profiles.
+"""Offline benchmark for the fixed-Chunk realtime path and torch.compile profiles.
 
 This intentionally opens no PortAudio devices, so it can be run while a game is
 providing the representative GPU contention. Example:
 
     env\python.exe -m rvc.realtime.benchmark --model logs/model.pth \
-        --f0 mangio-crepe-full --chunk 960 --processing overlap --modes default,reduce-overhead
+        --f0 mangio-crepe-full --chunk 960 --modes default,reduce-overhead
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import numpy as np
 import torch
 
 from rvc.realtime.callbacks import AudioCallbacks
-from rvc.realtime.runtime import INTERNAL_SAMPLE_RATE, RuntimeAudioShape
+from rvc.realtime.core import AUDIO_SAMPLE_RATE
 from tabs.settings.sections.torch_compile import (
     TORCH_COMPILE_MODES,
     RealtimeCompileSettings,
@@ -31,12 +31,9 @@ def _percentile(values, percentile):
 
 
 def run_case(args, mode: str) -> dict:
-    shape = RuntimeAudioShape.create(
-        args.chunk,
-        processing_mode=args.processing,
-        hop_mode=args.hop_mode,
-        manual_hop_ms=args.hop,
-    )
+    read_chunk_size = int(args.chunk * AUDIO_SAMPLE_RATE / 1000 / 128)
+    block_frames = read_chunk_size * 128
+    effective_chunk_ms = block_frames / AUDIO_SAMPLE_RATE * 1000
     settings = RealtimeCompileSettings(
         crepe_enabled=args.compile_crepe,
         rvc_enabled=args.compile_rvc,
@@ -46,30 +43,21 @@ def run_case(args, mode: str) -> dict:
         torch.cuda.reset_peak_memory_stats()
     created = time.perf_counter()
     callbacks = AudioCallbacks(
-        read_chunk_size=shape.context_frames // 128,
+        read_chunk_size=read_chunk_size,
         cross_fade_overlap_size=args.crossfade,
         extra_convert_size=args.extra,
         model_path=args.model,
         index_path=args.index or "",
         f0_method=args.f0,
         embedder_model=args.embedder,
-        runtime_shape=shape,
         compile_settings=settings,
     )
     load_ms = (time.perf_counter() - created) * 1000
     warmup = callbacks.warmup()
-    if args.processing == "overlap" and args.hop_mode == "auto":
-        shape = RuntimeAudioShape.create(
-            args.chunk,
-            processing_mode="overlap",
-            hop_mode="auto",
-            measured_p95_ms=_percentile(warmup, 95),
-        )
-        callbacks.configure_runtime_shape(shape)
 
     # A voiced signal exercises CREPE paths unlike an all-zero benchmark.
-    phase = np.arange(shape.hop_frames, dtype=np.float32)
-    sample = (0.1 * np.sin(2 * np.pi * 220 * phase / INTERNAL_SAMPLE_RATE)).astype(
+    phase = np.arange(block_frames, dtype=np.float32)
+    sample = (0.1 * np.sin(2 * np.pi * 220 * phase / AUDIO_SAMPLE_RATE)).astype(
         np.float32
     )
     timings = []
@@ -85,17 +73,16 @@ def run_case(args, mode: str) -> dict:
         "mode": mode,
         "compile_crepe": args.compile_crepe,
         "compile_rvc": args.compile_rvc,
-        "processing": args.processing,
+        "processing": "fixed_chunk",
         "requested_chunk_ms": args.chunk,
-        "effective_chunk_ms": shape.effective_chunk_ms,
-        "effective_hop_ms": shape.effective_hop_ms,
+        "effective_chunk_ms": effective_chunk_ms,
         "load_ms": load_ms,
         "warmup_ms": warmup,
         "p50_ms": _percentile(timings, 50),
         "p95_ms": _percentile(timings, 95),
         "p99_ms": _percentile(timings, 99),
         "mean_ms": statistics.fmean(timings),
-        "realtime_ratio": statistics.fmean(timings) / shape.effective_hop_ms,
+        "realtime_ratio": statistics.fmean(timings) / effective_chunk_ms,
         "peak_vram_mb": (
             torch.cuda.max_memory_allocated() / 1024**2
             if torch.cuda.is_available()
@@ -107,13 +94,13 @@ def run_case(args, mode: str) -> dict:
 
 def _markdown(results: list[dict]) -> str:
     rows = [
-        "| mode | processing | chunk ms | hop ms | p50 | p95 | VRAM MiB | ratio |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|",
+        "| mode | chunk ms | p50 | p95 | VRAM MiB | ratio |",
+        "|---|---:|---:|---:|---:|---:|",
     ]
     for result in results:
         rows.append(
-            "| {mode} | {processing} | {effective_chunk_ms:.1f} | "
-            "{effective_hop_ms:.1f} | {p50_ms:.1f} | {p95_ms:.1f} | "
+            "| {mode} | {effective_chunk_ms:.1f} | "
+            "{p50_ms:.1f} | {p95_ms:.1f} | "
             "{peak_vram_mb:.1f} | {realtime_ratio:.3f} |".format(**result)
         )
     return "\n".join(rows) + "\n"
@@ -126,9 +113,6 @@ def main():
     parser.add_argument("--embedder", default="contentvec")
     parser.add_argument("--f0", default="mangio-crepe-full")
     parser.add_argument("--chunk", type=float, default=512)
-    parser.add_argument("--processing", choices=["fixed_chunk", "overlap"], default="fixed_chunk")
-    parser.add_argument("--hop-mode", choices=["auto", "manual"], default="auto")
-    parser.add_argument("--hop", type=float, default=320)
     parser.add_argument("--crossfade", type=float, default=0.05)
     parser.add_argument("--extra", type=float, default=0.5)
     parser.add_argument("--iterations", type=int, default=20)
@@ -151,4 +135,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

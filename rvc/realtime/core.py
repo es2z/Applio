@@ -12,7 +12,6 @@ sys.path.append(now_dir)
 from rvc.realtime.utils.torch import circular_write
 from rvc.realtime.utils.vad import VADProcessor
 from rvc.realtime.pipeline import create_pipeline
-from rvc.realtime.runtime import RuntimeAudioShape, SILENCE_FLUSH_MS
 
 SAMPLE_RATE = 16000
 AUDIO_SAMPLE_RATE = 48000
@@ -50,8 +49,7 @@ class Realtime:
 
         # Track consecutive silence for buffer flushing
         self.consecutive_silence_frames = 0
-        self.silence_duration_ms = 0.0
-        self.silence_threshold_for_flush = SILENCE_FLUSH_MS
+        self.silence_threshold_for_flush = 3  # Flush buffers after 3 consecutive silent frames (fast cleanup)
 
         self.vad = (
             VADProcessor(
@@ -88,14 +86,13 @@ class Realtime:
 
     def realloc(
         self,
-        context_frame: int,
-        hop_frame: int,
+        block_frame: int,
         extra_frame: int,
         crossfade_frame: int,
         sola_search_frame: int,
     ):
         # Calculate frame sizes based on DEVICE sample rate (f.e., 48000Hz) and convert to 16000Hz
-        context_frame_16k = int(context_frame / AUDIO_SAMPLE_RATE * self.sample_rate)
+        block_frame_16k = int(block_frame / AUDIO_SAMPLE_RATE * self.sample_rate)
         crossfade_frame_16k = int(
             crossfade_frame / AUDIO_SAMPLE_RATE * self.sample_rate
         )
@@ -105,7 +102,7 @@ class Realtime:
         extra_frame_16k = int(extra_frame / AUDIO_SAMPLE_RATE * self.sample_rate)
 
         convert_size_16k = (
-            context_frame_16k
+            block_frame_16k
             + sola_search_frame_16k
             + extra_frame_16k
             + crossfade_frame_16k
@@ -122,7 +119,7 @@ class Realtime:
             extra_frame_16k - (self.window_size * 5) if self.silence_front else 0
         )
         # Audio buffer to measure volume between chunks
-        audio_buffer_size = context_frame_16k + crossfade_frame_16k
+        audio_buffer_size = block_frame_16k + crossfade_frame_16k
         self.audio_buffer = torch.zeros(
             audio_buffer_size, dtype=self.dtype, device=self.device
         )
@@ -138,8 +135,6 @@ class Realtime:
         self.pitchf_buffer = torch.zeros(
             self.convert_feature_size_16k + 1, dtype=self.dtype, device=self.device
         )
-        self.context_frame = context_frame
-        self.hop_frame = hop_frame
 
     def flush_buffers(self):
         """
@@ -154,7 +149,6 @@ class Realtime:
             self.pitch_buffer.zero_()
         if self.pitchf_buffer is not None:
             self.pitchf_buffer.zero_()
-        self.silence_duration_ms = 0.0
 
     def inference(
         self,
@@ -189,9 +183,10 @@ class Realtime:
         elif vol < self.input_sensitivity:
             is_input_silent = True
 
-        # Always write to the conversion buffer so fade-out tails can finish.
-        # Extended output silence flushes history using a time threshold that is
-        # independent of the selected Chunk and Hop values.
+        # Always write to convert buffer, even if input is silent
+        # This ensures proper fade-out processing and prevents incomplete audio tails
+        # For 2-stream mode: We rely on fast buffer flushing (silence_threshold_for_flush=3)
+        # to clear old data quickly after output becomes silent
         circular_write(audio_input_16k, self.convert_buffer)
 
         # Always run pipeline processing
@@ -222,15 +217,17 @@ class Realtime:
         # Only flush buffers when output is also silent (all data has been processed)
         if is_output_silent:
             self.consecutive_silence_frames += 1
-            self.silence_duration_ms += len(audio_input) / AUDIO_SAMPLE_RATE * 1000
-            if self.silence_duration_ms >= self.silence_threshold_for_flush:
-                self.flush_buffers()
+            # Flush all buffers after extended output silence to ensure clean state
+            # This prevents old data in circular buffers from mixing with new audio
+            if self.consecutive_silence_frames >= self.silence_threshold_for_flush:
+                # Only flush once per silence period
+                if self.consecutive_silence_frames == self.silence_threshold_for_flush:
+                    self.flush_buffers()
             # Output is silent - no more audio to process
             return None, vol
         else:
             # Reset silence counter when output has audio
             self.consecutive_silence_frames = 0
-            self.silence_duration_ms = 0.0
 
         # Output still has audio data (previous audio still being processed)
         # Continue outputting even if input is silent
@@ -258,24 +255,17 @@ class VoiceChanger:
         vad_frame_ms: int = 30,
         sid: int = 0,
         hybrid_blend_ratio: float = 0.5,
-        runtime_shape: RuntimeAudioShape | None = None,
         compile_settings=None,
         # device: str = "cuda",
     ):
-        self.runtime_shape = runtime_shape or RuntimeAudioShape.create(
-            read_chunk_size * 128 / AUDIO_SAMPLE_RATE * 1000
-        )
-        self.block_frame = self.runtime_shape.context_frames
-        self.hop_frame = self.runtime_shape.hop_frames
-        requested_crossfade = int(cross_fade_overlap_size * AUDIO_SAMPLE_RATE)
-        self.requested_crossfade_frame = requested_crossfade
-        self.crossfade_frame = max(1, min(requested_crossfade, self.hop_frame))
+        self.block_frame = read_chunk_size * 128
+        self.crossfade_frame = int(cross_fade_overlap_size * AUDIO_SAMPLE_RATE)
         self.extra_frame = int(extra_convert_size * AUDIO_SAMPLE_RATE)
         self.sola_search_frame = AUDIO_SAMPLE_RATE // 100
         self.sola_buffer = None
         compile_signature = (
-            f"context={self.block_frame}|"
-            f"extra={self.extra_frame}|crossfade={self.crossfade_frame}"
+            f"block={self.block_frame}|extra={self.extra_frame}|"
+            f"crossfade={self.crossfade_frame}"
         )
         self.vc_model = Realtime(
             model_path,
@@ -296,7 +286,6 @@ class VoiceChanger:
         self.device = self.vc_model.device
         self.vc_model.realloc(
             self.block_frame,
-            self.hop_frame,
             self.extra_frame,
             self.crossfade_frame,
             self.sola_search_frame,
@@ -325,18 +314,6 @@ class VoiceChanger:
             self.crossfade_frame, device=self.device, dtype=torch.float32
         )
 
-    def configure_runtime_shape(self, runtime_shape: RuntimeAudioShape) -> None:
-        if runtime_shape.context_frames != self.block_frame:
-            raise ValueError("Context shape cannot change inside a realtime session")
-        self.runtime_shape = runtime_shape
-        self.hop_frame = runtime_shape.hop_frames
-        self.crossfade_frame = max(
-            1, min(self.requested_crossfade_frame, self.hop_frame)
-        )
-        self.vc_model.hop_frame = self.hop_frame
-        self.generate_strength()
-        self.vc_model.flush_buffers()
-
     def process_audio(
         self,
         audio_input: np.ndarray,
@@ -349,8 +326,7 @@ class VoiceChanger:
         proposed_pitch: bool = False,
         proposed_pitch_threshold: float = 155.0,
     ):
-        input_size = audio_input.shape[0]
-        block_size = self.hop_frame
+        block_size = audio_input.shape[0]
 
         audio, vol = self.vc_model.inference(
             audio_input,
@@ -367,21 +343,15 @@ class VoiceChanger:
         if audio is None:
             # Flush sola_buffer when Realtime class has flushed its buffers
             # Check if we're in extended silence state
-            if self.vc_model.silence_duration_ms == 0 and self.sola_buffer is not None:
-                # Realtime.flush_buffers() resets the duration after the
-                # time-based silence threshold is reached.
-                self.sola_buffer.zero_()
+            if hasattr(self.vc_model, 'consecutive_silence_frames'):
+                if self.vc_model.consecutive_silence_frames >= self.vc_model.silence_threshold_for_flush:
+                    if self.sola_buffer is not None:
+                        self.sola_buffer.zero_()
 
             # In case there's an actual silence - send full block with zeros
             return np.zeros(block_size, dtype=np.float32), vol
 
-        # The model always sees the fixed context. In overlap mode only the newest
-        # hop is returned; fixed-chunk mode has a zero base offset.
-        base_offset = max(0, self.block_frame - self.hop_frame)
-        candidate = audio[
-            base_offset : base_offset + self.crossfade_frame + self.sola_search_frame
-        ]
-        conv_input = candidate[None, None, :]
+        conv_input = audio[None, None, : self.crossfade_frame + self.sola_search_frame]
         cor_nom = F.conv1d(conv_input, self.sola_buffer[None, None, :])
         cor_den = torch.sqrt(
             F.conv1d(
@@ -392,7 +362,7 @@ class VoiceChanger:
         )
         sola_offset = torch.argmax(cor_nom[0, 0] / cor_den[0, 0])
 
-        audio = audio[base_offset + sola_offset :]
+        audio = audio[sola_offset:]
         audio[: self.crossfade_frame] *= self.fade_in_window
         audio[: self.crossfade_frame] += self.sola_buffer * self.fade_out_window
 
@@ -400,27 +370,28 @@ class VoiceChanger:
         return audio[:block_size].detach().cpu().numpy(), vol
 
     def warmup(self) -> list[float]:
-        """Warm model/compile paths before PortAudio streams are opened."""
+        """Compile and warm the fixed Chunk shape before opening PortAudio."""
         timings = []
-        prefill_phase = np.arange(self.block_frame, dtype=np.float32)
-        prefill = (
-            0.05
-            * np.sin(2 * np.pi * 220 * prefill_phase / AUDIO_SAMPLE_RATE)
-        ).astype(np.float32)
-        # The first call may compile/autotune and is not representative runtime
-        # latency. It is deliberately excluded from the p95 Hop calculation.
+        phase = np.arange(self.block_frame, dtype=np.float32)
+        prefill = (0.05 * np.sin(2 * np.pi * 220 * phase / AUDIO_SAMPLE_RATE)).astype(
+            np.float32
+        )
         with torch.no_grad():
             self.process_audio(prefill)
             for iteration in range(4):
-                phase = np.arange(self.hop_frame, dtype=np.float32) + (
-                    self.block_frame + iteration * self.hop_frame
-                )
                 data = (
-                    0.05 * np.sin(2 * np.pi * 220 * phase / AUDIO_SAMPLE_RATE)
+                    0.05
+                    * np.sin(
+                        2
+                        * np.pi
+                        * 220
+                        * (phase + (iteration + 1) * self.block_frame)
+                        / AUDIO_SAMPLE_RATE
+                    )
                 ).astype(np.float32)
-                start = time.perf_counter()
+                started = time.perf_counter()
                 self.process_audio(data)
-                timings.append((time.perf_counter() - start) * 1000)
+                timings.append((time.perf_counter() - started) * 1000)
         self.vc_model.flush_buffers()
         self.vc_model.consecutive_silence_frames = 0
         self.vc_model.pipeline.finish_compile_warmup()
