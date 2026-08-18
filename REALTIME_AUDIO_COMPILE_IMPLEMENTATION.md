@@ -7,12 +7,13 @@
 - `Fixed Chunk` と `Overlap` の両方を追加した。Overlap でもモデルが見る Context は
   Chunk Size のまま、開始時に決めた短い Hop だけを一定周期で進める。Start 後に
   Chunk/Hop/Compile shape は変化しない。
-- 推論遅れへの対処は Chunk を勝手に拡大する方式ではない。WASAPI single-duplexは固定の
-  起動reserveだけを使い、発話中の10 ms増減を行わない。separate fallbackだけ追加出力bufferを
-  `10 ms`ずつ増減し、2倍、4倍には増やさない。
-- PortAudio callbackから推論・resample・待機ロックを外した。PA IDが異なっても同じWASAPI
-  Hostならsingle duplexを先に試し、I/O/rate probe異常時だけseparateへfallbackする。
-  separate時のclock差はChunk/Hopを変えず最大±1000 ppmの可変resampleで吸収する。
+- 推論遅れへの対処は Chunk を勝手に拡大する方式ではない。追加出力バッファだけを
+  `10 ms` ずつ増減する。2 回の deadline miss で `+10 ms`、実 underflow は即
+  `+10 ms`、安定した無音中だけ `-10 ms` とする。2 倍、4 倍には増えない。
+- PortAudio callback から推論・resample・待機ロックを外した。本当に同じ PA device が
+  input/output の両方向を持つ場合だけ duplex とし、PA ID が異なるdeviceはHost APIが
+  同じでも separate streamにする。別デバイスのクロック差は Chunk/Hop を変えず最大
+  ±1000 ppm の可変resampleで吸収する。
 - デバイスの表示番号を内部 ID として再利用しない。Dropdown は現在の PortAudio ID
   を `PA 37: ...` のように表示する一方、保存値には安定 fingerprint を使う。古い
   `15: Name (Host API)` と template は起動時に移行する。
@@ -119,10 +120,9 @@ callback は preallocated scratch/ring への copy と xrun signal の記録だ�
 待たずに xrun として記録する。host callback `blocksize=0` を使うため、GUI Chunk Size を
 WDM-KS/WASAPI の host buffer size として渡さない。
 
-同じPA device IDがInput/Output両方を持つ場合に加え、異なるPA IDでも同じWASAPI Hostなら
-single duplex streamを先に試す。reported I/Oが1000 msを超える、callback rate probeが異常、
-またはopenに失敗した場合だけseparate InputStream/OutputStreamへfallbackする。異なるAPIの
-WASAPI -> WDM-KSはseparate streamになる。Start は worker、input callback、output
+同じPA device IDがInput/Output両方を持つ場合だけsingle duplex streamを試す。
+PA IDが異なれば、同じWASAPI同士でもseparate InputStream/OutputStreamを使う。異なる API の
+WASAPI -> WDM-KSもseparate streamになる。Start は worker、input callback、output
 callback の heartbeat をすべて確認するまで Ready を返さないため、「表示は動作中だが
 実 stream は固まった」という状態を成功扱いしない。
 
@@ -155,7 +155,6 @@ Chunk/Hop、推論 shape、音声の時間単位を変更する処理ではな�
 | `MAX_CLOCK_CORRECTION_PPM` | 1000 ppm | separate clock 補正上限 |
 
 base reserve は `max(10 ms, ceil10(warmup p95 - p50))`、extra は 0 ms から始まる。
-duplexではbase reserveを固定し、実行中のgrow/shrinkを無効化する。separate fallbackでは
 deadline missを2回観測するか実underflowが起きるとreserve目標を10 ms増やす。初期実装は
 低energy区間を複製挿入していたが、実音でclickが報告されたため廃止した。現在はseparate stream用
 SOXR rate補正で目標reserveへ徐々に追従する。削除は安定した無音blockに限定する。
@@ -293,7 +292,7 @@ input/output xrun、catch-up/dropped量、各compile backend、overload/warning�
 .\env\python.exe -X utf8 -m unittest discover -s tests -v
 ```
 
-25 tests passed。対象は以下を含む。
+23 tests passed。対象は以下を含む。
 
 - 複数の可変 Chunk が 128 frame alignment され、Fixed の Hop と一致する
 - 960/320 はあくまで 1 test case として Context/Hop が分離される
@@ -302,10 +301,9 @@ input/output xrun、catch-up/dropped量、各compile backend、overload/warning�
 - 2 misses ごとに +10 ms で、指数増加しない
 - 安定無音時だけ -10 ms ずつ縮小する
 - 30 秒の持続的な平均超過と backlog が overload を立てる
-- extra reserveがGUI由来の上限を超えない
+- 10 ms 挿入後の長さと finite sample
 - legacy/new device label の解決と消失 device error
-- 異なるPA deviceでもWASAPI同士ならduplexを試し、非WASAPI pairはseparateを使う
-- single-duplexでは動的10 ms reserve増減を無効化する
+- 同じHost APIでも異なるPA deviceは別streamを使う
 - 半速device clockとmulti-second I/O latencyを拒否する
 - `running=False`でも残存streamをstop/closeする
 - live compile failure が global cache reset をせず eager fallback する
@@ -413,9 +411,6 @@ $env:PYTHONUTF8='1'
   聴感が基準。Fixed を削除していないので即時比較できる。
 
 ## 11. 2026-08-18 WASAPI先行修正
-
-このSectionは第一段階の履歴である。異なるWASAPI PA IDを常にseparateにする判断は、ユーザーの
-音切れ報告と追加実測を受けてSection 13の「validated single-duplex優先」に置き換えた。
 
 ### 11.1 TL;DR
 
@@ -615,71 +610,3 @@ Status変更:
 
 今回のqueue修正ではdependencyを追加・更新していない。Torch/Triton/torchcrepeのrequirements固定は
 既存Sectionのままである。
-
-## 13. 2026-08-18 WASAPI single-duplexと固定reserve
-
-### 13.1 ユーザー報告
-
-Section 12のseparate WASAPI経路で遅延は小さくなったが、発話中に音切れを感じるという報告があった。
-この時点のPA28→PA22は両方WASAPIでも別々のInputStream/OutputStreamであり、underflow時の
-10 ms reserve目標変更とSOXR clock feedbackが有効だった。10 ms音声複製は既に削除済みだったが、
-2本のcallback間でoutput underflowが起きればそのcallbackは無音となる。
-
-### 13.2 新しいroute policy
-
-`Audio._can_use_native_duplex()`を次の条件へ変更した。
-
-- 1個のbidirectional PA device: duplexを試す。
-- 異なるPA IDでもinput/outputが同じWindows WASAPI Host: duplexを試す。
-- 異なる非WASAPI device: separateのまま。
-
-異なるWASAPI endpointが物理clockを共有するとは仮定していない。PortAudioがcapture/renderを
-1本のfull-duplex callbackとして正常に提供できるかを実際に検査する。`_open_duplex()`後に:
-
-1. reported I/Oが1000 msを超えないことを検査する。
-2. input/output heartbeatを待つ。
-3. 1秒間のcallback frame rateが要求値の±5%以内であることを検査する。
-4. 失敗した場合はduplexをcloseし、separate streamを開き直して同じprobeを再実行する。
-
-これにより過去のI/O 4740.7 ms状態を成功扱いせず、正常なsingle-duplexだけを利用する。
-
-### 13.3 duplexで無効化する処理
-
-`_create_buffers(separate_stream_clocks=False)`では`_adaptive_reserve_enabled=False`とする。
-
-- `ElasticBufferController.record_inference()`による10 ms growを呼ばない。
-- output underflowによる10 ms growを呼ばない。
-- 無音時の10 ms shrinkを呼ばない。
-- SOXR variable-rate clock correctionを使わず、statusは`drift +0 ppm`となる。
-- `Maximum Extra Buffer`はduplex routeではbuffer容量にも制御にも使用しない。
-
-残すのはwarmupの`max(10 ms, ceil10(p95-p50))`で決めた固定startup reserveだけである。
-これは最初のモデル出力が到着した後に一度だけ貯めるjitter余裕で、発話途中へsampleを挿入・削除しない。
-Statusは`reserve N ms (fixed)`と表示する。separate fallbackは`(adaptive)`と表示する。
-
-catastrophic input backlog時のlatest-context catch-upはrouteに関係なく残す。これは通常の10 ms調整ではなく、
-既に実時間から大きく外れた際に数秒古い発話を再生し続けないための安全処理である。
-
-### 13.4 実機結果
-
-PA28 MOTU WASAPI input → PA22 VB-Cable WASAPI outputをRVCなしのpass-throughで測定した。
-
-```text
-duplex/Windows WASAPI
-route PA28@48000Hz->PA22@48000Hz
-clock 47515/47515Hz
-reserve 10 ms (fixed)
-I/O 54.0 ms
-drift +0 ppm
-xruns 0/0
-catch-up 0
-dropped in/out 0.0/0.0 ms
-```
-
-Chunk 960/Hop 800という試験値で物理end-to-endは約1.152秒、correlationは約0.9999998だった。
-separate経路の約0.98～1.17秒と同程度の遅延を維持している。連続Start/Stop 3回もすべて
-`duplex/Windows WASAPI`、reported I/O 54 ms、動的reserve無効で成功し、`-9996`と4.7秒I/Oは
-再現しなかった。
-
-自動テストは25件通過し、WASAPI pairのduplex選択、非WASAPI pairのseparate選択、duplex workerが
-underflow signalを受けてもextra reserveを増やさないことを追加検証した。

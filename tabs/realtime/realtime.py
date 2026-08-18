@@ -1090,7 +1090,7 @@ def realtime_tab():
                     step=10,
                     label=i18n("Maximum Extra Buffer (ms)"),
                     info=i18n(
-                        "Upper limit for temporary jitter reserve on separate-stream fallback routes. WASAPI duplex uses a fixed startup reserve and ignores this value. It never changes Chunk or Hop."
+                        "Upper limit for temporary jitter reserve. It changes in 10 ms steps and never changes Chunk or Hop. Set 0 to disable extra growth."
                     ),
                     interactive=True,
                 )

@@ -11,12 +11,10 @@
   実際にあった。
 - 修正後はChunk/Hopを変更しない。許容範囲を超えた場合だけ古い時刻を捨て、最新の完全な
   Chunk contextからモデルを再同期する。
-- separate fallbackの追加bufferは10 ms単位のまま、GUIの`Maximum Extra Buffer (ms)`で上限を
-  設定する。初期値は200 ms、0なら追加増加を無効化する。WASAPI duplexでは使用しない。
+- 追加bufferは10 ms単位のまま、GUIの`Maximum Extra Buffer (ms)`で上限を設定する。
+  初期値は200 ms、0なら追加増加を無効化する。
 - bufferを増やすための「音声断片の複製」は廃止した。別device間のSOXR rate補正でreserveへ
   徐々に追従するため、増加の瞬間に10 msの音を挿入しない。
-- PA28→PA22は現在、1本のWASAPI duplex callbackを最初に試す。この経路では実行中の
-  10 ms reserve増減とclock補正を無効化し、warmupから決めた固定の起動reserveだけを使う。
 - 実モデル + mangio-crepeで聴感上の約10秒が消えたかは、ユーザー環境での最終確認が必要である。
   driver値だけを見て「解決済み」とは扱わない。
 
@@ -62,9 +60,6 @@ Chunk 960 ms / Hop 800 msの反復試験で約0.98～1.17秒だった。Chunk co
 - WASAPI device経路: 数十ms単位で動作している。
 - 新規開始直後のアプリtransport: 選択したChunkに近い遅延で動作している。
 - 実モデル運転中の約10秒: 処理停止や一時的な遅れの後に、古いqueueを再生する経路を疑うべき。
-
-1本のWASAPI duplexへ変更後の同じpass-through試験は約1.15秒、相関約1.0、I/O 54 ms、
-`xruns 0/0`だった。3回連続Start/Stopもすべてduplex/I/O 54 msで成功した。
 
 ## 見つかったアプリ内部の問題
 
@@ -122,17 +117,13 @@ internal inputが`現在のChunk + 100 ms`を超えた場合、またはinput ca
 
 修正後:
 
-- 1本のduplex経路ではreserveを実行中に増減しない。
-- duplexではwarmup p95-p50から決めた固定の起動reserveだけを使う。最低値は10 msで、これは
-  workerの推論jitterを吸収するための固定遅延であり、発話中に挿入・削除されない。
-- duplex開始やtiming probeが失敗してseparate streamへfallbackした場合だけ、reserve目標値を
-  10 ms単位で増減する。
-- separateでは2回のmiss、または実underflowで10 ms増える既存判定を維持する。
+- reserve目標値の増減単位は10 ms。
+- 2回のmiss、または実underflowで10 ms増える既存判定は維持する。
 - 音声sampleは複製しない。
 - 別deviceのWASAPI経路では、既に使用しているSOXRの小さな出力rate補正により、新しいreserveへ
   徐々に近づける。
 - 安定した無音時には10 msずつreserve目標を下げ、無音sampleを削って実queueも追従させる。
-- separate時の最大追加量はGUIの`Maximum Extra Buffer (ms)`。初期値200 ms、範囲0～2000 ms。
+- 最大追加量はGUIの`Maximum Extra Buffer (ms)`。初期値200 ms、範囲0～2000 ms。
 
 この値はChunk Sizeではない。例えばChunkがGUI上960 msでも512 msでも、追加buffer上限は独立している。
 
@@ -141,10 +132,10 @@ internal inputが`現在のChunk + 100 ms`を超えた場合、またはinput ca
 修正後は概ね次の項目が表示される。
 
 ```text
-duplex/Windows WASAPI
+separate/Windows WASAPI->Windows WASAPI
 | route PA28@48000Hz->PA22@48000Hz (clock .../...Hz)
 | Chunk ... ms | Hop ... ms | infer p50/p95 .../... ms
-| reserve ... ms (fixed) | I/O ... ms | lower-bound est. ... ms
+| reserve ... ms | I/O ... ms | lower-bound est. ... ms
 | queue in/out .../... ms | drift ... ppm
 | xruns in/out .../... | catch-up ... (dropped in/out .../... ms)
 ```
@@ -155,25 +146,21 @@ duplex/Windows WASAPI
 - `catch-up`: 実時間へ戻す処理を行った回数。
 - `dropped in/out`: catch-upなどで意図的に捨てた古い音声の累計時間。
 - `xruns`: callbackで入力を失った回数と、出力が不足した回数。
-- `reserve ... (fixed)`: duplexでStart後に増減しない起動reserve。
-- `reserve ... (adaptive)`: separate fallbackで10 ms制御が有効なreserve。
+- `reserve`: 現在の目標reserve。Chunk/Hopとは別物。
 
 Statusは画面更新時点のsnapshotなので、`queue out`は1 Hop出力直後に大きく、再生につれて小さくなる。
 重要なのは数秒単位へ単調増加しないことと、遅延発生時に`catch-up`が作動することである。
 
-## 2つのdeviceを1つのWASAPI streamにする方法
+## 2つのdeviceを1つのstreamにできない理由
 
 MOTUとVB-Audioは両方48,000 Hz表示でも、別々のhardware/software clockを持つ。
-同じ`Windows WASAPI`というHost API名だけでは物理clock共有の証明にならないが、PortAudioは
-異なるcapture/render endpointを1本のfull-duplex callbackとして開くことができる。
+同じ`Windows WASAPI`というHost API名だけでは、1個のsample clockを共有している証明にならない。
 
 - 同じPA番号がinput/output両方を持つ場合: PortAudioの1 duplex streamを使用可能。
-- PA番号が異なっても両方WASAPIの場合: まず1本のduplex streamを試す。
-- duplexのreported I/Oが1000 ms超、callback rate異常、またはopen失敗: 自動的にseparateへfallback。
-- WDM-KSなど異なるdeviceの非WASAPI Host API: separate streamを使う。
+- PA番号が異なる場合: input streamとoutput streamを1個ずつ開く。
 
-duplexではinput/outputが同じcallback frame数で進むため、独立clock用SOXR補正と動的10 ms reserveを
-止める。fallbackしたseparate経路だけSOXRでclock差を補正する。どちらもRVC/CREPEの実行は1回である。
+別streamでもRVC/CREPEを2回実行するわけではない。変換workerは1個で、僅かなclock差だけを
+SOXRのvariable-rate resamplingで補正する。この構成で上記のpass-through約0.98～1.17秒を確認した。
 
 ## WDM-KS inputを今は優先しない理由
 
@@ -193,7 +180,7 @@ device入力で起きており、通常の数百ppmのclock補正では直せな
 - Input: `PA 28: Loopback (MOTU M Series) (Windows WASAPI)`
 - Output: `PA 22: CABLE Input (VB-Audio Virtual Cable) (Windows WASAPI)`
 - Exclusive Mode: OFF
-- Maximum Extra Buffer: duplexでは未使用。separate fallback時だけ初期値200 msを使う。
+- Maximum Extra Buffer: まず200 ms。追加buffer自体を比較したい場合は0 msも試せる。
 
 確認点:
 
@@ -201,7 +188,7 @@ device入力で起きており、通常の数百ppmのclock補正では直せな
 2. 約10秒ではなく、概ね選択Chunkに近い遅延へ戻ったかを実音で確認する。
 3. 長時間、ゲーム負荷、torch compile後に`queue in/out`が数秒へ増えないかを見る。
 4. 遅れが起きたとき`catch-up`と`dropped`が増え、現在時刻へ戻るかを見る。
-5. Statusが`duplex/Windows WASAPI`かつ`reserve ... (fixed)`になり、発話中にreserveが変化しないことを確認する。
+5. reserve増加時の「ぷちっ」が消えたか確認する。
 6. Stop→Startを繰り返し、`-9996 Invalid device`が再発しないか確認する。
 
 実モデルの音質・clickは自動試験だけでは判定できない。Statusと聴感結果の両方で次の修正要否を決める。
