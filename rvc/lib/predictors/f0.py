@@ -246,7 +246,7 @@ class FCNF0PP:
             return values[:p_len]
         return np.pad(values, (0, p_len - values.shape[0]))
 
-    def _voiced_mask(self, periodicity, f0_min=None, f0_max=None):
+    def _voiced_mask(self, periodicity):
         """Return RVC's voiced/unvoiced mask without changing pitch timing."""
         return periodicity >= self.PERIODICITY_THRESHOLD
 
@@ -289,7 +289,7 @@ class FCNF0PP:
         periodicity = np.nan_to_num(
             periodicity, nan=0.0, posinf=0.0, neginf=0.0
         )
-        pitch[~self._voiced_mask(periodicity, f0_min, f0_max)] = 0.0
+        pitch[~self._voiced_mask(periodicity)] = 0.0
         pitch[(pitch < f0_min) | (pitch > f0_max)] = 0.0
         return pitch.astype(np.float32, copy=False)
 
@@ -302,9 +302,8 @@ class FCNF0PP_SPEECH(FCNF0PP):
     confidence dip does not turn an otherwise stable vocal pitch into 0 Hz.
     """
 
-    # Thresholds after removing entropy's frequency-range-dependent floor.
-    VOICING_ON_THRESHOLD = 0.020
-    VOICING_OFF_THRESHOLD = 0.010
+    VOICING_ON_THRESHOLD = 0.045
+    VOICING_OFF_THRESHOLD = 0.035
 
     @staticmethod
     def _median3(values):
@@ -315,31 +314,7 @@ class FCNF0PP_SPEECH(FCNF0PP):
             np.stack((padded[:-2], padded[1:-1], padded[2:])), axis=0
         )
 
-    def _normalize_periodicity(self, periodicity, f0_min, f0_max):
-        """Remove entropy's frequency-range-dependent uniform floor."""
-        pitch_bins = int(getattr(self.penn, "PITCH_BINS", 1440))
-        penn_fmin = float(getattr(self.penn, "FMIN", 31.0))
-        cents_per_bin = float(getattr(self.penn, "CENTS_PER_BIN", 5.0))
-
-        def frequency_to_bin(frequency, quantize):
-            cents = 1200.0 * np.log2(float(frequency) / penn_fmin)
-            index = int(quantize(cents / cents_per_bin))
-            return min(pitch_bins - 1, max(0, index))
-
-        min_index = frequency_to_bin(f0_min, np.floor)
-        max_index = frequency_to_bin(f0_max, np.ceil)
-        allowed_bins = max(2, max_index - min_index)
-        uniform_floor = 1.0 - np.log(allowed_bins) / np.log(pitch_bins)
-        return np.clip(
-            (periodicity - uniform_floor) / (1.0 - uniform_floor),
-            0.0,
-            1.0,
-        )
-
-    def _voiced_mask(self, periodicity, f0_min=None, f0_max=None):
-        periodicity = self._normalize_periodicity(
-            periodicity, f0_min, f0_max
-        )
+    def _voiced_mask(self, periodicity):
         periodicity = self._median3(periodicity)
         voiced = np.zeros(periodicity.shape, dtype=bool)
         active = False
