@@ -65,7 +65,7 @@ class FCNF0PPTests(unittest.TestCase):
         self.assertEqual(fake_penn.from_audio.call_args.kwargs["gpu"], 3)
 
     def test_speech_variant_closes_one_frame_voicing_hole(self):
-        periodicity = [0.04, 0.06, 0.06, 0.04, 0.06, 0.06, 0.04]
+        periodicity = [0.04, 0.10, 0.10, 0.04, 0.10, 0.10, 0.04]
         predictor, _ = self._predictor(
             [220.0] * len(periodicity),
             periodicity,
@@ -81,6 +81,77 @@ class FCNF0PPTests(unittest.TestCase):
             f0,
             np.array([0, 220, 220, 220, 220, 220, 0], np.float32),
         )
+
+    def test_speech_variant_applies_mangio_like_pitch_median(self):
+        pitch = [200.0, 201.0, 500.0, 202.0, 203.0]
+        predictor, _ = self._predictor(
+            pitch,
+            [1.0] * len(pitch),
+            predictor_class=FCNF0PP_SPEECH,
+        )
+        f0 = predictor.get_f0(
+            np.zeros(len(pitch) * 160, np.float32),
+            50,
+            1100,
+            len(pitch),
+        )
+        np.testing.assert_array_equal(
+            f0,
+            np.array([200, 201, 202, 203, 203], np.float32),
+        )
+
+    def test_speech_pitch_median_size_one_is_disabled(self):
+        pitch = np.array([200.0, 201.0, 500.0, 202.0, 203.0], np.float32)
+        predictor, _ = self._predictor(
+            pitch,
+            np.ones(pitch.shape, np.float32),
+            predictor_class=FCNF0PP_SPEECH,
+        )
+        predictor.PITCH_MEDIAN_FILTER_SIZE = 1
+        f0 = predictor.get_f0(
+            np.zeros(len(pitch) * 160, np.float32),
+            50,
+            1100,
+            len(pitch),
+        )
+        np.testing.assert_array_equal(f0, pitch)
+
+
+class RealtimeF0QuantizationTests(unittest.TestCase):
+    @staticmethod
+    def _pipeline(use_mel_scaled):
+        from rvc.realtime.pipeline import Realtime_Pipeline
+
+        pipeline = Realtime_Pipeline.__new__(Realtime_Pipeline)
+        pipeline.f0_min = 50.0
+        pipeline.f0_max = 1680.0
+        pipeline.f0_model = types.SimpleNamespace(
+            USE_MEL_SCALED_REALTIME_COARSE=use_mel_scaled
+        )
+        return pipeline
+
+    def test_speech_maps_configured_frequency_range_to_full_coarse_range(self):
+        pipeline = self._pipeline(True)
+        coarse = pipeline._quantize_f0(
+            torch.tensor([0.0, pipeline.f0_min, pipeline.f0_max])
+        )
+        torch.testing.assert_close(coarse, torch.tensor([1, 1, 255]))
+
+    def test_existing_methods_keep_legacy_realtime_quantization(self):
+        pipeline = self._pipeline(False)
+        f0 = torch.tensor([0.0, 50.0, 440.0, 1680.0])
+        f0_mel = 1127.0 * torch.log(1.0 + f0 / 700.0)
+        expected = torch.round(
+            torch.clip(
+                (f0_mel - pipeline.f0_min)
+                * 254
+                / (pipeline.f0_max - pipeline.f0_min)
+                + 1,
+                1,
+                255,
+            )
+        ).long()
+        torch.testing.assert_close(pipeline._quantize_f0(f0), expected)
 
 
 class PennSessionTests(unittest.TestCase):

@@ -250,6 +250,10 @@ class FCNF0PP:
         """Return RVC's voiced/unvoiced mask without changing pitch timing."""
         return periodicity >= self.PERIODICITY_THRESHOLD
 
+    def _postprocess_pitch(self, pitch):
+        """Hook for variants; the official FCNF0++ contour is unchanged."""
+        return pitch
+
     def get_f0(self, x, f0_min=50, f0_max=1100, p_len=None):
         if torch.is_tensor(x):
             audio = x.detach().float().cpu()
@@ -289,6 +293,7 @@ class FCNF0PP:
         periodicity = np.nan_to_num(
             periodicity, nan=0.0, posinf=0.0, neginf=0.0
         )
+        pitch = self._postprocess_pitch(pitch)
         pitch[~self._voiced_mask(periodicity, f0_min, f0_max)] = 0.0
         pitch[(pitch < f0_min) | (pitch > f0_max)] = 0.0
         return pitch.astype(np.float32, copy=False)
@@ -297,23 +302,79 @@ class FCNF0PP:
 class FCNF0PP_SPEECH(FCNF0PP):
     """FCNF0++ with speech-oriented voiced/unvoiced stabilization.
 
-    PENN's Viterbi decoder already stabilizes the pitch trajectory. This
-    variant only smooths the periodicity decision so that a one-frame
-    confidence dip does not turn an otherwise stable vocal pitch into 0 Hz.
+    It keeps the official PENN model and framing, then applies small RVC-side
+    filters to reduce audible pitch jitter and voiced/unvoiced chatter.
     """
 
-    # Thresholds after removing entropy's frequency-range-dependent floor.
-    VOICING_ON_THRESHOLD = 0.020
-    VOICING_OFF_THRESHOLD = 0.010
+    # ======================================================================
+    # fcnf0++-speech の音質調整はここです
+    # ======================================================================
+    # 1. UIのF0 methodで「fcnf0++-speech」を選びます。
+    # 2. 下の値を一項目だけ変更して保存します。
+    # 3. 実行中のRVCを完全に終了してから起動し直します。
+    #    （このファイルは起動時に読み込まれるため、画面の変換停止／再開だけでは
+    #     変更が反映されない場合があります。）
+    # 4. 同じ入力・モデル・index rate・pitch shiftで録音して比較します。
+    #
+    # おすすめの試験順:
+    # A. 声がかすれる／細い／小声が途切れる
+    #      VOICING_ON_THRESHOLD  = 0.020
+    #      VOICING_OFF_THRESHOLD = 0.010
+    #    まだ途切れる場合だけ 0.010 / 0.003 を試します。低くしすぎると、
+    #    息・摩擦音・環境音まで音程として拾います。ON/OFFは必ず対で変更します。
+    #
+    # B. Mangioより透明感・広がり・ビブラートが弱い／丸く聞こえる
+    #      PITCH_MEDIAN_FILTER_SIZE = 1
+    #    1はF0平滑化なし、3は現在の推奨値です。1でザラつきや音程飛びが増えたら
+    #    3へ戻してください。5はさらに滑らかですが、通常は鈍くなるので非推奨です。
+    #
+    # C. 子音境界がにじむ／発音の輪郭が弱い
+    #      PERIODICITY_MEDIAN_FILTER_SIZE = 1
+    #    1は有声判定の平滑化なし、3は10 msだけ落ちる判定穴を抑えます。
+    #
+    # D. coarse F0修正そのものの音色差を比較する
+    #      USE_MEL_SCALED_REALTIME_COARSE = False
+    #    Trueが正しいmel量子化、Falseがこのforkの従来リアルタイム式です。
+    #    高域のpitch embeddingが変わるため、響きの差を感じる場合があります。
+    #
+    # 最初はA、次にBを別々に試してください。同時に変更すると、どちらが効いたか
+    # 判断できません。CENTER/HOP_SECONDS/f0_min/f0_maxはこの比較中は変更しません。
+
+    # decoderはviterbiを推奨します。argmaxは速い一方、実測でF0ジッターと
+    # octave errorが増えたため、音質比較中は変更しないでください。
+    DECODER = "viterbi"
+
+    # Bの調整箇所: 1=平滑化なし、3=現在値、5=強い平滑化（奇数のみ）。
+    PITCH_MEDIAN_FILTER_SIZE = 5
+
+    # Cの調整箇所: 1=無効、3=現在値（奇数のみ）。
+    PERIODICITY_MEDIAN_FILTER_SIZE = 5
+
+    # Aの調整箇所（上から Stable/current、Balanced、Open）:
+    #   0.025 / 0.015 = 誤検出を抑える現在値。小声では細くなる場合があります。
+    #   0.020 / 0.010 = 最初に試す推奨値。響きと誤検出の中間です。
+    #   0.010 / 0.003 = 最も開いた設定。息や背景音を拾う可能性があります。
+    VOICING_ON_THRESHOLD = 0.010
+    VOICING_OFF_THRESHOLD = 0.003
+
+    # Dの調整箇所: True=正しいmel量子化、False=従来リアルタイム式。
+    # このフラグが影響するのはfcnf0++-speechだけです。
+    USE_MEL_SCALED_REALTIME_COARSE = False
 
     @staticmethod
-    def _median3(values):
-        if values.size < 2:
+    def _median_filter(values, size):
+        size = int(size)
+        if size <= 1 or values.size < 2:
             return values.copy()
-        padded = np.pad(values, (1, 1), mode="edge")
-        return np.median(
-            np.stack((padded[:-2], padded[1:-1], padded[2:])), axis=0
-        )
+        if size % 2 == 0:
+            raise ValueError("FCNF0++ median filter size must be odd")
+        radius = size // 2
+        padded = np.pad(values, (radius, radius), mode="edge")
+        windows = np.lib.stride_tricks.sliding_window_view(padded, size)
+        return np.median(windows, axis=-1).astype(values.dtype, copy=False)
+
+    def _postprocess_pitch(self, pitch):
+        return self._median_filter(pitch, self.PITCH_MEDIAN_FILTER_SIZE)
 
     def _normalize_periodicity(self, periodicity, f0_min, f0_max):
         """Remove entropy's frequency-range-dependent uniform floor."""
@@ -340,7 +401,9 @@ class FCNF0PP_SPEECH(FCNF0PP):
         periodicity = self._normalize_periodicity(
             periodicity, f0_min, f0_max
         )
-        periodicity = self._median3(periodicity)
+        periodicity = self._median_filter(
+            periodicity, self.PERIODICITY_MEDIAN_FILTER_SIZE
+        )
         voiced = np.zeros(periodicity.shape, dtype=bool)
         active = False
         for index, confidence in enumerate(periodicity):

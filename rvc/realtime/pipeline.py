@@ -154,6 +154,30 @@ class Realtime_Pipeline:
             if finish is not None:
                 finish()
 
+    def _quantize_f0(self, f0: Tensor) -> Tensor:
+        """Quantize continuous F0 while preserving legacy methods exactly."""
+        f0_mel = 1127.0 * torch.log(1.0 + f0 / 700.0)
+        use_mel_scaled = bool(
+            getattr(
+                self.f0_model,
+                "USE_MEL_SCALED_REALTIME_COARSE",
+                False,
+            )
+        )
+        if use_mel_scaled:
+            f0_mel_min = 1127.0 * np.log(1.0 + self.f0_min / 700.0)
+            f0_mel_max = 1127.0 * np.log(1.0 + self.f0_max / 700.0)
+            f0_mel = (f0_mel - f0_mel_min) * 254 / (
+                f0_mel_max - f0_mel_min
+            ) + 1
+        else:
+            # Compatibility path used by every pre-existing realtime method.
+            f0_mel = (f0_mel - self.f0_min) * 254 / (
+                self.f0_max - self.f0_min
+            ) + 1
+        f0_mel = torch.clip(f0_mel, 1, 255, out=f0_mel)
+        return torch.round(f0_mel, out=f0_mel).long()
+
     def get_f0(
         self,
         x: Tensor,
@@ -303,15 +327,9 @@ class Realtime_Pipeline:
         # Convert to Tensor for computational use
         f0 = torch.from_numpy(f0).to(self.device).float()
 
-        # quantizing f0 to 255 buckets to make coarse f0
-        f0_mel = 1127.0 * torch.log(1.0 + f0 / 700.0)
-        f0_mel = torch.clip(
-            (f0_mel - self.f0_min) * 254 / (self.f0_max - self.f0_min) + 1,
-            1,
-            255,
-            out=f0_mel,
-        )
-        f0_coarse = torch.round(f0_mel, out=f0_mel).long()
+        # Quantize F0 to 255 buckets. Only fcnf0++-speech opts into the
+        # corrected mel-scaled mapping; all existing methods stay compatible.
+        f0_coarse = self._quantize_f0(f0)
 
         if pitch is not None and pitchf is not None:
             circular_write(f0_coarse, pitch)
