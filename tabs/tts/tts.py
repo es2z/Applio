@@ -299,6 +299,7 @@ def tts_tab():
                     "crepe-tiny",
                     "rmvpe",
                     "fcnf0++",
+                    "fcnf0++-speech",
                     "fcpe",
                     "swift",
                 ],

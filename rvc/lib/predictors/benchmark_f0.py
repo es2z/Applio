@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import os
 import statistics
 import subprocess
 import sys
@@ -21,6 +22,8 @@ METHODS = (
     "mangio-crepe-full-compiled",
     "fcnf0++",
     "fcnf0++-compiled",
+    "fcnf0++-speech",
+    "fcnf0++-speech-compiled",
 )
 
 
@@ -61,7 +64,11 @@ def _rolling_chunks(audio, window_samples, advance_samples, iterations):
 
 
 def _make_predictor(method, device, signature):
-    from rvc.lib.predictors.f0 import FCNF0PP, MANGIO_CREPE
+    from rvc.lib.predictors.f0 import (
+        FCNF0PP,
+        FCNF0PP_SPEECH,
+        MANGIO_CREPE,
+    )
     from tabs.settings.sections.torch_compile import RealtimeCompileSettings
 
     compiled = method.endswith("-compiled")
@@ -77,7 +84,8 @@ def _make_predictor(method, device, signature):
             compile_settings=settings,
             compile_signature=signature,
         )
-    return FCNF0PP(
+    predictor = FCNF0PP_SPEECH if "-speech" in method else FCNF0PP
+    return predictor(
         device,
         compile_settings=settings,
         compile_signature=signature,
@@ -284,8 +292,17 @@ def run_parent(args):
             "--advance-ms",
             str(args.advance_ms),
         ]
+        worker_environment = os.environ.copy()
+        if sys.platform == "win32":
+            # Inductor's bundled templates are UTF-8. A fresh UTF-8-mode
+            # worker avoids Windows' legacy cp932 default when reading them.
+            worker_environment["PYTHONUTF8"] = "1"
         completed = subprocess.run(
-            command, capture_output=True, text=True, check=True
+            command,
+            capture_output=True,
+            text=True,
+            check=True,
+            env=worker_environment,
         )
         marker = next(
             line

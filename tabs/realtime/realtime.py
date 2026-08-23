@@ -894,6 +894,7 @@ def realtime_tab():
                         choices=[
                             "rmvpe",
                             "fcnf0++",
+                            "fcnf0++-speech",
                             "fcpe",
                             "swift",
                             "crepe-tiny",

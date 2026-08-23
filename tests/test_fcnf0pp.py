@@ -6,13 +6,15 @@ from unittest.mock import Mock, patch
 import numpy as np
 import torch
 
-from rvc.lib.predictors.f0 import FCNF0PP
+from rvc.lib.predictors.f0 import FCNF0PP, FCNF0PP_SPEECH
 from rvc.realtime.compile_session import PennSession
 from tabs.settings.sections.torch_compile import RealtimeCompileSettings
 
 
 class FCNF0PPTests(unittest.TestCase):
-    def _predictor(self, pitch, periodicity, device="cpu"):
+    def _predictor(
+        self, pitch, periodicity, device="cpu", predictor_class=FCNF0PP
+    ):
         fake_penn = types.SimpleNamespace(
             from_audio=Mock(
                 return_value=(
@@ -24,13 +26,14 @@ class FCNF0PPTests(unittest.TestCase):
             )
         )
         with patch.dict(sys.modules, {"penn": fake_penn}):
-            predictor = FCNF0PP(device)
+            predictor = predictor_class(device)
         return predictor, fake_penn
 
     def test_official_api_settings_and_sanitized_exact_length(self):
+        below_threshold = max(0.0, FCNF0PP.PERIODICITY_THRESHOLD - 0.001)
         predictor, fake_penn = self._predictor(
             [np.nan, np.inf, 40.0, 220.0, 1200.0, 330.0],
-            [1.0, 1.0, 1.0, 0.064, 1.0, 0.5],
+            [1.0, 1.0, 1.0, below_threshold, 1.0, 0.5],
         )
         with patch("pathlib.Path.is_file", return_value=False):
             f0 = predictor.get_f0(np.zeros(8 * 160, np.float32), 50, 1100, 8)
@@ -60,6 +63,24 @@ class FCNF0PPTests(unittest.TestCase):
         predictor, fake_penn = self._predictor([220.0], [1.0], "cuda:3")
         predictor.get_f0(np.zeros(160, np.float32), 50, 1100, 1)
         self.assertEqual(fake_penn.from_audio.call_args.kwargs["gpu"], 3)
+
+    def test_speech_variant_closes_one_frame_voicing_hole(self):
+        periodicity = [0.04, 0.06, 0.06, 0.04, 0.06, 0.06, 0.04]
+        predictor, _ = self._predictor(
+            [220.0] * len(periodicity),
+            periodicity,
+            predictor_class=FCNF0PP_SPEECH,
+        )
+        f0 = predictor.get_f0(
+            np.zeros(len(periodicity) * 160, np.float32),
+            50,
+            1100,
+            len(periodicity),
+        )
+        np.testing.assert_array_equal(
+            f0,
+            np.array([0, 220, 220, 220, 220, 220, 0], np.float32),
+        )
 
 
 class PennSessionTests(unittest.TestCase):

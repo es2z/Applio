@@ -13,7 +13,14 @@ from torch import Tensor
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 
-from rvc.lib.predictors.f0 import CREPE, FCNF0PP, FCPE, RMVPE, SWIFT
+from rvc.lib.predictors.f0 import (
+    CREPE,
+    FCNF0PP,
+    FCNF0PP_SPEECH,
+    FCPE,
+    RMVPE,
+    SWIFT,
+)
 
 import logging
 
@@ -260,6 +267,16 @@ class Pipeline:
                     hop_size=self.window,
                 )
             f0 = self.model_fcnf0pp.get_f0(
+                x, self.f0_min, self.f0_max, p_len
+            )
+        elif f0_method == "fcnf0++-speech":
+            if not hasattr(self, "model_fcnf0pp_speech"):
+                self.model_fcnf0pp_speech = FCNF0PP_SPEECH(
+                    device=self.device,
+                    sample_rate=self.sample_rate,
+                    hop_size=self.window,
+                )
+            f0 = self.model_fcnf0pp_speech.get_f0(
                 x, self.f0_min, self.f0_max, p_len
             )
 

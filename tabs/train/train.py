@@ -529,6 +529,7 @@ def train_tab():
                     "mangio-crepe",
                     "rmvpe",
                     "fcnf0++",
+                    "fcnf0++-speech",
                     "fcpe",
                 ],
                 value="rmvpe",

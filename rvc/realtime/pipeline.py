@@ -18,6 +18,7 @@ from rvc.lib.algorithm.synthesizers import Synthesizer
 from rvc.lib.predictors.f0 import (
     CREPE,
     FCNF0PP,
+    FCNF0PP_SPEECH,
     FCPE,
     MANGIO_CREPE,
     RMVPE,
@@ -202,9 +203,14 @@ class Realtime_Pipeline:
                 x.shape[0] // self.window,
                 confidence_threshold=0.887,
             )
-        elif self.f0_method == "fcnf0++":
+        elif self.f0_method in ("fcnf0++", "fcnf0++-speech"):
             if self.f0_model is None:
-                self.f0_model = FCNF0PP(
+                predictor = (
+                    FCNF0PP_SPEECH
+                    if self.f0_method == "fcnf0++-speech"
+                    else FCNF0PP
+                )
+                self.f0_model = predictor(
                     device=self.device,
                     sample_rate=self.sample_rate,
                     hop_size=self.window,
