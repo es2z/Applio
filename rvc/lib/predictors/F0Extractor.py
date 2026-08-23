@@ -14,6 +14,7 @@ sys.path.append(now_dir)
 
 # from tools.anyf0.rmvpe import RMVPE
 from rvc.lib.predictors.RMVPE import RMVPE0Predictor
+from rvc.lib.predictors.f0 import FCNF0PP
 from rvc.configs.config import Config
 from tabs.settings.sections.torch_compile import get_torch_compile_settings
 
@@ -31,7 +32,10 @@ class F0Extractor:
     x: np.ndarray = dataclasses.field(init=False)
 
     def __post_init__(self):
-        self.x, self.sample_rate = librosa.load(self.wav_path, sr=self.sample_rate)
+        target_sample_rate = None if self.method == "fcnf0++" else self.sample_rate
+        self.x, self.sample_rate = librosa.load(
+            self.wav_path, sr=target_sample_rate
+        )
 
     @property
     def hop_size(self):
@@ -91,6 +95,14 @@ class F0Extractor:
                 # hop_length=80
             )
             f0 = model_rmvpe.infer_from_audio(self.wav16k, thred=0.03)
+        elif method == "fcnf0++":
+            model = FCNF0PP(
+                device=config.device,
+                sample_rate=self.sample_rate,
+                hop_size=round(self.sample_rate * 0.01),
+            )
+            p_len = len(self.x) // round(self.sample_rate * 0.01)
+            f0 = model.get_f0(self.x, self.f0_min, self.f0_max, p_len)
 
         else:
             raise ValueError(f"Unknown method: {self.method}")

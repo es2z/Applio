@@ -39,6 +39,7 @@ from tabs.settings.settings import settings_tab
 from tabs.realtime.realtime import realtime_tab
 from tabs.settings.sections.torch_compile import (
     load_torch_compile_enabled,
+    load_torch_compile_fcnf0pp_enabled,
     load_torch_compile_rvc_enabled,
     load_torch_compile_mode,
     save_realtime_compile_settings,
@@ -100,6 +101,7 @@ with gr.Blocks(
     torch_compile_available = is_torch_compile_available()
     triton_available, triton_status = get_triton_status()
     torch_compile_initial_enabled = load_torch_compile_enabled()
+    torch_compile_fcnf0pp_initial_enabled = load_torch_compile_fcnf0pp_enabled()
     torch_compile_rvc_initial_enabled = load_torch_compile_rvc_enabled()
     with gr.Accordion(i18n("TorchCompile Settings"), open=False):
         if not torch_compile_available:
@@ -131,6 +133,14 @@ with gr.Blocks(
                 value=torch_compile_rvc_initial_enabled,
                 interactive=True,
             )
+            torch_compile_fcnf0pp_checkbox = gr.Checkbox(
+                label=i18n("Compile FCNF0++ (experimental)"),
+                info=i18n(
+                    "Compile FCNF0++ only for fixed-shape realtime inference. Eager is usually faster and remains the default."
+                ),
+                value=torch_compile_fcnf0pp_initial_enabled,
+                interactive=True,
+            )
             torch_compile_mode_dropdown = gr.Dropdown(
                 label=i18n("TorchCompile Mode"),
                 info=i18n(
@@ -139,18 +149,25 @@ with gr.Blocks(
                 choices=TORCH_COMPILE_MODES,
                 value=load_torch_compile_mode(),
                 interactive=True,
-                visible=torch_compile_initial_enabled
-                or torch_compile_rvc_initial_enabled,
+                visible=(
+                    torch_compile_initial_enabled
+                    or torch_compile_rvc_initial_enabled
+                    or torch_compile_fcnf0pp_initial_enabled
+                ),
             )
             clear_compile_cache_button = gr.Button(
                 i18n("Clear inactive compile caches")
             )
         compile_cache_status = gr.Markdown("")
 
-        def on_torch_compile_change(crepe_enabled, rvc_enabled, mode):
-            save_realtime_compile_settings(crepe_enabled, rvc_enabled, mode)
+        def on_torch_compile_change(
+            crepe_enabled, rvc_enabled, fcnf0pp_enabled, mode
+        ):
+            save_realtime_compile_settings(
+                crepe_enabled, rvc_enabled, mode, fcnf0pp_enabled
+            )
             return gr.update(
-                visible=bool(crepe_enabled or rvc_enabled)
+                visible=bool(crepe_enabled or rvc_enabled or fcnf0pp_enabled)
             )
 
         def clear_compile_cache_when_stopped():
@@ -166,6 +183,7 @@ with gr.Blocks(
             inputs=[
                 torch_compile_crepe_checkbox,
                 torch_compile_rvc_checkbox,
+                torch_compile_fcnf0pp_checkbox,
                 torch_compile_mode_dropdown,
             ],
             outputs=[torch_compile_mode_dropdown],
@@ -175,6 +193,17 @@ with gr.Blocks(
             inputs=[
                 torch_compile_crepe_checkbox,
                 torch_compile_rvc_checkbox,
+                torch_compile_fcnf0pp_checkbox,
+                torch_compile_mode_dropdown,
+            ],
+            outputs=[torch_compile_mode_dropdown],
+        )
+        torch_compile_fcnf0pp_checkbox.change(
+            fn=on_torch_compile_change,
+            inputs=[
+                torch_compile_crepe_checkbox,
+                torch_compile_rvc_checkbox,
+                torch_compile_fcnf0pp_checkbox,
                 torch_compile_mode_dropdown,
             ],
             outputs=[torch_compile_mode_dropdown],
@@ -184,6 +213,7 @@ with gr.Blocks(
             inputs=[
                 torch_compile_crepe_checkbox,
                 torch_compile_rvc_checkbox,
+                torch_compile_fcnf0pp_checkbox,
                 torch_compile_mode_dropdown,
             ],
             outputs=[torch_compile_mode_dropdown],

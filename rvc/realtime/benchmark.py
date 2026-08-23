@@ -38,8 +38,12 @@ def run_case(args, mode: str) -> dict:
         crepe_enabled=args.compile_crepe,
         rvc_enabled=args.compile_rvc,
         mode=mode,
+        fcnf0pp_enabled=args.compile_fcnf0pp,
     )
     if torch.cuda.is_available():
+        torch.empty(1, device="cuda")
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
     created = time.perf_counter()
     callbacks = AudioCallbacks(
@@ -73,6 +77,7 @@ def run_case(args, mode: str) -> dict:
         "mode": mode,
         "compile_crepe": args.compile_crepe,
         "compile_rvc": args.compile_rvc,
+        "compile_fcnf0pp": args.compile_fcnf0pp,
         "processing": "fixed_chunk",
         "requested_chunk_ms": args.chunk,
         "effective_chunk_ms": effective_chunk_ms,
@@ -119,6 +124,11 @@ def main():
     parser.add_argument("--modes", default="default,reduce-overhead,max-autotune,max-autotune-no-cudagraphs")
     parser.add_argument("--compile-crepe", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--compile-rvc", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument(
+        "--compile-fcnf0pp",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
     parser.add_argument("--output", default="realtime-benchmark.json")
     args = parser.parse_args()
 

@@ -43,6 +43,8 @@ triton-windows>=3.4,<3.5; sys_platform == 'win32'
 
 # Pitch/F0 関連
 torchcrepe @ git+https://github.com/es2z/torchcrepe_plus.git@fb524c97c2f4bb74f1da4ae7b53b097072b872bf
+torbi==1.4.0
+penn==1.0.0
 torchfcpe
 swift_f0
 einops

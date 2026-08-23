@@ -13,7 +13,7 @@ from torch import Tensor
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 
-from rvc.lib.predictors.f0 import CREPE, FCPE, RMVPE, SWIFT
+from rvc.lib.predictors.f0 import CREPE, FCNF0PP, FCPE, RMVPE, SWIFT
 
 import logging
 
@@ -252,6 +252,16 @@ class Pipeline:
                 x, self.f0_min, self.f0_max, p_len, confidence_threshold=0.887
             )
             del model
+        elif f0_method == "fcnf0++":
+            if not hasattr(self, "model_fcnf0pp"):
+                self.model_fcnf0pp = FCNF0PP(
+                    device=self.device,
+                    sample_rate=self.sample_rate,
+                    hop_size=self.window,
+                )
+            f0 = self.model_fcnf0pp.get_f0(
+                x, self.f0_min, self.f0_max, p_len
+            )
 
         # f0 adjustments
         if f0_autotune is True:

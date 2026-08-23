@@ -19,6 +19,12 @@ pretraineds_hifigan_list = [
     )
 ]
 models_list = [("predictors/", ["rmvpe.pt", "fcpe.pt"])]
+official_models_list = [
+    (
+        "https://huggingface.co/maxrmorrison/fcnf0-plus-plus/resolve/main/fcnf0%2B%2B.pt",
+        "rvc/models/predictors/fcnf0++.pt",
+    )
+]
 embedders_list = [("embedders/contentvec/", ["pytorch_model.bin", "config.json"])]
 executables_list = [
     ("", ["ffmpeg.exe", "ffprobe.exe"]),
@@ -48,6 +54,16 @@ def get_file_size_if_missing(file_list):
     return total_size
 
 
+def get_official_file_size_if_missing(file_list):
+    total_size = 0
+    for url, destination_path in file_list:
+        if not os.path.exists(destination_path):
+            response = requests.head(url, allow_redirects=True)
+            response.raise_for_status()
+            total_size += int(response.headers.get("content-length", 0))
+    return total_size
+
+
 def download_file(url, destination_path, global_bar):
     """
     Download a file from the given URL to the specified destination path,
@@ -58,6 +74,7 @@ def download_file(url, destination_path, global_bar):
     if dir_name:
         os.makedirs(dir_name, exist_ok=True)
     response = requests.get(url, stream=True)
+    response.raise_for_status()
     block_size = 1024
     with open(destination_path, "wb") as file:
         for data in response.iter_content(block_size):
@@ -83,6 +100,17 @@ def download_mapping_files(file_mapping_list, global_bar):
                             download_file, url, destination_path, global_bar
                         )
                     )
+        for future in futures:
+            future.result()
+
+
+def download_official_files(file_list, global_bar):
+    with ThreadPoolExecutor() as executor:
+        futures = [
+            executor.submit(download_file, url, destination_path, global_bar)
+            for url, destination_path in file_list
+            if not os.path.exists(destination_path)
+        ]
         for future in futures:
             future.result()
 
@@ -115,6 +143,7 @@ def calculate_total_size(
     if models:
         total_size += get_file_size_if_missing(models_list)
         total_size += get_file_size_if_missing(embedders_list)
+        total_size += get_official_file_size_if_missing(official_models_list)
     if exe and os.name == "nt":
         total_size += get_file_size_if_missing(executables_list)
     total_size += get_file_size_if_missing(pretraineds_hifigan)
@@ -142,6 +171,7 @@ def prequisites_download_pipeline(
             if models:
                 download_mapping_files(models_list, global_bar)
                 download_mapping_files(embedders_list, global_bar)
+                download_official_files(official_models_list, global_bar)
             if exe:
                 if os.name == "nt":
                     download_mapping_files(executables_list, global_bar)

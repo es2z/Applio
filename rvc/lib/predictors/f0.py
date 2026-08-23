@@ -1,5 +1,7 @@
 import os
 import sys
+from pathlib import Path
+
 import torch
 
 now_dir = os.getcwd()
@@ -172,6 +174,119 @@ class MANGIO_CREPE(CREPE):
         f0 = np.nan_to_num(target)
 
         return f0
+
+
+class FCNF0PP:
+    """Official PENN FCNF0++ inference with RVC-compatible framing."""
+
+    HOP_SECONDS = 0.01
+    CENTER = "half-hop"
+    DECODER = "viterbi"
+    BATCH_SIZE = 2048
+    PERIODICITY_THRESHOLD = 0.065
+
+    def __init__(
+        self,
+        device,
+        sample_rate=16000,
+        hop_size=160,
+        compile_settings: RealtimeCompileSettings | None = None,
+        compile_signature: str = "offline",
+    ):
+        self.device = torch.device(device)
+        self.sample_rate = sample_rate
+        self.hop_size = hop_size
+        self.compile_settings = compile_settings
+        self.compile_signature = compile_signature
+        self._sessions = {}
+        self.checkpoint = Path(
+            now_dir, "rvc", "models", "predictors", "fcnf0++.pt"
+        )
+        try:
+            import penn
+        except Exception as error:
+            raise RuntimeError(
+                "FCNF0++ requires the official 'penn' package and a torbi "
+                "binary compatible with the installed PyTorch/CUDA build."
+            ) from error
+        self.penn = penn
+
+    def _predict(self, *args, **kwargs):
+        if self.compile_settings is None:
+            return self.penn.from_audio(*args, **kwargs)
+        from rvc.realtime.compile_session import PennSession
+
+        session = self._sessions.get("fcnf0++")
+        if session is None:
+            session = PennSession(
+                self.penn,
+                self.device,
+                self.compile_settings,
+                self.compile_signature,
+            )
+            self._sessions["fcnf0++"] = session
+        return session.predict(self.penn.from_audio, *args, **kwargs)
+
+    def finish_compile_warmup(self):
+        for session in self._sessions.values():
+            session.finish_warmup()
+
+    def _gpu_index(self):
+        if self.device.type != "cuda":
+            return None
+        if self.device.index is not None:
+            return self.device.index
+        return torch.cuda.current_device()
+
+    @staticmethod
+    def _match_length(values, p_len):
+        values = np.asarray(values, dtype=np.float32).reshape(-1)
+        if values.shape[0] >= p_len:
+            return values[:p_len]
+        return np.pad(values, (0, p_len - values.shape[0]))
+
+    def get_f0(self, x, f0_min=50, f0_max=1100, p_len=None):
+        if torch.is_tensor(x):
+            audio = x.detach().float().cpu()
+        else:
+            audio = torch.as_tensor(x, dtype=torch.float32)
+
+        if audio.ndim > 1:
+            audio = audio.mean(dim=0)
+        audio = audio.reshape(1, -1).contiguous()
+
+        if p_len is None:
+            hop_samples = round(self.sample_rate * self.HOP_SECONDS)
+            p_len = audio.shape[-1] // hop_samples
+        p_len = int(p_len)
+        if p_len <= 0:
+            return np.zeros(max(0, p_len), dtype=np.float32)
+
+        pitch, periodicity = self._predict(
+            audio,
+            sample_rate=self.sample_rate,
+            hopsize=self.HOP_SECONDS,
+            fmin=f0_min,
+            fmax=f0_max,
+            checkpoint=self.checkpoint if self.checkpoint.is_file() else None,
+            batch_size=self.BATCH_SIZE,
+            center=self.CENTER,
+            decoder=self.DECODER,
+            interp_unvoiced_at=None,
+            gpu=self._gpu_index(),
+        )
+
+        pitch = self._match_length(pitch.detach().float().cpu().numpy(), p_len)
+        periodicity = self._match_length(
+            periodicity.detach().float().cpu().numpy(), p_len
+        )
+        pitch = np.nan_to_num(pitch, nan=0.0, posinf=0.0, neginf=0.0)
+        periodicity = np.nan_to_num(
+            periodicity, nan=0.0, posinf=0.0, neginf=0.0
+        )
+        pitch[periodicity < self.PERIODICITY_THRESHOLD] = 0.0
+        pitch[(pitch < f0_min) | (pitch > f0_max)] = 0.0
+        return pitch.astype(np.float32, copy=False)
 
 
 class FCPE:

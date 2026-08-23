@@ -44,10 +44,11 @@ class RealtimeCompileSettings:
     crepe_enabled: bool = False
     rvc_enabled: bool = False
     mode: str = "default"
+    fcnf0pp_enabled: bool = False
 
     @property
     def any_enabled(self) -> bool:
-        return self.crepe_enabled or self.rvc_enabled
+        return self.crepe_enabled or self.rvc_enabled or self.fcnf0pp_enabled
 
 
 def bootstrap_torch_compile_environment() -> None:
@@ -125,11 +126,17 @@ def load_realtime_compile_settings() -> RealtimeCompileSettings:
         crepe_enabled=crepe,
         rvc_enabled=bool(config.get("torch_compile_rvc_enabled", False)),
         mode=mode,
+        fcnf0pp_enabled=bool(
+            config.get("torch_compile_fcnf0pp_enabled", False)
+        ),
     )
 
 
 def save_realtime_compile_settings(
-    crepe_enabled: bool, rvc_enabled: bool, mode: str
+    crepe_enabled: bool,
+    rvc_enabled: bool,
+    mode: str,
+    fcnf0pp_enabled: bool = False,
 ) -> None:
     if mode not in TORCH_COMPILE_MODES:
         mode = "default"
@@ -139,6 +146,7 @@ def save_realtime_compile_settings(
             "torch_compile_enabled": bool(crepe_enabled),
             "torch_compile_crepe_enabled": bool(crepe_enabled),
             "torch_compile_rvc_enabled": bool(rvc_enabled),
+            "torch_compile_fcnf0pp_enabled": bool(fcnf0pp_enabled),
             "torch_compile_mode": mode,
         },
     )
@@ -152,24 +160,51 @@ def load_torch_compile_rvc_enabled() -> bool:
     return load_realtime_compile_settings().rvc_enabled
 
 
+def load_torch_compile_fcnf0pp_enabled() -> bool:
+    return load_realtime_compile_settings().fcnf0pp_enabled
+
+
 def load_torch_compile_mode() -> str:
     return load_realtime_compile_settings().mode
 
 
 def save_torch_compile_enabled(enabled: bool) -> None:
     settings = load_realtime_compile_settings()
-    save_realtime_compile_settings(enabled, settings.rvc_enabled, settings.mode)
+    save_realtime_compile_settings(
+        enabled,
+        settings.rvc_enabled,
+        settings.mode,
+        settings.fcnf0pp_enabled,
+    )
 
 
 def save_torch_compile_rvc_enabled(enabled: bool) -> None:
     settings = load_realtime_compile_settings()
-    save_realtime_compile_settings(settings.crepe_enabled, enabled, settings.mode)
+    save_realtime_compile_settings(
+        settings.crepe_enabled,
+        enabled,
+        settings.mode,
+        settings.fcnf0pp_enabled,
+    )
+
+
+def save_torch_compile_fcnf0pp_enabled(enabled: bool) -> None:
+    settings = load_realtime_compile_settings()
+    save_realtime_compile_settings(
+        settings.crepe_enabled,
+        settings.rvc_enabled,
+        settings.mode,
+        enabled,
+    )
 
 
 def save_torch_compile_mode(mode: str) -> None:
     settings = load_realtime_compile_settings()
     save_realtime_compile_settings(
-        settings.crepe_enabled, settings.rvc_enabled, mode
+        settings.crepe_enabled,
+        settings.rvc_enabled,
+        mode,
+        settings.fcnf0pp_enabled,
     )
 
 

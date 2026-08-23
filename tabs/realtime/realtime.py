@@ -893,6 +893,7 @@ def realtime_tab():
                     f0_method = gr.Radio(
                         choices=[
                             "rmvpe",
+                            "fcnf0++",
                             "fcpe",
                             "swift",
                             "crepe-tiny",

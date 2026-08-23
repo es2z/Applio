@@ -25,5 +25,6 @@
   "torch_compile_enabled": true,
   "torch_compile_crepe_enabled": true,
   "torch_compile_rvc_enabled": true,
+  "torch_compile_fcnf0pp_enabled": false,
   "torch_compile_mode": "reduce-overhead"
 }

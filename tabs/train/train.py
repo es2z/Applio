@@ -523,7 +523,14 @@ def train_tab():
                 info=i18n(
                     "Pitch extraction algorithm to use for the audio conversion. The default algorithm is rmvpe, which is recommended for most cases."
                 ),
-                choices=["crepe", "crepe-tiny", "mangio-crepe", "rmvpe", "fcpe"],
+                choices=[
+                    "crepe",
+                    "crepe-tiny",
+                    "mangio-crepe",
+                    "rmvpe",
+                    "fcnf0++",
+                    "fcpe",
+                ],
                 value="rmvpe",
                 interactive=True,
             )

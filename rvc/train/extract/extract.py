@@ -18,7 +18,7 @@ import rvc.lib.zluda
 
 from rvc.lib.utils import load_audio_16k, load_embedding
 from rvc.train.extract.preparing_files import generate_config, generate_filelist
-from rvc.lib.predictors.f0 import CREPE, FCPE, RMVPE, MANGIO_CREPE
+from rvc.lib.predictors.f0 import CREPE, FCNF0PP, FCPE, RMVPE, MANGIO_CREPE
 from rvc.configs.config import Config
 
 # Load config
@@ -52,6 +52,12 @@ class FeatureInput:
             self.model = FCPE(
                 device=self.device, sample_rate=self.sample_rate, hop_size=self.hop_size
             )
+        elif f0_method == "fcnf0++":
+            self.model = FCNF0PP(
+                device=self.device,
+                sample_rate=self.sample_rate,
+                hop_size=self.hop_size,
+            )
         self.f0_method = f0_method
 
     def compute_f0(self, x, p_len=None):
@@ -65,6 +71,8 @@ class FeatureInput:
             f0 = self.model.get_f0(x, filter_radius=0.03)
         elif self.f0_method == "fcpe":
             f0 = self.model.get_f0(x, p_len, filter_radius=0.006)
+        elif self.f0_method == "fcnf0++":
+            f0 = self.model.get_f0(x, self.f0_min, self.f0_max, p_len)
         return f0
 
     def coarse_f0(self, f0):

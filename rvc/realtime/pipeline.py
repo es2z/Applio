@@ -15,7 +15,14 @@ from rvc.realtime.utils.torch import circular_write
 from rvc.configs.config import Config
 from rvc.infer.pipeline import Autotune, AudioProcessor
 from rvc.lib.algorithm.synthesizers import Synthesizer
-from rvc.lib.predictors.f0 import FCPE, RMVPE, SWIFT, CREPE, MANGIO_CREPE
+from rvc.lib.predictors.f0 import (
+    CREPE,
+    FCNF0PP,
+    FCPE,
+    MANGIO_CREPE,
+    RMVPE,
+    SWIFT,
+)
 from rvc.lib.utils import load_embedding, HubertModelWithFinalProj
 from rvc.realtime.compile_session import RvcCompileSession
 
@@ -194,6 +201,21 @@ class Realtime_Pipeline:
                 self.f0_max,
                 x.shape[0] // self.window,
                 confidence_threshold=0.887,
+            )
+        elif self.f0_method == "fcnf0++":
+            if self.f0_model is None:
+                self.f0_model = FCNF0PP(
+                    device=self.device,
+                    sample_rate=self.sample_rate,
+                    hop_size=self.window,
+                    compile_settings=self.compile_settings,
+                    compile_signature=self.compile_signature,
+                )
+            f0 = self.f0_model.get_f0(
+                x,
+                self.f0_min,
+                self.f0_max,
+                x.shape[0] // self.window,
             )
         elif self.f0_method.startswith("crepe-"):
             # Extract model size from method name (e.g., "crepe-tiny" -> "tiny")

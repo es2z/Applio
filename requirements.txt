@@ -35,6 +35,9 @@ torchvision==0.22.1; sys_platform == 'darwin'
 torchvision==0.28.0+cu132; sys_platform == 'linux' or sys_platform == 'win32'
 triton-windows==3.7.1.post27; sys_platform == 'win32'
 torchcrepe @ git+https://github.com/es2z/torchcrepe_plus.git@fb524c97c2f4bb74f1da4ae7b53b097072b872bf
+vendor/torbi/torbi-1.4.0-cp39-abi3-win_amd64.whl; sys_platform == 'win32'
+torbi==1.4.0; sys_platform != 'win32'
+penn==1.0.0
 torchfcpe
 swift_f0
 einops
