@@ -15,7 +15,18 @@ from rvc.realtime.utils.torch import circular_write
 from rvc.configs.config import Config
 from rvc.infer.pipeline import Autotune, AudioProcessor
 from rvc.lib.algorithm.synthesizers import Synthesizer
-from rvc.lib.predictors.f0 import FCPE, RMVPE, SWIFT, CREPE, MANGIO_CREPE
+from rvc.lib.predictors.crepe_models import (
+    CREPE_METHOD_TO_MODEL,
+    MANGIO_CREPE_METHOD_TO_MODEL,
+    resolve_crepe_model,
+)
+from rvc.lib.predictors.f0 import (
+    CREPE,
+    FCPE,
+    MANGIO_CREPE,
+    RMVPE,
+    SWIFT,
+)
 from rvc.lib.utils import load_embedding, HubertModelWithFinalProj
 
 
@@ -172,11 +183,9 @@ class Realtime_Pipeline:
                 x.shape[0] // self.window,
                 confidence_threshold=0.887,
             )
-        elif self.f0_method.startswith("crepe-"):
-            # Extract model size from method name (e.g., "crepe-tiny" -> "tiny")
-            model_size = self.f0_method.replace("crepe-", "")
+        elif self.f0_method in CREPE_METHOD_TO_MODEL:
+            model_size = resolve_crepe_model(self.f0_method)
 
-            # Use torchcrepe for tiny and full
             if self.f0_model is None:
                 self.f0_model = CREPE(
                     device=self.device,
@@ -192,9 +201,8 @@ class Realtime_Pipeline:
                 x.shape[0] // self.window,
                 model=model_size,
             )
-        elif self.f0_method.startswith("mangio-crepe-"):
-            # Extract model size from method name (e.g., "mangio-crepe-tiny" -> "tiny")
-            model_size = self.f0_method.replace("mangio-crepe-", "")
+        elif self.f0_method in MANGIO_CREPE_METHOD_TO_MODEL:
+            model_size = resolve_crepe_model(self.f0_method)
 
             if self.f0_model is None:
                 self.f0_model = MANGIO_CREPE(

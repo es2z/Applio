@@ -14,6 +14,7 @@ from core import (
     run_train_script,
 )
 from rvc.configs.config import get_gpu_info, get_number_of_gpus, max_vram_gpu
+from rvc.lib.predictors.crepe_models import CREPE_UI_METHODS
 from rvc.lib.utils import format_title
 from tabs.settings.sections.restart import stop_train
 
@@ -523,7 +524,11 @@ def train_tab():
                 info=i18n(
                     "Pitch extraction algorithm to use for the audio conversion. The default algorithm is rmvpe, which is recommended for most cases."
                 ),
-                choices=["crepe", "crepe-tiny", "mangio-crepe", "rmvpe", "fcpe"],
+                choices=[
+                    *CREPE_UI_METHODS,
+                    "rmvpe",
+                    "fcpe",
+                ],
                 value="rmvpe",
                 interactive=True,
             )

@@ -18,6 +18,7 @@ from rvc.train.process.model_information import model_information
 from rvc.lib.tools.analyzer import analyze_audio
 from rvc.lib.tools.launch_tensorboard import launch_tensorboard_pipeline
 from rvc.lib.tools.model_download import model_download_pipeline
+from rvc.lib.predictors.crepe_models import CREPE_CLI_METHODS
 
 python = sys.executable
 
@@ -671,8 +672,7 @@ def parse_arguments():
         type=str,
         help=f0_method_description,
         choices=[
-            "crepe",
-            "crepe-tiny",
+            *CREPE_CLI_METHODS,
             "rmvpe",
             "fcpe",
             "swift",
@@ -1195,8 +1195,7 @@ def parse_arguments():
         type=str,
         help=f0_method_description,
         choices=[
-            "crepe",
-            "crepe-tiny",
+            *CREPE_CLI_METHODS,
             "rmvpe",
             "fcpe",
             "swift",
@@ -1681,8 +1680,7 @@ def parse_arguments():
         type=str,
         help=f0_method_description,
         choices=[
-            "crepe",
-            "crepe-tiny",
+            *CREPE_CLI_METHODS,
             "rmvpe",
             "fcpe",
             "swift",
@@ -1883,9 +1881,7 @@ def parse_arguments():
         type=str,
         help="Pitch extraction method to use.",
         choices=[
-            "crepe",
-            "crepe-tiny",
-            "mangio-crepe",
+            *CREPE_CLI_METHODS,
             "rmvpe",
             "fcpe",
         ],

@@ -4,6 +4,7 @@ import gradio as gr
 from matplotlib import pyplot as plt
 
 from rvc.lib.predictors.F0Extractor import F0Extractor
+from rvc.lib.predictors.crepe_models import CREPE_UI_METHODS
 
 from assets.i18n.i18n import I18nAuto
 
@@ -47,7 +48,7 @@ def f0_extractor_tab():
         info=i18n(
             "Pitch extraction algorithm to use for the audio conversion. The default algorithm is rmvpe, which is recommended for most cases."
         ),
-        choices=["crepe", "fcpe", "rmvpe"],
+        choices=[*CREPE_UI_METHODS, "fcpe", "rmvpe"],
         value="rmvpe",
     )
     button = gr.Button(i18n("Extract F0 Curve"))

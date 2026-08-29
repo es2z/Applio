@@ -10,6 +10,7 @@ sys.path.append(now_dir)
 
 from assets.i18n.i18n import I18nAuto
 from core import run_tts_script
+from rvc.lib.predictors.crepe_models import CREPE_UI_METHODS
 from tabs.settings.sections.filter import get_filter_trigger, load_config_filter
 from tabs.inference.inference import (
     change_choices,
@@ -295,8 +296,7 @@ def tts_tab():
                     "Pitch extraction algorithm to use for the audio conversion. The default algorithm is rmvpe, which is recommended for most cases."
                 ),
                 choices=[
-                    "crepe",
-                    "crepe-tiny",
+                    *CREPE_UI_METHODS,
                     "rmvpe",
                     "fcpe",
                     "swift",

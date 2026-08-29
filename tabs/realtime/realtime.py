@@ -15,6 +15,7 @@ from rvc.realtime.callbacks import AudioCallbacks
 from rvc.realtime.audio import list_audio_device
 from rvc.realtime.core import AUDIO_SAMPLE_RATE
 from rvc.configs.config_utils import load_config, save_config, update_nested_config
+from rvc.lib.predictors.crepe_models import CREPE_UI_METHODS
 
 from assets.i18n.i18n import I18nAuto
 from tabs.realtime.template import RealtimeTemplateManager
@@ -886,16 +887,7 @@ def realtime_tab():
                             "rmvpe",
                             "fcpe",
                             "swift",
-                            "crepe-tiny",
-                            "crepe-small",
-                            "crepe-medium",
-                            "crepe-large",
-                            "crepe-full",
-                            "mangio-crepe-tiny",
-                            "mangio-crepe-small",
-                            "mangio-crepe-medium",
-                            "mangio-crepe-large",
-                            "mangio-crepe-full",
+                            *CREPE_UI_METHODS,
                         ],
                         value="swift",
                         label=i18n("Pitch extraction algorithm"),

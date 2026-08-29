@@ -14,6 +14,12 @@ sys.path.append(now_dir)
 
 # from tools.anyf0.rmvpe import RMVPE
 from rvc.lib.predictors.RMVPE import RMVPE0Predictor
+from rvc.lib.predictors.crepe_models import (
+    CREPE_METHOD_TO_MODEL,
+    MANGIO_CREPE_METHOD_TO_MODEL,
+    resolve_crepe_model,
+)
+from rvc.lib.predictors.f0 import MANGIO_CREPE
 from rvc.configs.config import Config
 from tabs.settings.sections.torch_compile import get_torch_compile_settings
 
@@ -44,7 +50,7 @@ class F0Extractor:
     def extract_f0(self):
         f0 = None
         method = self.method
-        if method == "crepe":
+        if method in CREPE_METHOD_TO_MODEL:
             wav16k_torch = torch.FloatTensor(self.wav16k).unsqueeze(0).to(config.device)
             # Get torch.compile settings
             compile_enabled, compile_mode = get_torch_compile_settings()
@@ -55,11 +61,24 @@ class F0Extractor:
                 batch_size=512,
                 fmin=self.f0_min,
                 fmax=self.f0_max,
+                model=resolve_crepe_model(method),
                 device=config.device,
                 compile_model=compile_enabled,
                 compile_mode=compile_mode,
             )
             f0 = f0[0].cpu().numpy()
+        elif method in MANGIO_CREPE_METHOD_TO_MODEL:
+            wav16k = self.wav16k
+            model = MANGIO_CREPE(
+                device=config.device, sample_rate=16000, hop_size=160
+            )
+            f0 = model.get_f0(
+                wav16k,
+                self.f0_min,
+                self.f0_max,
+                len(wav16k) // 160,
+                resolve_crepe_model(method),
+            )
         elif method == "fcpe":
             audio = librosa.to_mono(self.x)
             audio_length = len(audio)
