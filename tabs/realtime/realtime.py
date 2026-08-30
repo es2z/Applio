@@ -914,6 +914,7 @@ def realtime_tab():
                             "spin",
                             "chinese-hubert-base",
                             "japanese-hubert-base",
+                            "japanese-hubert-base-phoneme-ctc-v4",
                             "korean-hubert-base",
                             "custom",
                         ],

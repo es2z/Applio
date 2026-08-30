@@ -14,10 +14,10 @@
   "precision": "fp16",
   "realtime": {
     "input_device": "10: Loopback (MOTU M Series) (Windows WASAPI)",
-    "output_device": "pa-output-18de760fab198538a277",
+    "output_device": "4: Speakers (VB-Audio Point) (Windows WDM-KS)",
     "monitor_device": "pa-output-98cef3d96d04ada6ae99",
-    "model_file": "logs\\naru_A2\\naru_A2_105e_78540s.pth",
-    "index_file": "logs\\naru_A2\\naru_A2.index",
+    "model_file": "logs\\naru_20260831_B_1\\naru_20260831_B_1_110e_68310s.pth",
+    "index_file": "logs\\naru_20260831_B_1\\naru_20260831_B_1.index",
     "processing_mode": "fixed_chunk",
     "overlap_hop_mode": "manual",
     "manual_hop_size": 800.0

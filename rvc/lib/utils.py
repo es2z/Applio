@@ -27,6 +27,11 @@ sys.path.append(now_dir)
 base_path = os.path.join(now_dir, "rvc", "models", "formant", "stftpitchshift")
 stft = base_path + ".exe" if sys.platform == "win32" else base_path
 
+JAPANESE_HUBERT_BASE_PHONEME_CTC_V4 = "japanese-hubert-base-phoneme-ctc-v4"
+JAPANESE_HUBERT_BASE_PHONEME_CTC_V4_REPO = (
+    "prj-beatrice/japanese-hubert-base-phoneme-ctc-v4"
+)
+
 
 class HubertModelWithFinalProj(HubertModel):
     def __init__(self, config):
@@ -111,6 +116,9 @@ def load_embedding(embedder_model, custom_embedder=None):
         "spin-v2": os.path.join(embedder_root, "spin-v2"),
         "chinese-hubert-base": os.path.join(embedder_root, "chinese_hubert_base"),
         "japanese-hubert-base": os.path.join(embedder_root, "japanese_hubert_base"),
+        JAPANESE_HUBERT_BASE_PHONEME_CTC_V4: os.path.join(
+            embedder_root, "japanese_hubert_base_phoneme_ctc_v4"
+        ),
         "korean-hubert-base": os.path.join(embedder_root, "korean_hubert_base"),
     }
 
@@ -140,6 +148,14 @@ def load_embedding(embedder_model, custom_embedder=None):
             model_path = embedding_list["contentvec"]
     else:
         model_path = embedding_list[embedder_model]
+        if embedder_model == JAPANESE_HUBERT_BASE_PHONEME_CTC_V4:
+            os.makedirs(model_path, exist_ok=True)
+            return HubertModelWithFinalProj.from_pretrained(
+                JAPANESE_HUBERT_BASE_PHONEME_CTC_V4_REPO,
+                cache_dir=model_path,
+                use_safetensors=True,
+            )
+
         bin_file = os.path.join(model_path, "pytorch_model.bin")
         json_file = os.path.join(model_path, "config.json")
         os.makedirs(model_path, exist_ok=True)
