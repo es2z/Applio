@@ -16,7 +16,11 @@ sys.path.append(os.path.join(now_dir))
 # Zluda hijack
 import rvc.lib.zluda
 
-from rvc.lib.utils import load_audio_16k, load_embedding
+from rvc.lib.utils import (
+    apply_embedder_input_normalization,
+    load_audio_16k,
+    load_embedding,
+)
 from rvc.train.extract.preparing_files import generate_config, generate_filelist
 from rvc.lib.predictors.crepe_models import (
     CREPE_METHOD_TO_MODEL,
@@ -141,7 +145,13 @@ def run_pitch_extraction(files, devices, f0_method, threads):
 
 
 def process_file_embedding(
-    files, embedder_model, embedder_model_custom, device_num, device, n_threads
+    files,
+    embedder_model,
+    embedder_model_custom,
+    device_num,
+    device,
+    n_threads,
+    overwrite=False,
 ):
     model = load_embedding(embedder_model, embedder_model_custom).to(device).float()
     model.eval()
@@ -149,10 +159,11 @@ def process_file_embedding(
 
     def worker(file_info):
         wav_file_path, _, _, out_file_path = file_info
-        if os.path.exists(out_file_path):
+        if not overwrite and os.path.exists(out_file_path):
             return
         feats = torch.from_numpy(load_audio_16k(wav_file_path)).to(device).float()
         feats = feats.view(1, -1)
+        feats = apply_embedder_input_normalization(model, feats)
         with torch.no_grad():
             result = model(feats)["last_hidden_state"]
         feats_out = result.squeeze(0).float().cpu().numpy()
@@ -169,7 +180,7 @@ def process_file_embedding(
 
 
 def run_embedding_extraction(
-    files, devices, embedder_model, embedder_model_custom, threads
+    files, devices, embedder_model, embedder_model_custom, threads, overwrite=False
 ):
     devices_str = ", ".join(devices)
     print(
@@ -186,6 +197,7 @@ def run_embedding_extraction(
                 i,
                 devices[i],
                 threads // len(devices),
+                overwrite,
             )
             for i in range(len(devices))
         ]
@@ -218,9 +230,26 @@ if __name__ == "__main__":
             data = json.load(f)
     else:
         data = {}
+    # Features and the index are embedder specific, so they can only be reused when the
+    # previously recorded embedder is known to be the same one.
+    previous_embedder_model = data.get("embedder_model")
+    embedder_changed = (
+        previous_embedder_model is not None
+        and previous_embedder_model != chosen_embedder_model
+    )
     data["embedder_model"] = chosen_embedder_model
     with open(file_path, "w") as f:
         json.dump(data, f, indent=4)
+
+    if embedder_changed:
+        print(
+            f"Embedder changed from '{previous_embedder_model}' to "
+            f"'{chosen_embedder_model}': re-extracting every feature."
+        )
+        index_path = os.path.join(exp_dir, f"{os.path.basename(exp_dir)}.index")
+        if os.path.exists(index_path):
+            os.remove(index_path)
+            print(f"Removed the outdated index file {index_path}")
 
     files = []
     for file in glob.glob(os.path.join(wav_path, "*.wav")):
@@ -238,7 +267,12 @@ if __name__ == "__main__":
     run_pitch_extraction(files, devices, f0_method, num_processes)
 
     run_embedding_extraction(
-        files, devices, embedder_model, embedder_model_custom, num_processes
+        files,
+        devices,
+        embedder_model,
+        embedder_model_custom,
+        num_processes,
+        embedder_changed,
     )
 
     generate_config(sample_rate, exp_dir)

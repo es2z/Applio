@@ -19,6 +19,7 @@ from rvc.lib.predictors.crepe_models import (
     resolve_crepe_model,
 )
 from rvc.lib.predictors.f0 import CREPE, FCPE, MANGIO_CREPE, RMVPE, SWIFT
+from rvc.lib.utils import apply_embedder_input_normalization
 
 import logging
 
@@ -352,6 +353,7 @@ class Pipeline:
             feats = feats.mean(-1) if feats.dim() == 2 else feats
             assert feats.dim() == 1, feats.dim()
             feats = feats.view(1, -1).to(self.device)
+            feats = apply_embedder_input_normalization(model, feats)
             # extract features
             feats = model(feats)["last_hidden_state"]
             feats = (
