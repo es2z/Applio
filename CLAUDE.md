@@ -192,6 +192,7 @@ Applio-3.5.0/
 - `contentvec` - Default, works for most languages
 - `spin`, `spin-v2` - Alternative embedders
 - `chinese-hubert-base`, `japanese-hubert-base`, `korean-hubert-base` - Language-specific
+- `japanese-hubert-base-k2` - Japanese, `reazon-research/japanese-hubert-base-k2` (fork-specific, see below)
 - `custom` - Use custom embedder (provide path via `embedder_model_custom`)
 
 ### Index Files
@@ -227,6 +228,23 @@ This is a personal fork with the following customizations:
 
 ### Training Tab Enhancements
 - Added `mangio-crepe` as a pitch adjustment algorithm option
+
+### Additional Embedder: `japanese-hubert-base-k2`
+- `reazon-research/japanese-hubert-base-k2`, a HuBERT Base trained on ReazonSpeech v2.0
+- 768-dim / 12 layers / 320-sample stride, so RVC v2 G/D, `text_enc_hidden_dim` and the
+  FAISS index dimension are unchanged and existing 768-dim checkpoints stay loadable
+- Downloaded through `transformers` (safetensors only, no `pytorch_model.bin`) and cached
+  under `rvc/models/embedders/japanese_hubert_base_k2/`. The commit SHA is pinned in
+  `JAPANESE_HUBERT_BASE_K2_REVISION`, so an upstream update cannot silently swap the
+  weights under an already-trained model and a cached load needs no network call
+- **Unlike every other embedder, its official `preprocessor_config.json` sets
+  `do_normalize: true`.** `load_embedding` records that flag on the model and
+  `apply_embedder_input_normalization` (`rvc/lib/utils.py`) applies the equivalent
+  zero-mean / unit-variance step at the three embedder call sites (training extraction,
+  offline inference, realtime). All other embedders keep `input_do_normalize = False`
+  and are fed the raw waveform exactly as before.
+- Switching the embedder of an existing model folder now re-extracts every feature and
+  deletes the stale `.index`, so features and index are never mixed across embedders
 
 ### Realtime Tab Enhancements
 - **Template System**: Save/load device connections, model settings, and parameter values

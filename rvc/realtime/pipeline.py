@@ -27,7 +27,11 @@ from rvc.lib.predictors.f0 import (
     RMVPE,
     SWIFT,
 )
-from rvc.lib.utils import load_embedding, HubertModelWithFinalProj
+from rvc.lib.utils import (
+    apply_embedder_input_normalization,
+    load_embedding,
+    HubertModelWithFinalProj,
+)
 
 
 class RealtimeVoiceConverter:
@@ -317,6 +321,7 @@ class Realtime_Pipeline:
         )
 
         # extract features
+        feats = apply_embedder_input_normalization(self.hubert_model, feats)
         feats = self.hubert_model(feats)["last_hidden_state"]
         feats = (
             self.hubert_model.final_proj(feats[0]).unsqueeze(0)
