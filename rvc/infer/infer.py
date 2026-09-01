@@ -27,7 +27,11 @@ now_dir = os.getcwd()
 sys.path.append(now_dir)
 
 from rvc.infer.pipeline import Pipeline as VC
-from rvc.lib.utils import load_audio_infer, load_embedding
+from rvc.lib.utils import (
+    load_audio_infer,
+    load_embedding,
+    warn_on_feature_scale_mismatch,
+)
 from rvc.lib.tools.split_audio import process_audio, merge_audio
 from rvc.lib.algorithm.synthesizers import Synthesizer
 from rvc.configs.config import Config
@@ -72,6 +76,7 @@ class VoiceConverter:
         self.hubert_model = load_embedding(embedder_model, embedder_model_custom)
         self.hubert_model = self.hubert_model.to(self.config.device).float()
         self.hubert_model.eval()
+        warn_on_feature_scale_mismatch(self.hubert_model, self.cpt)
 
     @staticmethod
     def remove_audio_noise(data, sr, reduction_strength=0.7):

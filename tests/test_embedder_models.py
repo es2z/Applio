@@ -13,11 +13,20 @@ from transformers import Wav2Vec2FeatureExtractor
 
 import core
 from rvc.lib import utils as embedder_utils
+from rvc.train.extract.extract import resolve_feature_reuse
 
 
 EMBEDDER_NAME = "japanese-hubert-base-k2"
 EMBEDDER_REPO = "reazon-research/japanese-hubert-base-k2"
 EMBEDDER_REVISION = "a9f26026165f8b80256f0aeecee53dedf81abce1"
+EMBEDDER_FEATURE_SCALE = 10.0
+
+# Per-frame norm of last_hidden_state, measured on the same speech with each embedder.
+# k2 sits an order of magnitude below the rest because its final LayerNorm gain is that
+# much smaller, and RVC v2 adds emb_phone(feature) straight onto a scale free emb_pitch.
+K2_FEATURE_NORM = 0.644
+JAPANESE_HUBERT_BASE_FEATURE_NORM = 6.494
+CONTENTVEC_FEATURE_NORM = 9.31
 
 
 def _i18n_label(node):
@@ -92,6 +101,35 @@ class EmbedderLoaderTest(unittest.TestCase):
         self.assertEqual(len(EMBEDDER_REVISION), 40)
         int(EMBEDDER_REVISION, 16)
 
+    def test_k2_carries_the_feature_scale(self):
+        model = SimpleNamespace()
+        extractor = SimpleNamespace(do_normalize=True, sampling_rate=16000)
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
+            embedder_utils, "now_dir", temp_dir
+        ), patch.object(
+            embedder_utils.HubertModelWithFinalProj,
+            "from_pretrained",
+            return_value=model,
+        ), patch.object(
+            embedder_utils.Wav2Vec2FeatureExtractor,
+            "from_pretrained",
+            return_value=extractor,
+        ):
+            result = embedder_utils.load_embedding(EMBEDDER_NAME)
+
+        self.assertEqual(result.feature_scale, EMBEDDER_FEATURE_SCALE)
+
+    def test_custom_embedders_keep_a_neutral_feature_scale(self):
+        model = SimpleNamespace()
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
+            embedder_utils.HubertModelWithFinalProj,
+            "from_pretrained",
+            return_value=model,
+        ):
+            result = embedder_utils.load_embedding("custom", temp_dir)
+
+        self.assertEqual(result.feature_scale, 1.0)
+
     def test_k2_takes_do_normalize_from_the_official_config(self):
         model = SimpleNamespace()
         extractor = SimpleNamespace(do_normalize=True, sampling_rate=16000)
@@ -155,6 +193,7 @@ class EmbedderLoaderTest(unittest.TestCase):
             feature_extractor.assert_not_called()
             download.assert_not_called()
             self.assertFalse(result.input_do_normalize)
+            self.assertEqual(result.feature_scale, 1.0)
 
 
 class EmbedderInputNormalizationTest(unittest.TestCase):
@@ -189,6 +228,94 @@ class EmbedderInputNormalizationTest(unittest.TestCase):
                     model, self.feats
                 )
                 self.assertIs(actual, self.feats)
+
+
+class EmbedderFeatureScaleTest(unittest.TestCase):
+    def setUp(self):
+        self.feats = torch.arange(12, dtype=torch.float32).view(1, 4, 3)
+
+    def test_is_a_noop_for_embedders_without_a_scale(self):
+        for model in (SimpleNamespace(feature_scale=1.0), SimpleNamespace()):
+            with self.subTest(model=model):
+                actual = embedder_utils.apply_embedder_feature_scale(model, self.feats)
+                self.assertIs(actual, self.feats)
+
+    def test_multiplies_the_hidden_states(self):
+        model = SimpleNamespace(feature_scale=EMBEDDER_FEATURE_SCALE)
+        actual = embedder_utils.apply_embedder_feature_scale(model, self.feats)
+        self.assertTrue(torch.equal(actual, self.feats * EMBEDDER_FEATURE_SCALE))
+
+    def test_the_constant_lands_k2_beside_the_other_embedders(self):
+        scaled = K2_FEATURE_NORM * embedder_utils.EMBEDDER_FEATURE_SCALE[EMBEDDER_NAME]
+        self.assertGreaterEqual(scaled, JAPANESE_HUBERT_BASE_FEATURE_NORM * 0.9)
+        self.assertLessEqual(scaled, CONTENTVEC_FEATURE_NORM)
+
+    def test_only_k2_is_scaled(self):
+        self.assertEqual(
+            set(embedder_utils.EMBEDDER_FEATURE_SCALE), {EMBEDDER_NAME}
+        )
+
+
+class CheckpointFeatureScaleWarningTest(unittest.TestCase):
+    def _warn(self, checkpoint, feature_scale):
+        model = SimpleNamespace(feature_scale=feature_scale)
+        with patch("builtins.print") as printed:
+            embedder_utils.warn_on_feature_scale_mismatch(model, checkpoint)
+        return [call.args[0] for call in printed.call_args_list]
+
+    def test_a_checkpoint_trained_before_scaling_is_flagged(self):
+        messages = self._warn({"embedder_model": EMBEDDER_NAME}, EMBEDDER_FEATURE_SCALE)
+        self.assertEqual(len(messages), 1)
+        self.assertIn("1.0", messages[0])
+        self.assertIn("10.0", messages[0])
+
+    def test_a_matching_checkpoint_is_quiet(self):
+        checkpoint = {
+            "embedder_model": EMBEDDER_NAME,
+            "embedder_feature_scale": EMBEDDER_FEATURE_SCALE,
+        }
+        self.assertEqual(self._warn(checkpoint, EMBEDDER_FEATURE_SCALE), [])
+
+    def test_existing_unscaled_checkpoints_are_quiet(self):
+        self.assertEqual(self._warn({"embedder_model": "contentvec"}, 1.0), [])
+
+    def test_a_checkpoint_without_metadata_is_quiet(self):
+        for checkpoint in ({}, None, {"embedder_model": None}):
+            with self.subTest(checkpoint=checkpoint):
+                self.assertEqual(self._warn(checkpoint, EMBEDDER_FEATURE_SCALE), [])
+
+
+class FeatureReuseGuardTest(unittest.TestCase):
+    def test_an_unrecorded_folder_is_left_alone(self):
+        rebuild, reason = resolve_feature_reuse({}, EMBEDDER_NAME, EMBEDDER_FEATURE_SCALE)
+        self.assertFalse(rebuild)
+        self.assertIsNone(reason)
+
+    def test_a_matching_embedder_and_scale_is_reused(self):
+        data = {
+            "embedder_model": EMBEDDER_NAME,
+            "embedder_feature_scale": EMBEDDER_FEATURE_SCALE,
+        }
+        rebuild, _ = resolve_feature_reuse(data, EMBEDDER_NAME, EMBEDDER_FEATURE_SCALE)
+        self.assertFalse(rebuild)
+
+    def test_a_different_embedder_forces_a_rebuild(self):
+        data = {"embedder_model": "japanese-hubert-base"}
+        rebuild, reason = resolve_feature_reuse(data, EMBEDDER_NAME, EMBEDDER_FEATURE_SCALE)
+        self.assertTrue(rebuild)
+        self.assertIn("japanese-hubert-base", reason)
+
+    def test_features_extracted_before_scaling_force_a_rebuild(self):
+        # No recorded scale means the folder predates scaling, which is a scale of 1.0.
+        data = {"embedder_model": EMBEDDER_NAME}
+        rebuild, reason = resolve_feature_reuse(data, EMBEDDER_NAME, EMBEDDER_FEATURE_SCALE)
+        self.assertTrue(rebuild)
+        self.assertIn("1.0", reason)
+
+    def test_an_unscaled_embedder_without_a_record_is_reused(self):
+        data = {"embedder_model": "japanese-hubert-base"}
+        rebuild, _ = resolve_feature_reuse(data, "japanese-hubert-base", 1.0)
+        self.assertFalse(rebuild)
 
 
 class EmbedderInterfaceTest(unittest.TestCase):

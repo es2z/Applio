@@ -34,6 +34,14 @@ JAPANESE_HUBERT_BASE_K2_REPO = "reazon-research/japanese-hubert-base-k2"
 # was already trained, and so a cached load needs no network round trip.
 JAPANESE_HUBERT_BASE_K2_REVISION = "a9f26026165f8b80256f0aeecee53dedf81abce1"
 
+# k2's final LayerNorm gain is roughly 10x smaller than every other embedder here, so its
+# last_hidden_state lands at about a tenth of the magnitude: 0.64 per frame against 6.49
+# for japanese-hubert-base and 9.31 for contentvec. RVC v2's TextEncoder adds
+# emb_phone(feature) straight onto a scale free emb_pitch embedding, so without this the
+# content term ends up about 5.7x under weighted, and emb_phone never catches up because
+# its gradient scales with the input magnitude as well.
+EMBEDDER_FEATURE_SCALE = {JAPANESE_HUBERT_BASE_K2: 10.0}
+
 
 class HubertModelWithFinalProj(HubertModel):
     def __init__(self, config):
@@ -144,6 +152,12 @@ def apply_embedder_input_normalization(model, feats):
     Equivalent to Wav2Vec2FeatureExtractor.zero_mean_unit_var_norm for a single unbatched
     array, which is what every embedder call site passes. Embedders whose official config
     does not set do_normalize are returned untouched.
+
+    For a feat_extract_norm="group" model with conv_bias=False, which is every embedder
+    here including k2, the GroupNorm right after the first bias free conv already cancels
+    any scalar gain, so this is close to a no-op (measured: under 0.5% feature change). It
+    is kept because it is what the official preprocessor_config.json asks for, and a
+    future feat_extract_norm="layer" embedder would genuinely need it.
     """
     if not getattr(model, "input_do_normalize", False):
         return feats
@@ -151,6 +165,35 @@ def apply_embedder_input_normalization(model, feats):
     return (feats - feats.mean(dim=-1, keepdim=True)) / torch.sqrt(
         feats.var(dim=-1, unbiased=False, keepdim=True) + 1e-7
     )
+
+
+def apply_embedder_feature_scale(model, feats):
+    """Bring the embedder's hidden states into the range RVC v2 was designed for.
+
+    Only embedders listed in EMBEDDER_FEATURE_SCALE are touched; every other one carries
+    feature_scale = 1.0 and is handed back as the very same object.
+    """
+    scale = getattr(model, "feature_scale", 1.0)
+    return feats if scale == 1.0 else feats * scale
+
+
+def warn_on_feature_scale_mismatch(model, checkpoint):
+    """Warn when a checkpoint was trained against a different embedder feature scale.
+
+    A checkpoint that records an embedder but no scale was trained before scaling existed,
+    which is exactly a scale of 1.0. Feeding such a model features at another scale gives
+    garbage rather than an error, so say so instead of failing silently.
+    """
+    if not isinstance(checkpoint, dict) or checkpoint.get("embedder_model") is None:
+        return
+    recorded = checkpoint.get("embedder_feature_scale", 1.0)
+    current = getattr(model, "feature_scale", 1.0)
+    if recorded != current:
+        print(
+            f"Warning: this checkpoint was trained on '{checkpoint['embedder_model']}' "
+            f"features scaled by {recorded}, but they are now scaled by {current}. "
+            "Re-extract the features and retrain, or the output will be wrong."
+        )
 
 
 def load_embedding(embedder_model, custom_embedder=None):
@@ -199,6 +242,7 @@ def load_embedding(embedder_model, custom_embedder=None):
                 revision=JAPANESE_HUBERT_BASE_K2_REVISION,
                 use_safetensors=True,
             )
+            models.feature_scale = EMBEDDER_FEATURE_SCALE.get(embedder_model, 1.0)
             return _attach_input_preprocessing(
                 models,
                 JAPANESE_HUBERT_BASE_K2_REPO,
@@ -223,4 +267,5 @@ def load_embedding(embedder_model, custom_embedder=None):
     # raw waveform, so their input pipeline stays exactly as it was.
     models.input_do_normalize = False
     models.input_sampling_rate = 16000
+    models.feature_scale = EMBEDDER_FEATURE_SCALE.get(embedder_model, 1.0)
     return models

@@ -17,6 +17,8 @@ sys.path.append(os.path.join(now_dir))
 import rvc.lib.zluda
 
 from rvc.lib.utils import (
+    EMBEDDER_FEATURE_SCALE,
+    apply_embedder_feature_scale,
     apply_embedder_input_normalization,
     load_audio_16k,
     load_embedding,
@@ -166,6 +168,7 @@ def process_file_embedding(
         feats = apply_embedder_input_normalization(model, feats)
         with torch.no_grad():
             result = model(feats)["last_hidden_state"]
+        result = apply_embedder_feature_scale(model, result)
         feats_out = result.squeeze(0).float().cpu().numpy()
         if not np.isnan(feats_out).any():
             np.save(out_file_path, feats_out, allow_pickle=False)
@@ -177,6 +180,35 @@ def process_file_embedding(
             futures = [executor.submit(worker, f) for f in files]
             for _ in concurrent.futures.as_completed(futures):
                 pbar.update(1)
+
+
+def resolve_feature_reuse(data, chosen_embedder_model, feature_scale):
+    """Decide whether the features already in the folder may be reused.
+
+    Features and the index are embedder specific, so they can only be reused when the
+    previously recorded embedder is known to be the same one. The feature scale is part of
+    that identity: it changes the stored features while the embedder name stays put. A
+    folder that recorded an embedder but no scale was extracted before scaling existed,
+    which is exactly a scale of 1.0. A folder that recorded nothing is treated as unknown
+    and left alone, the same conservative fallback preparing_files.py uses.
+
+    Returns (rebuild, reason).
+    """
+    previous_embedder_model = data.get("embedder_model")
+    if previous_embedder_model is None:
+        return False, None
+    if previous_embedder_model != chosen_embedder_model:
+        return True, (
+            f"Embedder changed from '{previous_embedder_model}' to "
+            f"'{chosen_embedder_model}'"
+        )
+    previous_feature_scale = data.get("embedder_feature_scale", 1.0)
+    if previous_feature_scale != feature_scale:
+        return True, (
+            f"Feature scale of '{chosen_embedder_model}' changed from "
+            f"{previous_feature_scale} to {feature_scale}"
+        )
+    return False, None
 
 
 def run_embedding_extraction(
@@ -224,28 +256,23 @@ if __name__ == "__main__":
     chosen_embedder_model = (
         embedder_model_custom if embedder_model == "custom" else embedder_model
     )
+    feature_scale = EMBEDDER_FEATURE_SCALE.get(embedder_model, 1.0)
     file_path = os.path.join(exp_dir, "model_info.json")
     if os.path.exists(file_path):
         with open(file_path, "r") as f:
             data = json.load(f)
     else:
         data = {}
-    # Features and the index are embedder specific, so they can only be reused when the
-    # previously recorded embedder is known to be the same one.
-    previous_embedder_model = data.get("embedder_model")
-    embedder_changed = (
-        previous_embedder_model is not None
-        and previous_embedder_model != chosen_embedder_model
+    rebuild_features, rebuild_reason = resolve_feature_reuse(
+        data, chosen_embedder_model, feature_scale
     )
     data["embedder_model"] = chosen_embedder_model
+    data["embedder_feature_scale"] = feature_scale
     with open(file_path, "w") as f:
         json.dump(data, f, indent=4)
 
-    if embedder_changed:
-        print(
-            f"Embedder changed from '{previous_embedder_model}' to "
-            f"'{chosen_embedder_model}': re-extracting every feature."
-        )
+    if rebuild_features:
+        print(f"{rebuild_reason}: re-extracting every feature.")
         index_path = os.path.join(exp_dir, f"{os.path.basename(exp_dir)}.index")
         if os.path.exists(index_path):
             os.remove(index_path)
@@ -272,7 +299,7 @@ if __name__ == "__main__":
         embedder_model,
         embedder_model_custom,
         num_processes,
-        embedder_changed,
+        rebuild_features,
     )
 
     generate_config(sample_rate, exp_dir)

@@ -41,11 +41,13 @@ def extract_model(
         model_dir = os.path.dirname(model_path)
         os.makedirs(model_dir, exist_ok=True)
 
+        embedder_feature_scale = 1.0
         if os.path.exists(os.path.join(model_dir, "model_info.json")):
             with open(os.path.join(model_dir, "model_info.json"), "r") as f:
                 data = json.load(f)
                 dataset_length = data.get("total_dataset_duration", None)
                 embedder_model = data.get("embedder_model", None)
+                embedder_feature_scale = data.get("embedder_feature_scale", 1.0)
                 speakers_id = data.get("speakers_id", 1)
         else:
             dataset_length = None
@@ -94,6 +96,7 @@ def extract_model(
         opt["model_name"] = name
         opt["author"] = model_author
         opt["embedder_model"] = embedder_model
+        opt["embedder_feature_scale"] = embedder_feature_scale
         opt["speakers_id"] = speakers_id
         opt["vocoder"] = vocoder
 
