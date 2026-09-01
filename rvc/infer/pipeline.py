@@ -19,7 +19,10 @@ from rvc.lib.predictors.crepe_models import (
     resolve_crepe_model,
 )
 from rvc.lib.predictors.f0 import CREPE, FCPE, MANGIO_CREPE, RMVPE, SWIFT
-from rvc.lib.utils import apply_embedder_input_normalization
+from rvc.lib.utils import (
+    apply_embedder_feature_scale,
+    apply_embedder_input_normalization,
+)
 
 import logging
 
@@ -356,6 +359,7 @@ class Pipeline:
             feats = apply_embedder_input_normalization(model, feats)
             # extract features
             feats = model(feats)["last_hidden_state"]
+            feats = apply_embedder_feature_scale(model, feats)
             feats = (
                 model.final_proj(feats[0]).unsqueeze(0) if version == "v1" else feats
             )

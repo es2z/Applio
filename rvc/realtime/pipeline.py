@@ -28,8 +28,10 @@ from rvc.lib.predictors.f0 import (
     SWIFT,
 )
 from rvc.lib.utils import (
+    apply_embedder_feature_scale,
     apply_embedder_input_normalization,
     load_embedding,
+    warn_on_feature_scale_mismatch,
     HubertModelWithFinalProj,
 )
 
@@ -323,6 +325,7 @@ class Realtime_Pipeline:
         # extract features
         feats = apply_embedder_input_normalization(self.hubert_model, feats)
         feats = self.hubert_model(feats)["last_hidden_state"]
+        feats = apply_embedder_feature_scale(self.hubert_model, feats)
         feats = (
             self.hubert_model.final_proj(feats[0]).unsqueeze(0)
             if self.version == "v1"
@@ -443,6 +446,7 @@ def create_pipeline(
     hubert_model = load_embedding(embedder_model, embedder_model_custom)
     hubert_model = hubert_model.to(vc.config.device).float()
     hubert_model.eval()
+    warn_on_feature_scale_mismatch(hubert_model, vc.cpt)
 
     pipeline = Realtime_Pipeline(
         vc,

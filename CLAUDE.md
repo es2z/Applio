@@ -237,14 +237,46 @@ This is a personal fork with the following customizations:
   under `rvc/models/embedders/japanese_hubert_base_k2/`. The commit SHA is pinned in
   `JAPANESE_HUBERT_BASE_K2_REVISION`, so an upstream update cannot silently swap the
   weights under an already-trained model and a cached load needs no network call
+- **Its hidden states are ~10x smaller than every other embedder's**, because its final
+  LayerNorm gain is that much smaller: 0.64 per frame against 6.49 for
+  `japanese-hubert-base` and 9.31 for `contentvec`. `TextEncoder` adds
+  `emb_phone(feature)` straight onto a scale-free `emb_pitch` embedding
+  (`rvc/lib/algorithm/encoders.py:131-133`), so raw k2 features leave the content term
+  ~5.7x under-weighted against pitch, and `emb_phone` never catches up because its
+  gradient scales with the input magnitude too (measured: its weight norm moved 23.8 ->
+  25.5 over 240 epochs, against the ~10x needed). The symptom is a voice that cuts out
+  mid-speech and never improves with more training. `EMBEDDER_FEATURE_SCALE`
+  (`rvc/lib/utils.py`) multiplies k2's hidden states by 10.0 at the three embedder call
+  sites via `apply_embedder_feature_scale`, landing them at 6.44 per frame. Every other
+  embedder carries `feature_scale = 1.0` and is handed back untouched.
 - **Unlike every other embedder, its official `preprocessor_config.json` sets
   `do_normalize: true`.** `load_embedding` records that flag on the model and
   `apply_embedder_input_normalization` (`rvc/lib/utils.py`) applies the equivalent
   zero-mean / unit-variance step at the three embedder call sites (training extraction,
   offline inference, realtime). All other embedders keep `input_do_normalize = False`
-  and are fed the raw waveform exactly as before.
-- Switching the embedder of an existing model folder now re-extracts every feature and
-  deletes the stale `.index`, so features and index are never mixed across embedders
+  and are fed the raw waveform exactly as before. Note this is close to a no-op for every
+  embedder here: they are all `feat_extract_norm: "group"` with `conv_bias: false`, so the
+  GroupNorm after the first bias-free conv already cancels any scalar gain (measured:
+  under 0.5% feature change). It is kept for fidelity to the official config and for a
+  future `feat_extract_norm: "layer"` embedder, which would genuinely need it.
+- Changing either the embedder **or its feature scale** on an existing model folder
+  re-extracts every feature and deletes the stale `.index`
+  (`resolve_feature_reuse` in `rvc/train/extract/extract.py`), so features and index are
+  never mixed. A folder that recorded an embedder but no `embedder_feature_scale` predates
+  scaling, which is exactly a scale of 1.0; a folder that recorded nothing is left alone.
+
+### Known: lost positional-conv weights on the legacy embedders
+`contentvec`, `japanese-hubert-base` and the other `pytorch_model.bin` embedders were saved
+by transformers <=4.30 with `pos_conv_embed.conv.weight_g/weight_v`, which the pinned
+transformers 4.44.2 no longer recognises (it wants
+`pos_conv_embed.conv.parametrizations.weight.original0/1`). Those weights are therefore
+silently dropped and re-initialised on every load - the warning is hidden by the
+`warnings.filterwarnings("ignore")` and transformers log level in `rvc/lib/utils.py`. The
+positional conv contributes `|pos|/|h|` of 0.46 for them against 3.19 for k2, which is a
+large part of why k2's features look so different. **Do not "fix" this**: the fallback is
+deterministic, every existing model was trained and is used against the same features, and
+loading the real weights would invalidate every trained checkpoint and index in `logs/`.
+Check it with `from_pretrained(..., output_loading_info=True)`.
 
 ### Realtime Tab Enhancements
 - **Template System**: Save/load device connections, model settings, and parameter values
