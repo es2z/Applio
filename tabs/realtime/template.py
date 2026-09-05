@@ -130,7 +130,7 @@ class RealtimeTemplateManager:
         speaker_id,
         ptch, idx_rate, vol_env, prot,
         f0_meth, hybrid_ratio,
-        emb_model, emb_custom,
+        emb_model, emb_custom, emb_precision,
         chnk_size, cross_fade, extra_conv, silent_thresh
     ):
         """
@@ -169,6 +169,7 @@ class RealtimeTemplateManager:
                     "f0_method": f0_meth,
                     "embedder_model": emb_model,
                     "embedder_model_custom": emb_custom or "",
+                    "embedder_precision": emb_precision,
                     "autotune": atune,
                     "autotune_strength": atune_str,
                     "proposed_pitch": prop_pitch,
@@ -202,7 +203,7 @@ class RealtimeTemplateManager:
             Tuple of 31 gr.update() objects for all UI components
         """
         if not template_data:
-            return [gr.update()] * 31
+            return [gr.update()] * 32
 
         audio = template_data.get("audioTab", {})
         model = template_data.get("modelTab", {})
@@ -222,7 +223,7 @@ class RealtimeTemplateManager:
             gr.update(value=audio.get("monitor", {}).get("asio_channel", -1)),
             gr.update(value=audio.get("exclusive_mode", True)),
             gr.update(value=audio.get("vad_enabled", True)),
-            # Model tab (15 items)
+            # Model tab (16 items)
             gr.update(value=model.get("voice", {}).get("model_path", "")),
             gr.update(value=model.get("voice", {}).get("index_path", "")),
             gr.update(value=model.get("inference", {}).get("autotune", False)),
@@ -238,6 +239,8 @@ class RealtimeTemplateManager:
             gr.update(value=model.get("parameterValues", {}).get("hybrid_blend_ratio", 0.5)),
             gr.update(value=model.get("inference", {}).get("embedder_model", "contentvec")),
             gr.update(value=model.get("inference", {}).get("embedder_model_custom", "")),
+            # Templates saved before the embedder precision existed ran in fp32.
+            gr.update(value=model.get("inference", {}).get("embedder_precision", "fp32")),
             # Performance tab (4 items)
             gr.update(value=perf.get("chunk_size", 512)),
             gr.update(value=perf.get("crossfade_overlap_size", 0.05)),

@@ -19,10 +19,7 @@ from rvc.lib.predictors.crepe_models import (
     resolve_crepe_model,
 )
 from rvc.lib.predictors.f0 import CREPE, FCPE, MANGIO_CREPE, RMVPE, SWIFT
-from rvc.lib.utils import (
-    apply_embedder_feature_scale,
-    apply_embedder_input_normalization,
-)
+from rvc.lib.utils import embedder_forward
 
 import logging
 
@@ -356,10 +353,8 @@ class Pipeline:
             feats = feats.mean(-1) if feats.dim() == 2 else feats
             assert feats.dim() == 1, feats.dim()
             feats = feats.view(1, -1).to(self.device)
-            feats = apply_embedder_input_normalization(model, feats)
             # extract features
-            feats = model(feats)["last_hidden_state"]
-            feats = apply_embedder_feature_scale(model, feats)
+            feats = embedder_forward(model, feats)
             feats = (
                 model.final_proj(feats[0]).unsqueeze(0) if version == "v1" else feats
             )
@@ -407,6 +402,13 @@ class Pipeline:
         return audio1
 
     def _retrieve_speaker_embeddings(self, feats, index, big_npy, index_rate):
+        if index.d != feats.shape[-1]:
+            print(
+                f"Skipping the index: it holds {index.d} wide vectors but the embedder "
+                f"produced {feats.shape[-1]} wide ones. Rebuild the index with the same "
+                "embedder the model was trained on."
+            )
+            return feats
         npy = feats[0].cpu().numpy()
         score, ix = index.search(npy, k=8)
         weight = np.square(1 / score)

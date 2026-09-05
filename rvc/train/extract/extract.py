@@ -18,8 +18,9 @@ import rvc.lib.zluda
 
 from rvc.lib.utils import (
     EMBEDDER_FEATURE_SCALE,
-    apply_embedder_feature_scale,
-    apply_embedder_input_normalization,
+    EMBEDDER_INPUT_STD_FLOOR,
+    describe_embedder_mismatch,
+    embedder_forward,
     load_audio_16k,
     load_embedding,
 )
@@ -154,8 +155,13 @@ def process_file_embedding(
     device,
     n_threads,
     overwrite=False,
+    output_layer=None,
 ):
-    model = load_embedding(embedder_model, embedder_model_custom).to(device).float()
+    model = (
+        load_embedding(embedder_model, embedder_model_custom, output_layer)
+        .to(device)
+        .float()
+    )
     model.eval()
     n_threads = max(1, n_threads)
 
@@ -165,10 +171,8 @@ def process_file_embedding(
             return
         feats = torch.from_numpy(load_audio_16k(wav_file_path)).to(device).float()
         feats = feats.view(1, -1)
-        feats = apply_embedder_input_normalization(model, feats)
         with torch.no_grad():
-            result = model(feats)["last_hidden_state"]
-        result = apply_embedder_feature_scale(model, result)
+            result = embedder_forward(model, feats)
         feats_out = result.squeeze(0).float().cpu().numpy()
         if not np.isnan(feats_out).any():
             np.save(out_file_path, feats_out, allow_pickle=False)
@@ -182,37 +186,40 @@ def process_file_embedding(
                 pbar.update(1)
 
 
-def resolve_feature_reuse(data, chosen_embedder_model, feature_scale):
+def resolve_feature_reuse(
+    data, chosen_embedder_model, feature_scale, output_layer=None, input_std_floor=None
+):
     """Decide whether the features already in the folder may be reused.
 
     Features and the index are embedder specific, so they can only be reused when the
-    previously recorded embedder is known to be the same one. The feature scale is part of
-    that identity: it changes the stored features while the embedder name stays put. A
-    folder that recorded an embedder but no scale was extracted before scaling existed,
-    which is exactly a scale of 1.0. A folder that recorded nothing is treated as unknown
-    and left alone, the same conservative fallback preparing_files.py uses.
+    embedder that produced them is known to be the same one, all the way down to the
+    settings that change the numbers without changing the name. A folder that recorded
+    nothing is treated as unknown and left alone, the same conservative fallback
+    preparing_files.py uses.
 
     Returns (rebuild, reason).
     """
-    previous_embedder_model = data.get("embedder_model")
-    if previous_embedder_model is None:
-        return False, None
-    if previous_embedder_model != chosen_embedder_model:
-        return True, (
-            f"Embedder changed from '{previous_embedder_model}' to "
-            f"'{chosen_embedder_model}'"
-        )
-    previous_feature_scale = data.get("embedder_feature_scale", 1.0)
-    if previous_feature_scale != feature_scale:
-        return True, (
-            f"Feature scale of '{chosen_embedder_model}' changed from "
-            f"{previous_feature_scale} to {feature_scale}"
-        )
-    return False, None
+    reason = describe_embedder_mismatch(
+        data,
+        {
+            "embedder_model": chosen_embedder_model,
+            "embedder_feature_scale": feature_scale,
+            "embedder_output_layer": output_layer,
+            "embedder_input_std_floor": input_std_floor,
+        },
+        "this folder",
+    )
+    return reason is not None, reason
 
 
 def run_embedding_extraction(
-    files, devices, embedder_model, embedder_model_custom, threads, overwrite=False
+    files,
+    devices,
+    embedder_model,
+    embedder_model_custom,
+    threads,
+    overwrite=False,
+    output_layer=None,
 ):
     devices_str = ", ".join(devices)
     print(
@@ -230,12 +237,65 @@ def run_embedding_extraction(
                 devices[i],
                 threads // len(devices),
                 overwrite,
+                output_layer,
             )
             for i in range(len(devices))
         ]
         concurrent.futures.wait(tasks)
 
     print(f"Embedding extraction completed in {time.time() - start_time:.2f} seconds.")
+
+
+def extract_mute_feature(
+    exp_dir, embedder_model, embedder_model_custom, device, output_layer, overwrite
+):
+    """Write this run's own silent-frame feature next to its extracted features.
+
+    The filelist pads every speaker with a few silent samples, and that padding has to be
+    as wide as everything else in the batch. The shipped logs/mute features are 768 wide,
+    so producing this one per run is what lets a 1024 wide embedder work at all, and it
+    keeps every future embedder correct without another shared logs/mute_* folder.
+
+    It lives beside extracted/ rather than inside it, because extract_index.py indexes
+    everything in extracted/ and silence does not belong in the retrieval index.
+
+    Returns (feature width, input std floor) for the loaded embedder, or (None, None)
+    when there is no mute audio to work from.
+    """
+    mute_wav = os.path.join(now_dir, "logs", "mute", "sliced_audios_16k", "mute.wav")
+    if not os.path.exists(mute_wav):
+        print(f"No mute audio at {mute_wav}; skipping the mute feature.")
+        return None, None
+
+    out_path = os.path.join(exp_dir, "mute.npy")
+    model = (
+        load_embedding(embedder_model, embedder_model_custom, output_layer)
+        .to(device)
+        .float()
+    )
+    model.eval()
+    if overwrite or not os.path.exists(out_path):
+        feats = torch.from_numpy(load_audio_16k(mute_wav)).to(device).float().view(1, -1)
+        with torch.no_grad():
+            result = embedder_forward(model, feats)
+        np.save(out_path, result.squeeze(0).float().cpu().numpy(), allow_pickle=False)
+        print(f"Wrote the mute feature for this embedder to {out_path}")
+    return model.embed_dim, (
+        EMBEDDER_INPUT_STD_FLOOR if model.input_do_normalize else None
+    )
+
+
+def measure_feature_dim(exp_dir, fallback=None):
+    """Read the width of the features actually on disk.
+
+    The extracted .npy files are the ground truth for what training will be fed, so the
+    generator is sized from them rather than from a static config value.
+    """
+    feature_dir = os.path.join(exp_dir, "extracted")
+    for name in sorted(os.listdir(feature_dir)):
+        if name.endswith(".npy"):
+            return int(np.load(os.path.join(feature_dir, name), mmap_mode="r").shape[1])
+    return fallback
 
 
 if __name__ == "__main__":
@@ -247,6 +307,9 @@ if __name__ == "__main__":
     embedder_model = sys.argv[6]
     embedder_model_custom = sys.argv[7] if len(sys.argv) > 7 else None
     include_mutes = int(sys.argv[8]) if len(sys.argv) > 8 else 2
+    # 0 means the last layer, which is what every embedder used before this was settable.
+    embedder_output_layer = int(sys.argv[9]) if len(sys.argv) > 9 else 0
+    output_layer = embedder_output_layer or None
 
     wav_path = os.path.join(exp_dir, "sliced_audios_16k")
     os.makedirs(os.path.join(exp_dir, "f0"), exist_ok=True)
@@ -263,13 +326,15 @@ if __name__ == "__main__":
             data = json.load(f)
     else:
         data = {}
+    # The embedder has to be loaded once to know whether it normalises its input, and
+    # that happens below; the previously recorded value is the best guess until then.
     rebuild_features, rebuild_reason = resolve_feature_reuse(
-        data, chosen_embedder_model, feature_scale
+        data,
+        chosen_embedder_model,
+        feature_scale,
+        output_layer,
+        data.get("embedder_input_std_floor"),
     )
-    data["embedder_model"] = chosen_embedder_model
-    data["embedder_feature_scale"] = feature_scale
-    with open(file_path, "w") as f:
-        json.dump(data, f, indent=4)
 
     if rebuild_features:
         print(f"{rebuild_reason}: re-extracting every feature.")
@@ -300,7 +365,28 @@ if __name__ == "__main__":
         embedder_model_custom,
         num_processes,
         rebuild_features,
+        output_layer,
     )
 
-    generate_config(sample_rate, exp_dir)
+    model_dim, input_std_floor = extract_mute_feature(
+        exp_dir,
+        embedder_model,
+        embedder_model_custom,
+        devices[0],
+        output_layer,
+        rebuild_features,
+    )
+    feature_dim = measure_feature_dim(exp_dir, model_dim)
+
+    # Written after extraction, so a run that died halfway does not leave the folder
+    # claiming features it never produced.
+    data["embedder_model"] = chosen_embedder_model
+    data["embedder_feature_scale"] = feature_scale
+    data["embedder_output_layer"] = output_layer
+    data["embedder_dim"] = feature_dim
+    data["embedder_input_std_floor"] = input_std_floor
+    with open(file_path, "w") as f:
+        json.dump(data, f, indent=4)
+
+    generate_config(sample_rate, exp_dir, feature_dim)
     generate_filelist(exp_dir, sample_rate, include_mutes)

@@ -31,8 +31,10 @@ from mel_processing import (
 )
 from utils import (
     HParams,
+    assert_resumable,
     latest_checkpoint_path,
     load_checkpoint,
+    load_pretrained,
     load_wav_to_torch,
     plot_spectrogram_to_numpy,
     save_checkpoint,
@@ -109,6 +111,10 @@ torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = True
 
 global_step = 0
+# Which embedder produced the features this run is training on. Stamped onto every
+# resume checkpoint so a later run cannot silently continue from weights that were
+# fitted to different features.
+embedder_identity = {}
 last_loss_gen_all = 0
 overtrain_save_epoch = 0
 loss_gen_history = []
@@ -379,6 +385,7 @@ def run(
         os._exit(2333333)
 
     # defaults
+    global embedder_identity
     embedder_name = "contentvec"
     spk_dim = config.model.spk_embed_dim  # 109 default speakers
 
@@ -387,6 +394,13 @@ def run(
             model_info = json.load(f)
             embedder_name = model_info["embedder_model"]
             spk_dim = model_info["speakers_id"]
+            embedder_identity = {
+                "embedder_model": embedder_name,
+                "embedder_feature_scale": model_info.get("embedder_feature_scale", 1.0),
+                "embedder_output_layer": model_info.get("embedder_output_layer"),
+                "embedder_dim": model_info.get("embedder_dim"),
+                "embedder_input_std_floor": model_info.get("embedder_input_std_floor"),
+            }
     except Exception as e:
         print(f"Could not load model info file: {e}. Using defaults.")
 
@@ -474,6 +488,7 @@ def run(
 
     # Load checkpoint if available
     scaler_dict = {}
+    assert_resumable(experiment_dir, embedder_identity)
     try:
         print("Starting training...")
         _, _, _, epoch_str, scaler_dict = load_checkpoint(
@@ -492,40 +507,12 @@ def run(
         if pretrainG not in ("", "None"):
             if rank == 0:
                 print(f"Loaded pretrained (G) '{pretrainG}'")
-            try:
-                ckpt = torch.load(pretrainG, map_location="cpu", weights_only=True)[
-                    "model"
-                ]
-                if hasattr(net_g, "module"):
-                    net_g.module.load_state_dict(ckpt)
-                else:
-                    net_g.load_state_dict(ckpt)
-                del ckpt
-            except Exception as e:
-                print(
-                    "The parameters of the pretrain model such as the sample rate or architecture do not match the selected model."
-                )
-                print(e)
-                sys.exit(1)
+            load_pretrained(net_g, pretrainG, "G", verbose=rank == 0)
 
         if pretrainD not in ("", "None"):
             if rank == 0:
                 print(f"Loaded pretrained (D) '{pretrainD}'")
-            try:
-                ckpt = torch.load(pretrainD, map_location="cpu", weights_only=True)[
-                    "model"
-                ]
-                if hasattr(net_d, "module"):
-                    net_d.module.load_state_dict(ckpt)
-                else:
-                    net_d.load_state_dict(ckpt)
-                del ckpt
-            except Exception as e:
-                print(
-                    "The parameters of the pretrain model such as the sample rate or architecture do not match the selected model."
-                )
-                print(e)
-                sys.exit(1)
+            load_pretrained(net_d, pretrainD, "D", verbose=rank == 0)
 
     # Initialize schedulers
     scheduler_g = torch.optim.lr_scheduler.ExponentialLR(
@@ -1011,6 +998,7 @@ def train_and_evaluate(
                 epoch,
                 os.path.join(experiment_dir, "G_" + checkpoint_suffix),
                 scaler,
+                embedder_identity,
             )
             save_checkpoint(
                 net_d,
@@ -1019,6 +1007,7 @@ def train_and_evaluate(
                 epoch,
                 os.path.join(experiment_dir, "D_" + checkpoint_suffix),
                 scaler,
+                embedder_identity,
             )
             if custom_save_every_weights:
                 model_add.append(

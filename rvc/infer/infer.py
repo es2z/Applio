@@ -28,6 +28,7 @@ sys.path.append(now_dir)
 
 from rvc.infer.pipeline import Pipeline as VC
 from rvc.lib.utils import (
+    checkpoint_text_enc_hidden_dim,
     load_audio_infer,
     load_embedding,
     warn_on_feature_scale_mismatch,
@@ -69,11 +70,17 @@ class VoiceConverter:
         """
         Loads the HuBERT model for speaker embedding extraction.
 
+        The output layer comes from the checkpoint rather than the caller, so inference
+        always reads the same layer the features were extracted from during training.
+
         Args:
             embedder_model (str): Path to the pre-trained HuBERT model.
             embedder_model_custom (str): Path to the custom HuBERT model.
         """
-        self.hubert_model = load_embedding(embedder_model, embedder_model_custom)
+        output_layer = (self.cpt or {}).get("embedder_output_layer")
+        self.hubert_model = load_embedding(
+            embedder_model, embedder_model_custom, output_layer
+        )
         self.hubert_model = self.hubert_model.to(self.config.device).float()
         self.hubert_model.eval()
         warn_on_feature_scale_mismatch(self.hubert_model, self.cpt)
@@ -268,9 +275,16 @@ class VoiceConverter:
             if audio_max > 1:
                 audio /= audio_max
 
-            if not self.hubert_model or embedder_model != self.last_embedder_model:
+            # The custom path and the checkpoint's output layer are part of the
+            # embedder's identity too, so a change in either has to force a reload.
+            embedder_key = (
+                embedder_model,
+                embedder_model_custom,
+                (self.cpt or {}).get("embedder_output_layer"),
+            )
+            if not self.hubert_model or embedder_key != self.last_embedder_model:
                 self.load_hubert(embedder_model, embedder_model_custom)
-                self.last_embedder_model = embedder_model
+                self.last_embedder_model = embedder_key
 
             file_index = (
                 index_path.strip()
@@ -479,7 +493,7 @@ class VoiceConverter:
             self.use_f0 = self.cpt.get("f0", 1)
 
             self.version = self.cpt.get("version", "v1")
-            self.text_enc_hidden_dim = 768 if self.version == "v2" else 256
+            self.text_enc_hidden_dim = checkpoint_text_enc_hidden_dim(self.cpt)
             self.vocoder = self.cpt.get("vocoder", "HiFi-GAN")
             self.net_g = Synthesizer(
                 *self.cpt["config"],

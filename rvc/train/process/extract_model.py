@@ -42,12 +42,16 @@ def extract_model(
         os.makedirs(model_dir, exist_ok=True)
 
         embedder_feature_scale = 1.0
+        embedder_output_layer = None
+        embedder_input_std_floor = None
         if os.path.exists(os.path.join(model_dir, "model_info.json")):
             with open(os.path.join(model_dir, "model_info.json"), "r") as f:
                 data = json.load(f)
                 dataset_length = data.get("total_dataset_duration", None)
                 embedder_model = data.get("embedder_model", None)
                 embedder_feature_scale = data.get("embedder_feature_scale", 1.0)
+                embedder_output_layer = data.get("embedder_output_layer")
+                embedder_input_std_floor = data.get("embedder_input_std_floor")
                 speakers_id = data.get("speakers_id", 1)
         else:
             dataset_length = None
@@ -97,6 +101,12 @@ def extract_model(
         opt["author"] = model_author
         opt["embedder_model"] = embedder_model
         opt["embedder_feature_scale"] = embedder_feature_scale
+        opt["embedder_output_layer"] = embedder_output_layer
+        opt["embedder_input_std_floor"] = embedder_input_std_floor
+        # opt["config"] is a positional argument list for Synthesizer, so the feature
+        # width goes in as its own key. Inference reads it off enc_p.emb_phone anyway;
+        # this is for anything that wants the number without loading the weights.
+        opt["text_enc_hidden_dim"] = hps.model.text_enc_hidden_dim
         opt["speakers_id"] = speakers_id
         opt["vocoder"] = vocoder
 

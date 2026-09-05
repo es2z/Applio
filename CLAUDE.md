@@ -193,6 +193,7 @@ Applio-3.5.0/
 - `spin`, `spin-v2` - Alternative embedders
 - `chinese-hubert-base`, `japanese-hubert-base`, `korean-hubert-base` - Language-specific
 - `japanese-hubert-base-k2` - Japanese, `reazon-research/japanese-hubert-base-k2` (fork-specific, see below)
+- `japanese-hubert-large` - Japanese, 1024-dim / 24 layers (fork-specific, see below)
 - `custom` - Use custom embedder (provide path via `embedder_model_custom`)
 
 ### Index Files
@@ -265,18 +266,110 @@ This is a personal fork with the following customizations:
   never mixed. A folder that recorded an embedder but no `embedder_feature_scale` predates
   scaling, which is exactly a scale of 1.0; a folder that recorded nothing is left alone.
 
-### Known: lost positional-conv weights on the legacy embedders
+### Not a bug: the `weight_g`/`weight_v` loading warning
 `contentvec`, `japanese-hubert-base` and the other `pytorch_model.bin` embedders were saved
-by transformers <=4.30 with `pos_conv_embed.conv.weight_g/weight_v`, which the pinned
-transformers 4.44.2 no longer recognises (it wants
-`pos_conv_embed.conv.parametrizations.weight.original0/1`). Those weights are therefore
-silently dropped and re-initialised on every load - the warning is hidden by the
-`warnings.filterwarnings("ignore")` and transformers log level in `rvc/lib/utils.py`. The
-positional conv contributes `|pos|/|h|` of 0.46 for them against 3.19 for k2, which is a
-large part of why k2's features look so different. **Do not "fix" this**: the fallback is
-deterministic, every existing model was trained and is used against the same features, and
-loading the real weights would invalidate every trained checkpoint and index in `logs/`.
-Check it with `from_pretrained(..., output_loading_info=True)`.
+by transformers <=4.30 with `pos_conv_embed.conv.weight_g/weight_v`, while the pinned
+transformers 4.44.2 stores that layer as
+`pos_conv_embed.conv.parametrizations.weight.original0/1`. `from_pretrained(...,
+output_loading_info=True)` reports the old names as `unexpected_keys` and the new ones as
+`missing_keys`, which reads like the positional conv is being dropped and re-initialised.
+**It is not.** transformers renames those keys while loading; the loading-info lists are
+bookkeeping left over from the rename. Verified by comparing the loaded
+`parametrizations.weight.original0/1` against the raw checkpoint's `weight_g`/`weight_v`:
+bit-identical for both `contentvec` and `japanese-hubert-base`. The same warning appears for
+`japanese-hubert-large` and is equally harmless. Do not add a remapping shim for it.
+
+### Measured embedder characteristics
+Measured on `logs/reference/reference.wav` (34.9 s), 1742 frames for every embedder:
+
+| embedder | dim | layers | norm/frame | `\|pos\|/\|h\|` | do_normalize effect |
+|---|---|---|---|---|---|
+| contentvec | 768 | 12 | 9.82 | 0.94 | 0.29% |
+| japanese-hubert-base | 768 | 12 | 6.35 | 0.80 | 4.99% |
+| japanese-hubert-base-k2 | 768 | 12 | **0.58** | **7.30** | 0.21% |
+| japanese-hubert-large | 1024 | 24 | 5.95 | 0.90 | **59.25%** |
+
+Two things this table settles:
+- **k2 is the outlier, and its `feature_scale = 10.0` only fixes half of it.** Its hidden
+  states are ~10x smaller than everyone else's *and* its positional conv is ~8x more
+  dominant (`|pos|/|h| = 7.3` against ~0.9 for every other embedder, from a pos_conv weight
+  norm of 33.8 vs ~16). Scaling the features up fixes the magnitude against `emb_pitch` but
+  cannot change the ratio of positional to content information inside them. If a k2 model
+  sounds noisy, that ratio is the first thing to suspect, not a missing parameter.
+- **`japanese-hubert-large` is unremarkable on every axis except `do_normalize`.** Its
+  magnitude (5.95) sits next to `japanese-hubert-base` (6.35), so it carries
+  `feature_scale = 1.0`. But it is the first `feat_extract_norm: "layer"` /
+  `conv_bias: true` embedder here, so the waveform normalisation is not optional for it:
+  skipping it changes the features by 59%, against under 5% for every `"group"` embedder.
+
+### Adding another embedder
+Read `docs/ADDING_AN_EMBEDDER_MODEL.md` first. It carries the measured characteristics of
+every embedder here, the landmines that cost time (input normalisation, feature magnitude,
+stale resume checkpoints, the realtime constructor chain), two confidently-written but
+false claims about the legacy embedders, and the measurement script to run on a candidate
+before writing any code.
+
+### Additional Embedder: `japanese-hubert-large` (1024-dim)
+- `yky-h/japanese-hubert-large`, a public Apache-2.0 mirror of `rinna/japanese-hubert-large`
+  (the rinna repo's HF API returns 401). 24 layers, hidden size 1024, ~19k hours of
+  ReazonSpeech v1. The commit SHA is pinned in `EMBEDDERS`, same as k2.
+- **It is the first embedder here that is not 768-dim**, so the dimension is no longer
+  assumed anywhere:
+  - `text_enc_hidden_dim` in `logs/<model>/config.json` is rewritten from the width of the
+    `.npy` files that were actually extracted (`generate_config` in
+    `rvc/train/extract/preparing_files.py`). Only that one key is rewritten, so hand-tuned
+    values like `learning_rate` survive a re-extract.
+  - Inference and realtime read the width off `enc_p.emb_phone.weight`
+    (`checkpoint_text_enc_hidden_dim` in `rvc/lib/utils.py`), which is correct for every
+    checkpoint ever saved and needs no metadata migration. `text_enc_hidden_dim` is also
+    written into the exported `.pth` for anything that wants the number without the weights.
+  - The FAISS index is built at `big_npy.shape[1]` rather than a hardcoded 768, and both
+    pipelines skip a mismatched index with a clear message instead of an opaque error.
+  - `extract.py` writes this run's own `logs/<model>/mute.npy` with the same embedder, so
+    the silent padding rows match the batch width. The shipped `logs/mute*` folders are
+    only a fallback for folders extracted before that existed.
+- **It is also the first `feat_extract_norm: "layer"` / `conv_bias: true` embedder**, which
+  is what makes `do_normalize` load bearing rather than cosmetic - see the measured table
+  above. Its waveform normalisation carries a standard deviation floor
+  (`EMBEDDER_INPUT_STD_FLOOR`, default 0.01 ≈ -40 dBFS RMS): without it, zero-mean /
+  unit-variance normalisation lifts -60 dBFS room tone to 0.95 RMS, a gain of about 60 dB,
+  and the embedder reads that amplified noise as speech. Set it to 0.0 for the literal
+  `Wav2Vec2FeatureExtractor` behaviour.
+- **Warm starting from the stock 768 pretrains works and is the intended path.**
+  `enc_p.emb_phone` is the only tensor whose shape depends on the embedder, so
+  `load_pretrained` (`rvc/train/utils.py`) skips exactly that pair and inherits the
+  encoder, flow, decoder and speaker embedding; the discriminator loads whole. Any *other*
+  shape mismatch is a real mistake (wrong sample rate or vocoder) and still stops the run.
+- `embedder_output_layer` selects which layer the features come from, 0 meaning the last.
+  It is worth experimenting with here and nowhere else: content peaks below the top layer
+  of a 24-layer model while speaker identity is strongest near the bottom, which matters
+  because plain HuBERT (unlike contentvec) does not remove speaker information. It is
+  recorded in `model_info.json`, the resume checkpoints and the exported `.pth`, and
+  inference and realtime read it back, so it never has to be set twice. Because this model
+  is `do_stable_layer_norm`, an intermediate layer is a raw pre-norm residual - measured
+  from 69 per frame at layer 0 to 538 at layer 23, against 5.9 for the last layer - so
+  `embedder_forward` applies `encoder.layer_norm` to it.
+
+### Changing the embedder on an existing model folder
+Changing the embedder, its feature scale, its output layer or the input std floor
+invalidates every `.npy`, the index **and** `enc_p.emb_phone` together.
+`resolve_feature_reuse` re-extracts the features and deletes the index, and
+`assert_resumable` (`rvc/train/utils.py`) now refuses to resume from a `G_*.pth` that was
+stamped with a different embedder identity. Before that guard existed, training silently
+continued from a generator whose `enc_p.emb_phone` - and the Adam moments behind it - had
+been fitted to the old features, which produces a model that sounds broken and never
+recovers rather than an error. If you hit the refusal, either train under a new model name
+or delete the `G_*.pth` / `D_*.pth` to start again from the pretrain.
+
+### Realtime embedder precision
+`embedder_precision` (`fp32` / `bf16` / `fp16`, default `fp32`) is saved in
+`assets/config.json` and in realtime templates. Measured on an RTX 4090 over a 1.5 s
+window: `japanese-hubert-large` 10.4 ms against `japanese-hubert-base` 5.7 ms, while
+`mangio-crepe-full` alone costs 40.6 ms and `rmvpe` 18.8 ms. So the Large embedder adds
+under 5 ms and F0 stays the dominant cost. bf16 measured *slightly slower* than fp32 at
+this size, because the embedder is kernel-launch bound rather than compute bound - the
+option is there for slower cards, and bf16 is preferred over fp16 since deep pre-norm
+transformers can overflow in fp16.
 
 ### Realtime Tab Enhancements
 - **Template System**: Save/load device connections, model settings, and parameter values

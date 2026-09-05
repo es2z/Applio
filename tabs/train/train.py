@@ -6,6 +6,8 @@ from multiprocessing import cpu_count
 import gradio as gr
 
 from assets.i18n.i18n import I18nAuto
+from rvc.train.extract.preparing_files import read_train_settings
+
 from core import (
     run_extract_script,
     run_index_script,
@@ -308,6 +310,25 @@ def auto_enable_checkpointing():
 
 
 # Train Tab
+
+DEFAULT_TRAIN_SETTINGS = read_train_settings("", 40000)
+
+
+def load_train_settings(model_name, sample_rate):
+    """Show what the selected run will actually train with.
+
+    Reading the run's own config.json rather than a fixed default is what lets the field
+    be written back on start without silently overwriting a hand edit.
+    """
+    settings = read_train_settings(
+        os.path.join(now_dir, "logs", str(model_name or "")), int(sample_rate)
+    )
+    settings = settings or DEFAULT_TRAIN_SETTINGS
+    return (
+        gr.update(value=settings["learning_rate"]),
+        gr.update(value=settings["c_mel"]),
+    )
+
 def train_tab():
     # Model settings section
     with gr.Accordion(i18n("Model Settings")):
@@ -543,12 +564,25 @@ def train_tab():
                     "chinese-hubert-base",
                     "japanese-hubert-base",
                     "japanese-hubert-base-k2",
+                    "japanese-hubert-large",
                     "korean-hubert-base",
                     "custom",
                 ],
                 value="contentvec",
                 interactive=True,
             )
+        embedder_output_layer = gr.Slider(
+            0,
+            24,
+            0,
+            step=1,
+            label=i18n("Embedder Output Layer"),
+            info=i18n(
+                "Which layer of the embedder to take features from. 0 means the last layer and matches every model trained so far. Only worth changing for a deep embedder such as japanese-hubert-large, where phonetic content peaks below the top layer while speaker identity is strongest near the bottom. Inference reads this back out of the trained model, so it never has to be set twice."
+            ),
+            value=0,
+            interactive=True,
+        )
         include_mutes = gr.Slider(
             0,
             10,
@@ -604,6 +638,7 @@ def train_tab():
                 embedder_model,
                 embedder_model_custom,
                 include_mutes,
+                embedder_output_layer,
             ],
             outputs=[extract_output_info],
         )
@@ -754,6 +789,27 @@ def train_tab():
                             ),
                             interactive=True,
                         )
+            with gr.Row():
+                learning_rate = gr.Number(
+                    label=i18n("Learning Rate"),
+                    info=i18n(
+                        "Learning rate for the generator and discriminator. 0.0001 is the default and is what a run starting from a pretrained model wants; lower values are for fine-tuning a model that is already trained. This is read from and written back to logs/<model_name>/config.json, so it shows what the selected model will actually use."
+                    ),
+                    value=DEFAULT_TRAIN_SETTINGS["learning_rate"],
+                    minimum=0,
+                    step=0.000001,
+                    interactive=True,
+                )
+                c_mel = gr.Number(
+                    label=i18n("Mel Loss Weight"),
+                    info=i18n(
+                        "Weight of the mel reconstruction loss (c_mel). 45 is the default. Raising it pushes the model harder towards matching the reference spectrogram."
+                    ),
+                    value=DEFAULT_TRAIN_SETTINGS["c_mel"],
+                    minimum=0,
+                    step=1,
+                    interactive=True,
+                )
             index_algorithm = gr.Radio(
                 label=i18n("Index Algorithm"),
                 info=i18n(
@@ -762,6 +818,13 @@ def train_tab():
                 choices=["Auto", "Faiss", "KMeans"],
                 value="Auto",
                 interactive=True,
+            )
+
+        for component in (model_name, sampling_rate):
+            component.change(
+                fn=load_train_settings,
+                inputs=[model_name, sampling_rate],
+                outputs=[learning_rate, c_mel],
             )
 
         def enforce_terms(terms_accepted, *args):
@@ -812,6 +875,8 @@ def train_tab():
                     d_pretrained_path,
                     vocoder,
                     checkpointing,
+                    learning_rate,
+                    c_mel,
                 ],
                 outputs=[train_output_info],
             )

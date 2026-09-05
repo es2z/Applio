@@ -460,6 +460,7 @@ def run_extract_script(
     embedder_model: str,
     embedder_model_custom: str = None,
     include_mutes: int = 2,
+    embedder_output_layer: int = 0,
 ):
 
     model_path = os.path.join(logs_path, model_name)
@@ -479,6 +480,7 @@ def run_extract_script(
                 embedder_model,
                 embedder_model_custom,
                 include_mutes,
+                embedder_output_layer,
             ],
         ),
     ]
@@ -509,7 +511,17 @@ def run_train_script(
     d_pretrained_path: str = None,
     vocoder: str = "HiFi-GAN",
     checkpointing: bool = False,
+    learning_rate: float = None,
+    c_mel: float = None,
 ):
+
+    # These two live only in logs/<model>/config.json, so set them there rather than
+    # threading them through train.py's positional argv. Passing None leaves them alone.
+    from rvc.train.extract.preparing_files import apply_train_settings
+
+    apply_train_settings(
+        os.path.join(logs_path, model_name), learning_rate=learning_rate, c_mel=c_mel
+    )
 
     if pretrained == True:
         from rvc.lib.tools.pretrained_selector import pretrained_selector
@@ -781,6 +793,7 @@ def parse_arguments():
             "chinese-hubert-base",
             "japanese-hubert-base",
             "japanese-hubert-base-k2",
+            "japanese-hubert-large",
             "korean-hubert-base",
             "custom",
         ],
@@ -1294,6 +1307,7 @@ def parse_arguments():
             "chinese-hubert-base",
             "japanese-hubert-base",
             "japanese-hubert-base-k2",
+            "japanese-hubert-large",
             "korean-hubert-base",
             "custom",
         ],
@@ -1780,6 +1794,7 @@ def parse_arguments():
             "chinese-hubert-base",
             "japanese-hubert-base",
             "japanese-hubert-base-k2",
+            "japanese-hubert-large",
             "korean-hubert-base",
             "custom",
         ],
@@ -1921,6 +1936,7 @@ def parse_arguments():
             "chinese-hubert-base",
             "japanese-hubert-base",
             "japanese-hubert-base-k2",
+            "japanese-hubert-large",
             "korean-hubert-base",
             "custom",
         ],
@@ -1940,11 +1956,43 @@ def parse_arguments():
         default=2,
         required=True,
     )
+    extract_parser.add_argument(
+        "--embedder_output_layer",
+        type=int,
+        help=(
+            "Which embedder layer to take the features from. 0 means the last layer, "
+            "which is what every embedder used before this was settable. Only worth "
+            "changing for a deep embedder such as japanese-hubert-large, where phonetic "
+            "content peaks below the top layer. Inference reads this back out of the "
+            "trained model, so it never has to be set twice."
+        ),
+        default=0,
+    )
 
     # Parser for 'train' mode
     train_parser = subparsers.add_parser("train", help="Train an RVC model.")
     train_parser.add_argument(
         "--model_name", type=str, help="Name of the model to be trained.", required=True
+    )
+    train_parser.add_argument(
+        "--learning_rate",
+        type=float,
+        help=(
+            "Generator/discriminator learning rate. Defaults to whatever is already in "
+            "logs/<model_name>/config.json, which starts from rvc/configs/<sample_rate>.json "
+            "(1e-4). Lower values are for fine-tuning an already trained model; a run "
+            "starting from a pretrained model wants the default."
+        ),
+        default=None,
+    )
+    train_parser.add_argument(
+        "--c_mel",
+        type=float,
+        help=(
+            "Weight of the mel reconstruction loss. Defaults to whatever is already in "
+            "logs/<model_name>/config.json (45)."
+        ),
+        default=None,
     )
     train_parser.add_argument(
         "--vocoder",
@@ -2357,6 +2405,7 @@ def main():
                 embedder_model=args.embedder_model,
                 embedder_model_custom=args.embedder_model_custom,
                 include_mutes=args.include_mutes,
+                embedder_output_layer=args.embedder_output_layer,
             )
         elif args.mode == "train":
             run_train_script(
@@ -2379,6 +2428,8 @@ def main():
                 d_pretrained_path=args.d_pretrained_path,
                 vocoder=args.vocoder,
                 checkpointing=args.checkpointing,
+                learning_rate=args.learning_rate,
+                c_mel=args.c_mel,
             )
         elif args.mode == "index":
             run_index_script(

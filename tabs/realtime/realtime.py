@@ -399,6 +399,7 @@ def start_realtime(
     proposed_pitch_threshold: float,
     embedder_model: str,
     embedder_model_custom: str = None,
+    embedder_precision: str = "fp32",
 ):
     global running, callbacks, audio_manager
     running = True
@@ -456,6 +457,7 @@ def start_realtime(
         f0_method=f0_method,
         embedder_model=embedder_model,
         embedder_model_custom=embedder_model_custom,
+        embedder_precision=embedder_precision,
         silent_threshold=silent_threshold,
         f0_up_key=pitch,
         index_rate=index_rate,
@@ -912,15 +914,26 @@ def realtime_tab():
                         choices=[
                             "contentvec",
                             "spin",
+                            "spin-v2",
                             "chinese-hubert-base",
                             "japanese-hubert-base",
                             "japanese-hubert-base-k2",
+                            "japanese-hubert-large",
                             "korean-hubert-base",
                             "custom",
                         ],
                         value="contentvec",
                         label=i18n("Embedder Model"),
                         info=i18n("Model used for learning speaker embedding."),
+                        interactive=True,
+                    )
+                    embedder_precision = gr.Radio(
+                        choices=["fp32", "bf16", "fp16"],
+                        value="fp32",
+                        label=i18n("Embedder Precision"),
+                        info=i18n(
+                            "Numeric precision for the embedder during realtime conversion. Leave this on fp32 unless the embedder is actually your bottleneck. Measured on an RTX 4090 over a 1.5 s window, japanese-hubert-large costs 10.4 ms against japanese-hubert-base's 5.7 ms, while mangio-crepe-full alone costs 40.6 ms, and bf16 came out slightly slower than fp32 because at this size the embedder is launch bound rather than compute bound. Reduced precision is here for slower cards; prefer bf16 over fp16, since deep pre-norm transformers can overflow in fp16."
+                        ),
                         interactive=True,
                     )
                     with gr.Column(visible=False) as embedder_custom:
@@ -1125,6 +1138,7 @@ def realtime_tab():
                 proposed_pitch_threshold,
                 embedder_model,
                 embedder_model_custom,
+                embedder_precision,
             ],
             outputs=[latency_info, start_button, stop_button],
         )
@@ -1207,12 +1221,12 @@ def realtime_tab():
             """Load and apply template settings"""
             if not template_name:
                 gr.Warning("Please select a template first.")
-                return [gr.update()] * 31
+                return [gr.update()] * 32
 
             template_data = template_manager.load_template(template_name)
             if not template_data:
                 gr.Warning(f"Template '{template_name}' not found.")
-                return [gr.update()] * 31
+                return [gr.update()] * 32
 
             # Check if devices exist in current device list
             audio_tab = template_data.get("audioTab", {})
@@ -1250,7 +1264,7 @@ def realtime_tab():
             """Apply template without confirmation"""
             if not template_name:
                 gr.Warning("Please select a template first.")
-                return [gr.update()] * 31
+                return [gr.update()] * 32
 
             return apply_template_settings(template_name)
 
@@ -1277,7 +1291,8 @@ def realtime_tab():
             use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
             mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
             speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
-            emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
+            emb_model, emb_custom, emb_precision,
+            chnk_size, cross_fade, extra_conv, silent_thresh
         ):
             """Handle save button in modal"""
             if not operation_state:
@@ -1312,7 +1327,8 @@ def realtime_tab():
                     use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
                     mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
                     speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
-                    emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
+                    emb_model, emb_custom, emb_precision,
+                    chnk_size, cross_fade, extra_conv, silent_thresh
                 )
                 template_manager.save_template(new_name, settings)
                 gr.Info(f"Template '{new_name}' saved successfully.")
@@ -1337,7 +1353,8 @@ def realtime_tab():
                     use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
                     mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
                     speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
-                    emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
+                    emb_model, emb_custom, emb_precision,
+                    chnk_size, cross_fade, extra_conv, silent_thresh
                 )
                 template_manager.save_template(new_name, settings)
                 gr.Info(f"Template '{new_name}' created successfully.")
@@ -1415,6 +1432,7 @@ def realtime_tab():
                 hybrid_blend_ratio,
                 embedder_model,
                 embedder_model_custom,
+                embedder_precision,
                 chunk_size,
                 cross_fade_overlap_size,
                 extra_convert_size,
@@ -1472,6 +1490,7 @@ def realtime_tab():
                 hybrid_blend_ratio,
                 embedder_model,
                 embedder_model_custom,
+                embedder_precision,
                 chunk_size,
                 cross_fade_overlap_size,
                 extra_convert_size,

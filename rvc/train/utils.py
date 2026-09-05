@@ -1,10 +1,13 @@
 import os
+import sys
 import glob
 import torch
 import numpy as np
 import soundfile as sf
 from collections import OrderedDict
 import matplotlib.pyplot as plt
+
+from rvc.lib.utils import describe_embedder_mismatch
 
 MATPLOTLIB_FLAG = False
 
@@ -83,8 +86,106 @@ def load_checkpoint(checkpoint_path, model, optimizer=None, load_opt=1):
     )
 
 
+# Warm starting a run whose embedder is wider than the pretrain's only works because
+# exactly one tensor pair depends on that width. Everything else in the generator, and
+# all of the discriminator, is untouched by the embedder.
+EMBEDDER_PROJECTION_PREFIX = "enc_p.emb_phone."
+
+
+def load_pretrained(net, checkpoint_path, tag, verbose=True):
+    """Load a pretrained G or D, allowing only the embedder projection to differ.
+
+    enc_p.emb_phone is Linear(feature_dim, hidden_channels), so it is the one tensor that
+    changes shape when the embedder does. Skipping just that pair lets a 1024 wide run
+    start from the stock 768 wide pretrain with its encoder, flow, decoder and speaker
+    embedding intact, which is the difference between a few epochs of catch up and
+    training the whole generator from scratch.
+
+    Any other shape mismatch is a real mistake - the wrong sample rate or vocoder - and
+    still stops the run, exactly as it did before.
+    """
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)[
+        "model"
+    ]
+    module = net.module if hasattr(net, "module") else net
+    target = module.state_dict()
+
+    usable, reinitialised, mismatched = {}, [], []
+    for key, value in checkpoint.items():
+        if key not in target:
+            continue
+        if target[key].shape == value.shape:
+            usable[key] = value
+        elif key.startswith(EMBEDDER_PROJECTION_PREFIX):
+            reinitialised.append(f"{key} {tuple(value.shape)} -> {tuple(target[key].shape)}")
+        else:
+            mismatched.append(f"{key} {tuple(value.shape)} -> {tuple(target[key].shape)}")
+
+    if mismatched:
+        print(
+            f"The pretrained ({tag}) model '{checkpoint_path}' does not match this "
+            "model's architecture, most likely a different sample rate or vocoder:"
+        )
+        for line in mismatched:
+            print(f"  {line}")
+        sys.exit(1)
+
+    module.load_state_dict(usable, strict=False)
+    if reinitialised and verbose:
+        print(
+            f"Warm start ({tag}): the pretrain was trained on a different sized "
+            "embedder, so these stay randomly initialised while everything else is "
+            "inherited:"
+        )
+        for line in reinitialised:
+            print(f"  {line}")
+
+
+def assert_resumable(experiment_dir, embedder_identity):
+    """Stop before resuming onto features the checkpoint was not trained on.
+
+    Changing the embedder re-extracts every feature and drops the index, but the
+    G_*.pth / D_*.pth in the folder survive and training would silently continue from
+    them. Their enc_p.emb_phone, and the Adam moments behind it, were fitted to the old
+    features; feeding it the new ones does not raise, it just produces a model that never
+    recovers. So say so and stop instead.
+    """
+    if not embedder_identity:
+        return
+    checkpoint_path = latest_checkpoint_path(experiment_dir, "G_*.pth")
+    if not checkpoint_path or not os.path.isfile(checkpoint_path):
+        return
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    except Exception as error:
+        print(f"Could not inspect {checkpoint_path} ({error}); continuing.")
+        return
+
+    reason = describe_embedder_mismatch(
+        checkpoint, embedder_identity, os.path.basename(checkpoint_path)
+    )
+    del checkpoint
+    if reason is None:
+        return
+
+    print(
+        f"Refusing to resume: {reason}.\n"
+        "Its enc_p.emb_phone was fitted to the previous features, and resuming onto the "
+        "new ones would train from a broken starting point rather than fail.\n"
+        f"Either train under a new model name, or delete the G_*.pth and D_*.pth in "
+        f"{experiment_dir} to start again from the pretrained model."
+    )
+    sys.exit(1)
+
+
 def save_checkpoint(
-    model, optimizer, learning_rate, iteration, checkpoint_path, scaler
+    model,
+    optimizer,
+    learning_rate,
+    iteration,
+    checkpoint_path,
+    scaler,
+    embedder_identity=None,
 ):
     """
     Save the model and optimizer state to a checkpoint file.
@@ -95,6 +196,9 @@ def save_checkpoint(
         learning_rate (float): The current learning rate.
         iteration (int): The current iteration.
         checkpoint_path (str): The path to save the checkpoint to.
+        embedder_identity (dict): Which embedder, scale and layer the features this was
+            trained on came from, so a later resume can refuse to continue from a
+            checkpoint whose enc_p.emb_phone was fitted to different features.
     """
     state_dict = (
         model.module.state_dict() if hasattr(model, "module") else model.state_dict()
@@ -106,6 +210,8 @@ def save_checkpoint(
         "learning_rate": learning_rate,
         "scaler": scaler.state_dict(),
     }
+    if embedder_identity:
+        checkpoint_data.update(embedder_identity)
 
     # Create a backwards-compatible checkpoint
     torch.save(

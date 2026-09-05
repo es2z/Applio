@@ -28,8 +28,8 @@ from rvc.lib.predictors.f0 import (
     SWIFT,
 )
 from rvc.lib.utils import (
-    apply_embedder_feature_scale,
-    apply_embedder_input_normalization,
+    checkpoint_text_enc_hidden_dim,
+    embedder_forward,
     load_embedding,
     warn_on_feature_scale_mismatch,
     HubertModelWithFinalProj,
@@ -78,7 +78,7 @@ class RealtimeVoiceConverter:
             self.use_f0 = self.cpt.get("f0", 1)
 
             self.version = self.cpt.get("version", "v1")
-            self.text_enc_hidden_dim = 768 if self.version == "v2" else 256
+            self.text_enc_hidden_dim = checkpoint_text_enc_hidden_dim(self.cpt)
             self.vocoder = self.cpt.get("vocoder", "HiFi-GAN")
             print(f"[Realtime] Loading model with vocoder: {self.vocoder}")
             self.net_g = Synthesizer(
@@ -323,9 +323,7 @@ class Realtime_Pipeline:
         )
 
         # extract features
-        feats = apply_embedder_input_normalization(self.hubert_model, feats)
-        feats = self.hubert_model(feats)["last_hidden_state"]
-        feats = apply_embedder_feature_scale(self.hubert_model, feats)
+        feats = embedder_forward(self.hubert_model, feats).float()
         feats = (
             self.hubert_model.final_proj(feats[0]).unsqueeze(0)
             if self.version == "v1"
@@ -392,6 +390,13 @@ class Realtime_Pipeline:
     def _retrieve_speaker_embeddings(
         self, skip_head, feats, index, big_npy, index_rate
     ):
+        if index.d != feats.shape[-1]:
+            print(
+                f"Skipping the index: it holds {index.d} wide vectors but the embedder "
+                f"produced {feats.shape[-1]} wide ones. Rebuild the index with the same "
+                "embedder the model was trained on."
+            )
+            return feats
         skip_offset = skip_head // 2
         npy = feats[0][skip_offset:].cpu().numpy()
         score, ix = index.search(npy, k=8)
@@ -419,6 +424,13 @@ def load_faiss_index(file_index):
     return index, big_npy
 
 
+EMBEDDER_PRECISIONS = {
+    "fp32": torch.float32,
+    "bf16": torch.bfloat16,
+    "fp16": torch.float16,
+}
+
+
 def create_pipeline(
     model_path: str = None,
     index_path: str = None,
@@ -428,6 +440,7 @@ def create_pipeline(
     # device: str = "cuda",
     sid: int = 0,
     hybrid_blend_ratio: float = 0.5,
+    embedder_precision: str = "fp32",
 ):
     """
     Initialize real-time voice conversion pipeline.
@@ -443,8 +456,15 @@ def create_pipeline(
         .replace("trained", "added")
     )
 
-    hubert_model = load_embedding(embedder_model, embedder_model_custom)
-    hubert_model = hubert_model.to(vc.config.device).float()
+    # The output layer travels with the model, so realtime reads the same layer the
+    # features were extracted from without the user having to set it twice.
+    hubert_model = load_embedding(
+        embedder_model,
+        embedder_model_custom,
+        (vc.cpt or {}).get("embedder_output_layer"),
+    )
+    dtype = EMBEDDER_PRECISIONS.get(embedder_precision, torch.float32)
+    hubert_model = hubert_model.to(device=vc.config.device, dtype=dtype)
     hubert_model.eval()
     warn_on_feature_scale_mismatch(hubert_model, vc.cpt)
 

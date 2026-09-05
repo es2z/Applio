@@ -25,6 +25,7 @@ class Realtime:
         f0_method: str = "rmvpe",
         embedder_model: str = None,
         embedder_model_custom: str = None,
+        embedder_precision: str = "fp32",
         silent_threshold: int = 0,
         vad_enabled: bool = False,
         vad_sensitivity: int = 3,
@@ -60,14 +61,14 @@ class Realtime:
         )
         # Create conversion pipelines
         self.pipeline = create_pipeline(
-            model_path,
-            index_path,
-            f0_method,
-            embedder_model,
-            embedder_model_custom,
-            # device,
-            sid,
-            hybrid_blend_ratio,
+            model_path=model_path,
+            index_path=index_path,
+            f0_method=f0_method,
+            embedder_model=embedder_model,
+            embedder_model_custom=embedder_model_custom,
+            sid=sid,
+            hybrid_blend_ratio=hybrid_blend_ratio,
+            embedder_precision=embedder_precision,
         )
         self.device = self.pipeline.device
         # Resampling of inputs and outputs.
@@ -245,6 +246,7 @@ class VoiceChanger:
         f0_method: str = "rmvpe",
         embedder_model: str = None,
         embedder_model_custom: str = None,
+        embedder_precision: str = "fp32",
         silent_threshold: int = 0,
         vad_enabled: bool = False,
         vad_sensitivity: int = 3,
@@ -259,18 +261,18 @@ class VoiceChanger:
         self.sola_search_frame = AUDIO_SAMPLE_RATE // 100
         self.sola_buffer = None
         self.vc_model = Realtime(
-            model_path,
-            index_path,
-            f0_method,
-            embedder_model,
-            embedder_model_custom,
-            silent_threshold,
-            vad_enabled,
-            vad_sensitivity,
-            vad_frame_ms,
-            sid,
-            hybrid_blend_ratio,
-            # device
+            model_path=model_path,
+            index_path=index_path,
+            f0_method=f0_method,
+            embedder_model=embedder_model,
+            embedder_model_custom=embedder_model_custom,
+            embedder_precision=embedder_precision,
+            silent_threshold=silent_threshold,
+            vad_enabled=vad_enabled,
+            vad_sensitivity=vad_sensitivity,
+            vad_frame_ms=vad_frame_ms,
+            sid=sid,
+            hybrid_blend_ratio=hybrid_blend_ratio,
         )
         self.device = self.vc_model.device
         self.vc_model.realloc(
