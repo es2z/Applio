@@ -315,6 +315,7 @@ def tts_tab():
                     "japanese-hubert-base",
                     "japanese-hubert-base-k2",
                     "japanese-hubert-large",
+                    "kushinada-hubert-large",
                     "korean-hubert-base",
                     "custom",
                 ],

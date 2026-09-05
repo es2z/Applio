@@ -1,7 +1,8 @@
 # Adding an Embedder Model
 
 Written after adding `japanese-hubert-large` (1024-dim / 24 layers), the first embedder
-here that is not a 768-dim HuBERT Base. Read this before adding another one.
+here that is not a 768-dim HuBERT Base, and updated after `kushinada-hubert-large`, the
+first that cannot be downloaded at all. Read this before adding another one.
 
 Everything below was measured on this machine, not inferred. Where a number appears, the
 recipe that produced it is in [Measuring a new embedder](#measuring-a-new-embedder).
@@ -24,6 +25,19 @@ EMBEDDERS = {
     },
 }
 ```
+
+`load_embedding` has three loader shapes, and picking the wrong one is the one mistake the
+registry cannot catch for you:
+
+| shape | keys | used for |
+|---|---|---|
+| transformers, pinned | `repo` + `revision` | anything downloadable; reads `preprocessor_config.json` |
+| local, hand installed | `local: True` + `source` | a **gated** repo — no download, no revision to pin; still reads `preprocessor_config.json` |
+| legacy | `dir` only | the original IAHispano `.bin` embedders; `wget`s them, and **hardcodes `input_do_normalize = False`** |
+
+The legacy branch is not a generic "it's a local folder" branch. Reaching for it because
+the weights happen to be on disk gives you a silent 50% feature error on any
+`feat_extract_norm: "layer"` model (§3). `local: True` exists for exactly that case.
 
 Then add the name to the choice lists (**9 copies**, all asserted by
 `tests/test_embedder_models.py`):
@@ -84,6 +98,7 @@ Measured effect of skipping the normalisation:
 | japanese-hubert-base | group | false | 4.99% |
 | japanese-hubert-base-k2 | group | false | 0.21% |
 | **japanese-hubert-large** | **layer** | **true** | **59.25%** |
+| **kushinada-hubert-large** | **layer** | **true** | **49.80%** |
 
 `load_embedding` reads `preprocessor_config.json` and records `input_do_normalize` on the
 model; `apply_embedder_input_normalization` (`rvc/lib/utils.py:204`) applies it. This is
@@ -101,9 +116,11 @@ Training sees peak-normalised 3-second slices; offline inference sees silence-sp
 segments; realtime sees a rolling convert buffer. Same audio, three different windows.
 
 `EMBEDDER_INPUT_STD_FLOOR` (`rvc/lib/utils.py:91`, default `0.01` ≈ -40 dBFS RMS) clamps
-the divisor. Speech is far above it and untouched; a quiet window stays quiet. Measured, it
-changes a room-tone window's features by 52% and moves them from cos 0.68 to cos 0.80
-against digital silence.
+the divisor. Speech is far above it and untouched; a quiet window stays quiet. Measured on
+`japanese-hubert-large`, it changes a room-tone window's features by 52% and moves them
+from cos 0.68 to cos 0.80 against digital silence; on `kushinada-hubert-large` the same
+window moves by 75.5%, from cos 0.48 to cos 0.71. Expect this to matter *more*, not less,
+on each new `"layer"` embedder.
 
 Set it to `0.0` for the literal `Wav2Vec2FeatureExtractor` behaviour. **If you change it,
 every existing `do_normalize` model is stale** — which is why it is part of the identity
@@ -132,6 +149,7 @@ Measured per-frame L2 norm of `last_hidden_state`:
 | japanese-hubert-base | 6.35 | 1.55 | — |
 | **japanese-hubert-base-k2** | **0.58** | **16.9** | **10.0** |
 | japanese-hubert-large | 5.95 | 1.65 | — |
+| kushinada-hubert-large | 8.14 | 1.21 | — |
 
 Rule of thumb: **within ~2× of contentvec needs no scale.** k2 at 17× did.
 
@@ -177,6 +195,7 @@ k2's oddity is intrinsic to the checkpoint. Its positional conv is genuinely dom
 | japanese-hubert-base | 0.80 | 16.83 |
 | **japanese-hubert-base-k2** | **7.30** | **33.85** |
 | japanese-hubert-large | 0.90 | 8.89 |
+| kushinada-hubert-large | 1.36 | 10.15 |
 
 k2 carries tiny hidden states *and* a positional conv ~8× more dominant than anything
 else. `feature_scale = 10.0` fixes the magnitude against `emb_pitch`; it cannot change the
@@ -353,6 +372,7 @@ directly. Test the entry point the UI actually uses.
 | japanese-hubert-base | 768 | 12 | 6.35 | 0.80 | 4.99% | 5.7 |
 | japanese-hubert-base-k2 | 768 | 12 | 0.58 | 7.30 | 0.21% | — |
 | japanese-hubert-large | 1024 | 24 | 5.95 | 0.90 | 59.25% | 10.4 |
+| kushinada-hubert-large | 1024 | 24 | 8.14 | 1.36 | 49.80% | 12.6 |
 
 F0 extractors on the same window, for scale: `fcpe` 3.2 ms, `rmvpe` 18.8 ms,
 `crepe-full` 25.2 ms, `mangio-crepe-full` 40.6 ms.

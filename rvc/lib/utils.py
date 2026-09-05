@@ -30,6 +30,7 @@ stft = base_path + ".exe" if sys.platform == "win32" else base_path
 
 JAPANESE_HUBERT_BASE_K2 = "japanese-hubert-base-k2"
 JAPANESE_HUBERT_LARGE = "japanese-hubert-large"
+KUSHINADA_HUBERT_LARGE = "kushinada-hubert-large"
 
 APPLIO_EMBEDDER_URL = (
     "https://huggingface.co/IAHispano/Applio/resolve/main/Resources/embedders"
@@ -40,6 +41,8 @@ APPLIO_EMBEDDER_URL = (
 # "repo"/"revision" switch an entry to the transformers loader instead, pinned to a full
 # commit SHA so an upstream update cannot silently replace the weights under a model that
 # was already trained, and so a cached load needs no network round trip.
+# "local" marks an embedder that cannot be fetched at all - a gated repo whose weights are
+# installed into "dir" by hand - and is loaded straight from that folder, config included.
 # "feature_scale" defaults to 1.0; see apply_embedder_feature_scale for what it is for.
 EMBEDDERS = {
     "contentvec": {"dir": "contentvec"},
@@ -68,6 +71,18 @@ EMBEDDERS = {
         "revision": "bccd07ba8a9f025576d53ca84669c540c7ef204e",
         # Measured at 5.95 per frame, right next to japanese-hubert-base's 6.35, so it
         # needs no correction. The 1024 wide features are handled by text_enc_hidden_dim.
+    },
+    KUSHINADA_HUBERT_LARGE: {
+        "dir": "kushinada_hubert_large",
+        # imprt/kushinada-hubert-large is a HuBERT Large trained on 62215 hours of
+        # Japanese broadcast audio. The Hub repo is gated behind a license click through,
+        # so there is no unauthenticated download and nothing to pin a revision against:
+        # the weights are installed into "dir" by hand, and load_embedding says how.
+        "local": True,
+        "source": "https://huggingface.co/imprt/kushinada-hubert-large",
+        # Measured at 8.14 per frame, between contentvec's 9.82 and japanese-hubert-base's
+        # 6.35, so like japanese-hubert-large it needs no correction against emb_pitch.
+        # Also 1024 wide and 24 layers, which text_enc_hidden_dim already handles.
     },
 }
 
@@ -434,6 +449,24 @@ def load_embedding(embedder_model, custom_embedder=None, output_layer=None):
             use_safetensors=True,
         )
         _attach_input_preprocessing(model, spec["repo"], model_path, spec["revision"])
+        return _finalize_embedder(model, spec, output_layer)
+
+    if spec.get("local"):
+        # A gated embedder: nothing to download, so an empty folder is a setup problem
+        # rather than a cache miss and has to say what to do about it.
+        if not os.path.isfile(os.path.join(model_path, "config.json")):
+            raise FileNotFoundError(
+                f"{embedder_model} is not installed. Its weights are gated on the Hub and "
+                f"cannot be downloaded automatically. Accept the license at "
+                f"{spec['source']}, then place config.json, preprocessor_config.json and "
+                f"pytorch_model.bin into {model_path}."
+            )
+        model = HubertModelWithFinalProj.from_pretrained(model_path)
+        # Unlike the legacy .bin embedders below, this one ships a preprocessor_config.json
+        # and is feat_extract_norm="layer" with conv_bias=True, so nothing downstream
+        # cancels the input gain and do_normalize is load bearing: measured, skipping it
+        # changes the features by 49.8%.
+        _attach_input_preprocessing(model, model_path, None, default_do_normalize=True)
         return _finalize_embedder(model, spec, output_layer)
 
     bin_file = os.path.join(model_path, "pytorch_model.bin")
