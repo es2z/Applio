@@ -350,6 +350,7 @@ class EmbedderInterfaceTest(unittest.TestCase):
                 )
                 self.assertIn(EMBEDDER_NAME, action.choices)
                 self.assertIn(LARGE_NAME, action.choices)
+                self.assertIn(KUSHINADA_NAME, action.choices)
 
     def test_all_embedder_radios_include_k2(self):
         root = Path(__file__).resolve().parents[1]
@@ -366,6 +367,7 @@ class EmbedderInterfaceTest(unittest.TestCase):
                 for choices in choice_lists:
                     self.assertIn(EMBEDDER_NAME, choices)
                     self.assertIn(LARGE_NAME, choices)
+                    self.assertIn(KUSHINADA_NAME, choices)
 
 
 LARGE_NAME = "japanese-hubert-large"
@@ -374,6 +376,14 @@ LARGE_REVISION = "bccd07ba8a9f025576d53ca84669c540c7ef204e"
 
 # Measured on logs/reference/reference.wav, per-frame L2 norm of last_hidden_state.
 LARGE_FEATURE_NORM = 5.949
+
+KUSHINADA_NAME = "kushinada-hubert-large"
+KUSHINADA_DIR = "kushinada_hubert_large"
+KUSHINADA_SOURCE = "https://huggingface.co/imprt/kushinada-hubert-large"
+
+# Same measurement, on the same audio. Sits between contentvec's 9.82 and
+# japanese-hubert-base's 6.35, which is why this embedder carries no feature scale.
+KUSHINADA_FEATURE_NORM = 8.137
 
 
 class _FakeConfig:
@@ -474,6 +484,98 @@ class LargeEmbedderRegistryTest(unittest.TestCase):
         model.train()
         embedder_utils._finalize_embedder(model, {})
         self.assertFalse(model.training)
+
+
+class KushinadaEmbedderRegistryTest(unittest.TestCase):
+    """imprt/kushinada-hubert-large: gated on the Hub, so installed by hand.
+
+    Same shape as japanese-hubert-large - 1024 wide, 24 layers, feat_extract_norm="layer"
+    with conv_bias=True - but it cannot be downloaded, which is the only thing about it
+    that needed new code.
+    """
+
+    def _load(self, install=True, extractor=None):
+        """Load it out of a throwaway embedders folder, optionally without the weights."""
+        model = SimpleNamespace()
+        temp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, temp_dir, True)
+        model_dir = Path(temp_dir) / "rvc/models/embedders" / KUSHINADA_DIR
+        if install:
+            model_dir.mkdir(parents=True)
+            (model_dir / "config.json").write_text("{}", encoding="utf-8")
+            (model_dir / "pytorch_model.bin").write_bytes(b"")
+            (model_dir / "preprocessor_config.json").write_text("{}", encoding="utf-8")
+
+        if extractor is None:
+            extractor = SimpleNamespace(do_normalize=True, sampling_rate=16000)
+        extractor_patch = (
+            {"side_effect": extractor}
+            if isinstance(extractor, Exception)
+            else {"return_value": extractor}
+        )
+        with patch.object(embedder_utils, "now_dir", temp_dir), patch.object(
+            embedder_utils.HubertModelWithFinalProj,
+            "from_pretrained",
+            return_value=model,
+        ) as from_pretrained, patch.object(
+            embedder_utils.Wav2Vec2FeatureExtractor, "from_pretrained", **extractor_patch
+        ) as feature_extractor, patch.object(
+            embedder_utils.wget, "download"
+        ) as download:
+            result = embedder_utils.load_embedding(KUSHINADA_NAME)
+        return result, model_dir, from_pretrained, feature_extractor, download
+
+    def test_the_registry_entry_is_local_with_nothing_to_pin(self):
+        spec = embedder_utils.EMBEDDERS[KUSHINADA_NAME]
+        self.assertTrue(spec["local"])
+        self.assertEqual(spec["dir"], KUSHINADA_DIR)
+        self.assertEqual(spec["source"], KUSHINADA_SOURCE)
+        # A gated repo cannot be fetched, so there is no revision to pin against and no
+        # repo for the transformers loader to reach for.
+        self.assertNotIn("repo", spec)
+        self.assertNotIn("revision", spec)
+
+    def test_it_loads_straight_out_of_the_embedders_folder(self):
+        result, model_dir, from_pretrained, _, download = self._load()
+
+        from_pretrained.assert_called_once_with(str(model_dir))
+        download.assert_not_called()
+        self.assertEqual(result.feature_scale, 1.0)
+
+    def test_it_takes_do_normalize_from_the_installed_config(self):
+        # feat_extract_norm="layer" with conv_bias=True means nothing downstream cancels
+        # the input gain, so unlike the legacy .bin embedders this flag is load bearing:
+        # measured, skipping the normalisation changes the features by 49.8%.
+        result, model_dir, _, feature_extractor, _ = self._load()
+
+        feature_extractor.assert_called_once_with(
+            str(model_dir), cache_dir=None, revision=None
+        )
+        self.assertTrue(result.input_do_normalize)
+        self.assertEqual(result.input_sampling_rate, 16000)
+
+    def test_an_unreadable_preprocessor_config_still_normalises(self):
+        # The official config documents do_normalize, so a read failure must not quietly
+        # fall back to the raw waveform the way an unknown custom folder does.
+        result, _, _, _, _ = self._load(extractor=OSError("offline"))
+        self.assertTrue(result.input_do_normalize)
+
+    def test_missing_weights_say_what_to_install_and_where(self):
+        with self.assertRaises(FileNotFoundError) as raised:
+            self._load(install=False)
+
+        message = str(raised.exception)
+        self.assertIn(KUSHINADA_SOURCE, message)
+        self.assertIn(KUSHINADA_DIR, message)
+        self.assertIn("pytorch_model.bin", message)
+
+    def test_it_carries_no_feature_scale(self):
+        # Measured at 8.14 per frame against contentvec's 9.82 - well inside the range
+        # RVC v2's emb_pitch was tuned around, unlike k2's 0.58.
+        self.assertNotIn(KUSHINADA_NAME, embedder_utils.EMBEDDER_FEATURE_SCALE)
+        self.assertAlmostEqual(
+            KUSHINADA_FEATURE_NORM / CONTENTVEC_FEATURE_NORM, 1.0, delta=0.25
+        )
 
 
 class EmbedderInputStdFloorTest(unittest.TestCase):

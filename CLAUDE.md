@@ -194,6 +194,8 @@ Applio-3.5.0/
 - `chinese-hubert-base`, `japanese-hubert-base`, `korean-hubert-base` - Language-specific
 - `japanese-hubert-base-k2` - Japanese, `reazon-research/japanese-hubert-base-k2` (fork-specific, see below)
 - `japanese-hubert-large` - Japanese, 1024-dim / 24 layers (fork-specific, see below)
+- `kushinada-hubert-large` - Japanese, 1024-dim / 24 layers, gated so installed by hand
+  (fork-specific, see below)
 - `custom` - Use custom embedder (provide path via `embedder_model_custom`)
 
 ### Index Files
@@ -288,6 +290,7 @@ Measured on `logs/reference/reference.wav` (34.9 s), 1742 frames for every embed
 | japanese-hubert-base | 768 | 12 | 6.35 | 0.80 | 4.99% |
 | japanese-hubert-base-k2 | 768 | 12 | **0.58** | **7.30** | 0.21% |
 | japanese-hubert-large | 1024 | 24 | 5.95 | 0.90 | **59.25%** |
+| kushinada-hubert-large | 1024 | 24 | 8.14 | 1.36 | **49.80%** |
 
 Two things this table settles:
 - **k2 is the outlier, and its `feature_scale = 10.0` only fixes half of it.** Its hidden
@@ -301,6 +304,7 @@ Two things this table settles:
   `feature_scale = 1.0`. But it is the first `feat_extract_norm: "layer"` /
   `conv_bias: true` embedder here, so the waveform normalisation is not optional for it:
   skipping it changes the features by 59%, against under 5% for every `"group"` embedder.
+  The same applies to `kushinada-hubert-large`, which shares that architecture (49.80%).
 
 ### Adding another embedder
 Read `docs/ADDING_AN_EMBEDDER_MODEL.md` first. It carries the measured characteristics of
@@ -349,6 +353,42 @@ before writing any code.
   is `do_stable_layer_norm`, an intermediate layer is a raw pre-norm residual - measured
   from 69 per frame at layer 0 to 538 at layer 23, against 5.9 for the last layer - so
   `embedder_forward` applies `encoder.layer_norm` to it.
+
+### Additional Embedder: `kushinada-hubert-large` (1024-dim, hand installed)
+- `imprt/kushinada-hubert-large`, Apache-2.0, a HuBERT Large pre-trained on **62,215 hours**
+  of Japanese TV broadcast audio segmented by VAD - roughly 3x the data behind
+  `japanese-hubert-large`. Same shape: 24 layers, hidden size 1024,
+  `feat_extract_norm: "layer"` / `conv_bias: true` / `do_stable_layer_norm: true`, and the
+  same 320x conv frontend, so it agrees with every other embedder at 1742 frames on the
+  reference clip.
+- **It is the first embedder that cannot be downloaded.** The Hub repo is gated behind a
+  license click-through, so there is no unauthenticated fetch and no revision to pin
+  against. Its `EMBEDDERS` entry carries `"local": True` plus a `"source"` URL, and
+  `load_embedding` grows a third branch for that shape: load straight out of
+  `rvc/models/embedders/kushinada_hubert_large/`, and raise a `FileNotFoundError` naming
+  the folder and the URL when the weights are not there, rather than attempting a
+  download that would 404.
+  - Install by hand: accept the license at
+    https://huggingface.co/imprt/kushinada-hubert-large, then put `config.json`,
+    `preprocessor_config.json` and `pytorch_model.bin` in that folder.
+  - The legacy `.bin` branch is **not** reusable for it. That branch would `wget` from
+    `APPLIO_EMBEDDER_URL` and, worse, hardcodes `input_do_normalize = False` - which for a
+    `feat_extract_norm: "layer"` model silently trains on features that are ~50% wrong.
+- `feature_scale = 1.0`. Measured at **8.14** per frame, between contentvec's 9.82 and
+  `japanese-hubert-base`'s 6.35, so it needs no correction against `emb_pitch`. Nothing
+  like k2. `|pos|/|h| = 1.36` is mildly above the ~0.9 cluster but nowhere near k2's 7.30.
+- Its waveform normalisation is load bearing for the same reason as
+  `japanese-hubert-large`: skipping it changes the features by 49.80%. The
+  `EMBEDDER_INPUT_STD_FLOOR` matters even more here than there - measured, the floor moves
+  a -60 dBFS room-tone window's features by 75.5% and takes them from cos 0.48 to cos 0.71
+  against digital silence.
+- Everything else is already generic and needed no work: warm starting from the stock 768
+  pretrains skips exactly `enc_p.emb_phone` (verified end to end: extract -> 1024-wide
+  `.npy` and `mute.npy`, `text_enc_hidden_dim` 1024, FAISS index `d=1024`, train from
+  `f0G48k.pth`, infer, and realtime through `create_pipeline`), and the resume guard
+  refuses a `G_*.pth` stamped with a different embedder.
+- Realtime cost is indistinguishable from `japanese-hubert-large` - same architecture.
+  Measured back to back on an RTX 4090 over a 1.5 s window, fp32: 12.6 ms against 13.1 ms.
 
 ### Changing the embedder on an existing model folder
 Changing the embedder, its feature scale, its output layer or the input std floor
