@@ -1,4 +1,6 @@
 # Core dependencies
+# webrtcvad imports pkg_resources, removed in setuptools 82.
+setuptools<82
 pip>=23.3; sys_platform == 'darwin'
 wheel; sys_platform == 'darwin'
 PyYAML; sys_platform == 'darwin'
@@ -26,6 +28,8 @@ torch==2.7.1; sys_platform == 'darwin'
 # Previous Windows/Linux build (kept for rollback)
 # torch==2.7.1+cu128; sys_platform == 'linux' or sys_platform == 'win32'
 torch==2.13.0+cu132; sys_platform == 'linux' or sys_platform == 'win32'
+# Windows torch.compile requires Triton separately; 3.7 supports PyTorch 2.13.
+triton-windows>=3.7,<3.8; sys_platform == 'win32'
 torchaudio==2.7.1; sys_platform == 'darwin'
 # torchaudio==2.7.1+cu128; sys_platform == 'linux' or sys_platform == 'win32'
 # TorchAudio 2.11 is the final release and supports future PyTorch versions.

@@ -94,7 +94,7 @@ echo Installing dependencies...
 echo This will install PyTorch 2.13.0 with CUDA 13.2 support and all required packages.
 echo.
 call "%MINICONDA_DIR%\condabin\conda.bat" activate "%ENV_DIR%" || goto :error
-uv pip install --upgrade setuptools || goto :error
+uv pip install --upgrade "setuptools<82" || goto :error
 uv pip install -r "%INSTALL_DIR%\requirements.txt" --extra-index-url https://download.pytorch.org/whl/cu132 --index-strategy unsafe-best-match || goto :error
 call "%MINICONDA_DIR%\condabin\conda.bat" deactivate
 echo Dependencies installation complete.
