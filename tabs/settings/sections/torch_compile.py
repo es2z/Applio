@@ -111,24 +111,33 @@ def apply_triton_settings():
 
 
 def reset_torchcrepe_compiled_model():
-    """Reset the cached compiled model in torchcrepe.
+    """Force torchcrepe to rebuild its cached model with the current settings.
 
     This should be called when TorchCompile settings change to avoid conflicts
     with the old compiled model.
+
+    torchcrepe decides whether to reload from ``infer.capacity`` alone
+    (``torchcrepe/core.py``: reload when ``capacity`` is missing or differs, then
+    unconditionally ``infer.model = infer.model.to(device)``), so clearing
+    ``infer.model`` leaves an unreloadable ``None`` behind and the next call dies
+    with ``'NoneType' object has no attribute 'to'``. Invalidate the capacity
+    instead: ``torchcrepe.load.model`` assigns ``capacity`` before ``model``, so
+    ``infer.model`` always points at a usable module even if the realtime audio
+    thread reads it while this runs.
+
+    Deliberately no ``torch._dynamo.reset()``: a fresh ``torch.compile`` wrapper
+    recompiles on its own (torchcrepe builds a new ``Crepe`` every reload), while a
+    global reset would also drop the compiled embedder/RVC paths of a realtime
+    session that is already running and pin them to eager for the rest of it.
     """
     try:
         import torchcrepe
-        if hasattr(torchcrepe, 'core') and hasattr(torchcrepe.core, 'infer'):
-            if hasattr(torchcrepe.core.infer, 'model'):
-                torchcrepe.core.infer.model = None
     except ImportError:
-        pass
+        return
 
-    # Also reset torch dynamo cache to ensure clean recompilation
-    try:
-        torch._dynamo.reset()
-    except Exception:
-        pass
+    infer = getattr(getattr(torchcrepe, 'core', None), 'infer', None)
+    if infer is not None and hasattr(infer, 'capacity'):
+        infer.capacity = None
 
 
 def load_torch_compile_enabled():

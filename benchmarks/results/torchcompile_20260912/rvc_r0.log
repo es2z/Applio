@@ -1,0 +1,7 @@
+C:\dev\myapplio2\env\Lib\site-packages\webrtcvad.py:1: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  import pkg_resources
+[Realtime] Loading model with vocoder: HiFi-GAN
+Using HiFi-GAN vocoder
+[Realtime] Preparing compilation. The first start may take time.
+READY rvc round=0 startup=9.00s
+DONE rvc round=0 mean=97.898ms

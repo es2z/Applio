@@ -1,0 +1,7 @@
+{
+  "torch_compile_enabled": false,
+  "torch_compile_mode": "reduce-overhead",
+  "torch_compile_disable_triton": false,
+  "realtime_compile_embedder": false,
+  "realtime_compile_rvc": false
+}

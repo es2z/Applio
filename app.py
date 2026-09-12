@@ -32,6 +32,10 @@ from tabs.voice_blender.voice_blender import voice_blender_tab
 from tabs.plugins.plugins import plugins_tab
 from tabs.settings.settings import settings_tab
 from tabs.realtime.realtime import realtime_tab
+from rvc.realtime.compile_session import (
+    load_settings as load_realtime_compile_settings,
+    save_settings as save_realtime_compile_settings,
+)
 from tabs.settings.sections.torch_compile import (
     load_torch_compile_enabled,
     load_torch_compile_mode,
@@ -106,10 +110,8 @@ with gr.Blocks(
                 )
         with gr.Row():
             torch_compile_checkbox = gr.Checkbox(
-                label=i18n("Enable TorchCompile"),
-                info=i18n(
-                    "Enable torch.compile for CREPE and other inference models. Improves performance after initial compilation."
-                ),
+                label=i18n("Enable TorchCompile") + " (CREPE)",
+                info=i18n("Enable torch.compile for CREPE inference."),
                 value=torch_compile_initial_enabled,
                 interactive=True,
             )
@@ -121,10 +123,9 @@ with gr.Blocks(
                 choices=TORCH_COMPILE_MODES,
                 value=load_torch_compile_mode(),
                 interactive=True,
-                visible=torch_compile_initial_enabled,
             )
             torch_compile_disable_triton_checkbox = gr.Checkbox(
-                label=i18n("Disable Triton"),
+                label=i18n("Disable Triton") + " (CREPE)",
                 info=i18n(
                     "Force disable triton optimization even when installed. Useful when running alongside games to reduce GPU resource contention."
                 ),
@@ -135,15 +136,12 @@ with gr.Blocks(
 
         def on_torch_compile_change(enabled):
             save_torch_compile_enabled(enabled)
-            return (
-                gr.update(visible=enabled),
-                gr.update(visible=enabled and triton_available),
-            )
+            return gr.update(visible=enabled and triton_available)
 
         torch_compile_checkbox.change(
             fn=on_torch_compile_change,
             inputs=[torch_compile_checkbox],
-            outputs=[torch_compile_mode_dropdown, torch_compile_disable_triton_checkbox],
+            outputs=[torch_compile_disable_triton_checkbox],
         )
         torch_compile_mode_dropdown.change(
             fn=save_torch_compile_mode,
@@ -155,6 +153,26 @@ with gr.Blocks(
             inputs=[torch_compile_disable_triton_checkbox],
             outputs=[],
         )
+
+        realtime_compile_settings = load_realtime_compile_settings()
+        with gr.Row():
+            compile_embedder = gr.Checkbox(
+                label=i18n("Enable TorchCompile for Embedder (Realtime)"),
+                value=realtime_compile_settings.embedder,
+            )
+            compile_rvc = gr.Checkbox(
+                label=i18n("Enable TorchCompile for RVC (Realtime)"),
+                value=realtime_compile_settings.rvc,
+            )
+        gr.Markdown(i18n(
+            "TorchCompile Mode applies to CREPE, Embedder and RVC. Embedder and RVC changes take effect on the next realtime start. Initial compilation may take time. Failed paths fall back to normal inference, with the reason shown in the status."
+        ))
+        for component in (compile_embedder, compile_rvc):
+            component.change(
+                fn=save_realtime_compile_settings,
+                inputs=[compile_embedder, compile_rvc],
+                outputs=[], show_progress=False,
+            )
 
     with gr.Tab(i18n("Inference")):
         inference_tab()

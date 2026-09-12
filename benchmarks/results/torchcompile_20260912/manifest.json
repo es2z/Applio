@@ -1,0 +1,226 @@
+{
+  "template": {
+    "audioTab": {
+      "input": {
+        "device": "10: Loopback (MOTU M Series) (Windows WASAPI)",
+        "gain": 100,
+        "asio_channel": -1
+      },
+      "output": {
+        "device": "4: Speakers (VB-Audio Point) (Windows WDM-KS)",
+        "gain": 100,
+        "asio_channel": -1
+      },
+      "monitor": {
+        "enabled": false,
+        "device": "pa-output-98cef3d96d04ada6ae99",
+        "gain": 100,
+        "asio_channel": -1
+      },
+      "exclusive_mode": true,
+      "vad_enabled": true
+    },
+    "modelTab": {
+      "voice": {
+        "model_path": "logs\\naru_20260906_kushinada_hubert_large_test1\\naru_20260906_kushinada_hubert_large_test1_2150e_894400s.pth",
+        "index_path": "logs\\naru_20260906_kushinada_hubert_large_test1\\naru_20260906_kushinada_hubert_large_test1.index"
+      },
+      "inference": {
+        "f0_method": "mangio-crepe-full-speech",
+        "embedder_model": "kushinada-hubert-large",
+        "embedder_model_custom": "",
+        "embedder_precision": "fp32",
+        "autotune": false,
+        "autotune_strength": 1,
+        "proposed_pitch": false,
+        "proposed_pitch_threshold": 155,
+        "speaker_id": 0
+      },
+      "parameterValues": {
+        "pitch": 12.3,
+        "index_rate": 0.592,
+        "volume_envelope": 1,
+        "protect": 0,
+        "hybrid_blend_ratio": 0.5
+      }
+    },
+    "performanceTab": {
+      "chunk_size": 960,
+      "crossfade_overlap_size": 0.138,
+      "extra_convert_size": 0.22,
+      "silence_threshold": -90
+    }
+  },
+  "template_name": "00000_少し低めlittleAlterなし_naru_20260906_kushinada_hubert_large_test1_2150",
+  "template_sha256": "e0a629de66b39de6ded2db732f0761ac2e4cd70d7dc2f73a79a7993e70fc6fb8",
+  "sources": [
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_0_0.wav",
+      "samples": 27201,
+      "sha256": "ca5ccb0abffa37ddc3d3124bc1206ed102106201433a5596cab3fcab93c5144d"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1000_0.wav",
+      "samples": 11764,
+      "sha256": "9444cc88686ab1be2016979aa190fcffaf76979f62d4fa0e89ca5d831da61589"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1001_0.wav",
+      "samples": 35345,
+      "sha256": "3aa785133a7218ec66ce50bbcba71cf765f3d5290bb1998c95709bfefed43fbe"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1002_0.wav",
+      "samples": 13296,
+      "sha256": "d73b5b31b0911111a4dcb8ff3ee15dd16d4bc5d45636545554559d2896d70ddb"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1003_0.wav",
+      "samples": 7521,
+      "sha256": "7f52960b196b7367f74429611f009abf791299edd52f270788e737e675bd4663"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1004_0.wav",
+      "samples": 20600,
+      "sha256": "2a6bdababeafc0f19af224ce626b2ed4a5e002c413c3a58f71ff57cef28b5264"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1005_0.wav",
+      "samples": 14415,
+      "sha256": "c024d4b9ecffbca10c568ee2f32aad17c024b9ae5332d7e54b4300a9c42d889c"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1006_0.wav",
+      "samples": 9058,
+      "sha256": "177b5aa013785dfe9dca7e7c9a580852dc27d4c52a9421ac3103993178fa7564"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1007_0.wav",
+      "samples": 18004,
+      "sha256": "cea9579f96d9ebcfcd49d8be7179ad64a62bf10de4130b6ed932ad2b2829ac04"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1008_0.wav",
+      "samples": 25073,
+      "sha256": "56fefc7489996233a0933c7f01f89b4f8db97daffd57f618332b6d85d5bd217a"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1009_0.wav",
+      "samples": 14853,
+      "sha256": "fed8fd3d7da01b439fd487c496376ff82fd1e02a4342c2938a3f07468bd3cbe8"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_100_0.wav",
+      "samples": 12320,
+      "sha256": "46b74b72caaab63092786f129b98e1413607be0695b743444dadfe0a54053813"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1010_0.wav",
+      "samples": 43200,
+      "sha256": "f42a4fe2b0563aba24bc30523e648efbb6e8e3e45cb8a195868037753de4cabc"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1011_0.wav",
+      "samples": 47440,
+      "sha256": "b962add045c22c935d9bf3ced4fe3fed68e91b6cf26bcf7658ece8aa4e09f15f"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1012_0.wav",
+      "samples": 9499,
+      "sha256": "2bd9dc6f9b868f6dc02e8cc04181ac90022fdaa4367c1c44390c014bbc0a67da"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1013_0.wav",
+      "samples": 10880,
+      "sha256": "cbaa50150ccd8302dbc7b1446921b389ecb572f23ffb61df5d753db51a71eda1"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1014_0.wav",
+      "samples": 12371,
+      "sha256": "8c5afb8f195a3ae360193ea5c67c7e6d1d6a9829b0fb909cefc6ae7a3502975e"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1015_0.wav",
+      "samples": 17286,
+      "sha256": "6cafb86531536b0d86307ab3ee014823e07966b744e69d648a807e7d4969996c"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1016_0.wav",
+      "samples": 41601,
+      "sha256": "cedca75792762fc15395e8d8100cc8349f7656c343589ca74e9a0a98bcd617b2"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1017_0.wav",
+      "samples": 18400,
+      "sha256": "687c88017a23d6826746a9b2e3ea353ee4efa2abfdb7dd2298da2b40e997c29f"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1018_0.wav",
+      "samples": 36119,
+      "sha256": "713bdc36358d44e77ed10eecc1e11940f950e8e89aebe3c44bc029c7e1a4401a"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1019_0.wav",
+      "samples": 32584,
+      "sha256": "5215d996a5dcc0f91be2e761fd8a28f0dc98d83dd300551c99278da3ba6362d6"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_101_0.wav",
+      "samples": 11680,
+      "sha256": "26a935fdef6802fc94486475c35ee700e16712cc2e0da193b62b27b501e1ad17"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1020_0.wav",
+      "samples": 31203,
+      "sha256": "34dc755d11451044139b89a48e908c402202ee16b62dec7be123741a2bdd87a6"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1021_0.wav",
+      "samples": 21940,
+      "sha256": "5fd3fadb6e19eee09daacb5b6e2ee30970c670d619e35a04153b0cbc87f26de3"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1022_0.wav",
+      "samples": 15007,
+      "sha256": "687d9f31b34a3c483f94ecf3ef5cfbd3680363c072b891728a259f6c7d7a8a76"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1023_0.wav",
+      "samples": 20296,
+      "sha256": "9065bbd8d977935e083d7878317f1f1b489854baa91591c0a69706fafec6100a"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1024_0.wav",
+      "samples": 36160,
+      "sha256": "3ed0f6ea97fe1b9ac1dcba3ea2a059cf9e699d0851a7c7a9cdd88c0d6a05e40e"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1025_0.wav",
+      "samples": 37658,
+      "sha256": "0239556361b0189a94900871adc75cddb93a8e73bf50944253915f86c0ea0b92"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1026_0.wav",
+      "samples": 14548,
+      "sha256": "f4d8431e4d95accf2c1cc2b0c207af61b81965b7d0708d9e9fc8e5e673483c07"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1027_0.wav",
+      "samples": 18619,
+      "sha256": "4531570a43ad491098b5c93398fc41eac3d4b4305acf692da9338e88734d1add"
+    },
+    {
+      "file": "logs\\naru_20260906_kushinada_hubert_large_test1\\sliced_audios_16k\\0_1028_0.wav",
+      "samples": 12676,
+      "sha256": "512ed4c8924709e968f565763a243246dd51152f3217b80ea460b2a03c4fe4d8"
+    }
+  ],
+  "input_samples": 2095851,
+  "input_seconds": 43.6635625,
+  "input_sha256": "103855c8e814bfde2fd61f15541f3f14591a06ca20cf405d4cf3f694c687e0e9",
+  "model_sha256": "6ec218d123167c9b359240978804dfb3e5ed99081acb3ed52dfb6482c2b394d4",
+  "platform": "Windows-10-10.0.22631-SP0",
+  "cpu": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+  "gpu_before": "NVIDIA GeForce RTX 4090, 616.56, 792 MiB, 2 %, 54, 210 MHz, 30.53 W",
+  "git_head": "7551eca31cec32723942483c36c7f1d2f14553b1"
+}

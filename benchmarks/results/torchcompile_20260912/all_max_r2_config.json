@@ -1,0 +1,7 @@
+{
+  "torch_compile_enabled": true,
+  "torch_compile_mode": "max-autotune",
+  "torch_compile_disable_triton": false,
+  "realtime_compile_embedder": true,
+  "realtime_compile_rvc": true
+}

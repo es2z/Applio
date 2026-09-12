@@ -2,6 +2,7 @@ import os
 import sys
 import threading
 import numpy as np
+import torch
 
 sys.path.append(os.getcwd())
 
@@ -76,6 +77,32 @@ class AudioCallbacks:
             monitor_audio_gain,
             monitor,
         )
+
+        # Compile/capture with the same shapes and grad mode as the audio callback,
+        # before opening any audio device. Use a tone, since silence can bypass F0.
+        runtime = self.vc.vc_model
+        if runtime.pipeline.compile_session.enabled and not pass_through:
+            print("[Realtime] Preparing compilation. The first start may take time.")
+            devices = [torch.device(runtime.device)] if torch.device(runtime.device).type == "cuda" else []
+            tone = (0.01 * np.sin(
+                2 * np.pi * 220 * np.arange(self.vc.block_frame) / 48000
+            )).astype(np.float32)
+            # Do not feed synthetic audio into the stateful speech detector.
+            vad = runtime.vad
+            runtime.vad = None
+            try:
+                with torch.random.fork_rng(devices=devices), torch.no_grad():
+                    for _ in range(3):
+                        runtime.inference(
+                            tone, f0_up_key, index_rate, protect, volume_envelope,
+                            f0_autotune, f0_autotune_strength, proposed_pitch,
+                            proposed_pitch_threshold,
+                        )
+                    torch.cuda.synchronize(runtime.device)
+            finally:
+                runtime.vad = vad
+                runtime.flush_buffers()
+                runtime.consecutive_silence_frames = 0
 
     def change_voice(
         self,

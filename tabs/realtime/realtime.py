@@ -426,7 +426,7 @@ def start_realtime(
         )
         return
 
-    yield "Starting Realtime...", interactive_false, interactive_true
+    yield i18n("Preparing realtime inference. Initial compilation may take time when TorchCompile is enabled."), interactive_false, interactive_false
 
     read_chunk_size = int(chunk_size * AUDIO_SAMPLE_RATE / 1000 / 128)
 
@@ -447,50 +447,56 @@ def start_realtime(
         yield "Incorrectly formatted audio device. Stopping.", interactive_true, interactive_false
         return
 
-    callbacks = AudioCallbacks(
-        pass_through=PASS_THROUGH,
-        read_chunk_size=read_chunk_size,
-        cross_fade_overlap_size=cross_fade_overlap_size,
-        extra_convert_size=extra_convert_size,
-        model_path=pth_path,
-        index_path=str(index_path),
-        f0_method=f0_method,
-        embedder_model=embedder_model,
-        embedder_model_custom=embedder_model_custom,
-        embedder_precision=embedder_precision,
-        silent_threshold=silent_threshold,
-        f0_up_key=pitch,
-        index_rate=index_rate,
-        protect=protect,
-        volume_envelope=volume_envelope,
-        f0_autotune=f0_autotune,
-        f0_autotune_strength=f0_autotune_strength,
-        proposed_pitch=proposed_pitch,
-        proposed_pitch_threshold=proposed_pitch_threshold,
-        input_audio_gain=input_audio_gain,
-        output_audio_gain=output_audio_gain,
-        monitor_audio_gain=monitor_audio_gain,
-        monitor=use_monitor_device,
-        vad_enabled=vad_enabled,
-        vad_sensitivity=3,
-        vad_frame_ms=30,
-        sid=sid,
-        hybrid_blend_ratio=hybrid_blend_ratio,
-    )
+    try:
+        callbacks = AudioCallbacks(
+            pass_through=PASS_THROUGH,
+            read_chunk_size=read_chunk_size,
+            cross_fade_overlap_size=cross_fade_overlap_size,
+            extra_convert_size=extra_convert_size,
+            model_path=pth_path,
+            index_path=str(index_path),
+            f0_method=f0_method,
+            embedder_model=embedder_model,
+            embedder_model_custom=embedder_model_custom,
+            embedder_precision=embedder_precision,
+            silent_threshold=silent_threshold,
+            f0_up_key=pitch,
+            index_rate=index_rate,
+            protect=protect,
+            volume_envelope=volume_envelope,
+            f0_autotune=f0_autotune,
+            f0_autotune_strength=f0_autotune_strength,
+            proposed_pitch=proposed_pitch,
+            proposed_pitch_threshold=proposed_pitch_threshold,
+            input_audio_gain=input_audio_gain,
+            output_audio_gain=output_audio_gain,
+            monitor_audio_gain=monitor_audio_gain,
+            monitor=use_monitor_device,
+            vad_enabled=vad_enabled,
+            vad_sensitivity=3,
+            vad_frame_ms=30,
+            sid=sid,
+            hybrid_blend_ratio=hybrid_blend_ratio,
+        )
 
-    audio_manager = callbacks.audio
-    audio_manager.start(
-        input_device_id=input_device_id,
-        output_device_id=output_device_id,
-        output_monitor_id=output_monitor_id,
-        exclusive_mode=exclusive_mode,
-        asio_input_channel=input_asio_channels,
-        asio_output_channel=output_asio_channels,
-        asio_output_monitor_channel=monitor_asio_channels,
-        read_chunk_size=read_chunk_size,
-    )
+        audio_manager = callbacks.audio
+        audio_manager.start(
+            input_device_id=input_device_id,
+            output_device_id=output_device_id,
+            output_monitor_id=output_monitor_id,
+            exclusive_mode=exclusive_mode,
+            asio_input_channel=input_asio_channels,
+            asio_output_channel=output_asio_channels,
+            asio_output_monitor_channel=monitor_asio_channels,
+            read_chunk_size=read_chunk_size,
+        )
+    except Exception as exc:
+        stop_realtime()
+        yield i18n("Failed to start realtime inference: {error}").format(error=exc), interactive_true, interactive_false
+        return
 
-    yield "Realtime is ready!", interactive_false, interactive_true
+    compile_session = callbacks.vc.vc_model.pipeline.compile_session
+    yield "Realtime is ready!" + compile_session.status(), interactive_false, interactive_true
 
     while running and callbacks is not None and audio_manager is not None:
         time.sleep(0.1)
@@ -512,7 +518,7 @@ def start_realtime(
             yield "Reconnecting...", interactive_false, interactive_true
         elif hasattr(audio_manager, "latency"):
             # Normal operation - show latency
-            yield f"Latency: {audio_manager.latency:.2f} ms", interactive_false, interactive_true
+            yield f"Latency: {audio_manager.latency:.2f} ms" + compile_session.status(), interactive_false, interactive_true
 
     return gr.update(), gr.update(), gr.update()
 
@@ -538,6 +544,8 @@ def stop_realtime():
                     pass
 
         # Clean up references
+        if callbacks is not None:
+            callbacks.vc.vc_model.pipeline.compile_session.close()
         audio_manager = callbacks = None
 
         return gr.update(value="Stopping..."), interactive_true, interactive_false

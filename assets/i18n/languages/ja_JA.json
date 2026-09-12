@@ -1,4 +1,13 @@
 {
+    "Enable torch.compile for CREPE inference.": "CREPE推論にtorch.compileを使用します。",
+    "Enable TorchCompile for Embedder (Realtime)": "EmbedderのTorchCompileを有効化（リアルタイム）",
+    "Enable TorchCompile for RVC (Realtime)": "RVCのTorchCompileを有効化（リアルタイム）",
+    "TorchCompile Mode applies to CREPE, Embedder and RVC. Embedder and RVC changes take effect on the next realtime start. Initial compilation may take time. Failed paths fall back to normal inference, with the reason shown in the status.": "TorchCompileモードはCREPE・Embedder・RVCで共通です。Embedder・RVCの設定変更は次回のリアルタイム開始時に反映されます。初回コンパイルには時間がかかる場合があります。失敗した経路は通常推論に戻り、理由をステータスに表示します。",
+    "Preparing compilation": "コンパイル準備中",
+    "Using compiled inference": "コンパイル実行",
+    "Fell back to normal inference": "通常推論へ復帰",
+    "Preparing realtime inference. Initial compilation may take time when TorchCompile is enabled.": "リアルタイム推論を準備中です。TorchCompile有効時は初回の準備に時間がかかる場合があります。",
+    "Failed to start realtime inference: {error}": "リアルタイム推論の開始に失敗しました: {error}",
     "# How to Report an Issue on GitHub": "# GitHubで問題を報告する方法",
     "## Download Model": "## モデルのダウンロード",
     "## Download Pretrained Models": "## 事前学習済みモデルのダウンロード",

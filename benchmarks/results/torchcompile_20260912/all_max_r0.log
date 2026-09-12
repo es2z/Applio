@@ -1,0 +1,1121 @@
+C:\dev\myapplio2\env\Lib\site-packages\webrtcvad.py:1: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  import pkg_resources
+[Realtime] Loading model with vocoder: HiFi-GAN
+Using HiFi-GAN vocoder
+[Realtime] Preparing compilation. The first start may take time.
+Autotune Choices Stats:
+{"num_choices": 13, "num_triton_choices": 12, "best_kernel": "convolution", "best_time": 8.640512466430664, "best_triton_pos": 1, "best_triton_time": 16.367647171020508, "best_triton_kernel": "triton_convolution2d_7", "best_triton_kernel_desc": "ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=512, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=4, STRIDE_W=1, UNROLL=False, num_stages=3, num_warps=4"}
+AUTOTUNE convolution(134x1x1532x1, 1024x1x512x1)
+strides: [s64 + 508, s64 + 508, 1, 1], [512, 512, 1, 1]
+dtypes: torch.float32, torch.float32
+  convolution 8.6405 ms 100.0% 
+  triton_convolution2d_7 16.3676 ms 52.8% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=512, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=4, STRIDE_W=1, UNROLL=False, num_stages=3, num_warps=4
+  triton_convolution2d_3 19.2749 ms 44.8% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=512, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=4, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_4 24.0916 ms 35.9% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, GROUPS=1, KERNEL_H=512, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=4, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_0 24.6868 ms 35.0% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=256, GROUPS=1, KERNEL_H=512, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=4, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_5 24.9045 ms 34.7% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=256, GROUPS=1, KERNEL_H=512, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=4, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_9 29.7226 ms 29.1% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=128, BLOCK_N=64, GROUPS=1, KERNEL_H=512, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=4, STRIDE_W=1, UNROLL=False, num_stages=4, num_warps=4
+  triton_convolution2d_1 30.1342 ms 28.7% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=256, BLOCK_N=64, GROUPS=1, KERNEL_H=512, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=4, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_6 30.2490 ms 28.6% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=256, BLOCK_N=64, GROUPS=1, KERNEL_H=512, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=4, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_8 32.6533 ms 26.5% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=128, GROUPS=1, KERNEL_H=512, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=4, STRIDE_W=1, UNROLL=False, num_stages=4, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 18.1065 seconds and 4.6368 seconds precompiling for 13 choices
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Exception out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\nj\cnjimagyqn3jgxqvz7rgaewwckt3zjkpko5ji2cliqqepbbltrhp.py, ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4)
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Traceback (most recent call last):
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     choice.precompile()
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.bmreq.precompile()
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     kernel.precompile()
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self._make_launchers()
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     return result.make_launcher()
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.kernel.load_kernel(device)
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:21:04.308000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] torch.OutOfMemoryError: out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Exception out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\7g\c7g7sbgrhu2nnbusniexfoc67oyi4ebzioaizakhbjxzcd5rrin7.py, ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=3, num_warps=4)
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Traceback (most recent call last):
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     choice.precompile()
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.bmreq.precompile()
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     kernel.precompile()
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self._make_launchers()
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     return result.make_launcher()
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.kernel.load_kernel(device)
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:21:09.317000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] torch.OutOfMemoryError: out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Exception out of resource: triton_convolution2d Required: 196608 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\3y\c3yuhmvkn3w7lmkslrqhylgay75zoj2cbsjsix3en46a42w5q5tt.py, ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=256, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4)
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Traceback (most recent call last):
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     choice.precompile()
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.bmreq.precompile()
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     kernel.precompile()
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self._make_launchers()
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     return result.make_launcher()
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.kernel.load_kernel(device)
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:22:57.062000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] torch.OutOfMemoryError: out of resource: triton_convolution2d Required: 196608 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+Autotune Choices Stats:
+{"num_choices": 14, "num_triton_choices": 13, "best_kernel": "convolution", "best_time": 4.916224002838135, "best_triton_pos": 1, "best_triton_time": 29.00275230407715, "best_triton_kernel": "triton_convolution2d_13", "best_triton_kernel_desc": "ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=256, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4"}
+AUTOTUNE convolution(134x1024x191x1, 128x1024x64x1)
+strides: [1024*((s64//8)) + 64512, ((s64//8)) + 63, 1, 1], [65536, 64, 1, 1]
+dtypes: torch.float32, torch.float32
+  convolution 4.9162 ms 100.0% 
+  triton_convolution2d_13 29.0028 ms 17.0% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=256, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_21 32.4690 ms 15.1% ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=4, num_warps=4
+  triton_convolution2d_16 33.8995 ms 14.5% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_15 34.3982 ms 14.3% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_18 36.7135 ms 13.4% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=256, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_20 39.3452 ms 12.5% ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=4, num_warps=4
+  triton_convolution2d_12 41.5386 ms 11.8% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_17 47.1225 ms 10.4% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_23 70.0918 ms 7.0% ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 9.9605 seconds and 129.8677 seconds precompiling for 14 choices
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Exception out of resource: triton_convolution2d Required: 196608 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\6q\c6qv6spowsp4qepkvqotqtzfk3a7omdsafo4s473sapr67u25baz.py, ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=256, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4)
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Traceback (most recent call last):
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     choice.precompile()
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.bmreq.precompile()
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     kernel.precompile()
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self._make_launchers()
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     return result.make_launcher()
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.kernel.load_kernel(device)
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:23:07.870000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] torch.OutOfMemoryError: out of resource: triton_convolution2d Required: 196608 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Exception out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\ol\colxfnf4tsbwkza6ya5i4ekldzpxjpikyfa3fm73ku27no6kwyxf.py, ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=3, num_warps=4)
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Traceback (most recent call last):
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     choice.precompile()
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.bmreq.precompile()
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     kernel.precompile()
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self._make_launchers()
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     return result.make_launcher()
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.kernel.load_kernel(device)
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] torch.OutOfMemoryError: out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Exception out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\4j\c4jwnvgwhii3ymogmhhvlgwvt6bwyfzmuwg22iiugz3smh3gmdpe.py, ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4)
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Traceback (most recent call last):
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     choice.precompile()
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.bmreq.precompile()
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     kernel.precompile()
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self._make_launchers()
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     return result.make_launcher()
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.kernel.load_kernel(device)
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:23:07.871000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] torch.OutOfMemoryError: out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+Autotune Choices Stats:
+{"num_choices": 14, "num_triton_choices": 13, "best_kernel": "convolution", "best_time": 0.3461120128631592, "best_triton_pos": 1, "best_triton_time": 2.2517759799957275, "best_triton_kernel": "triton_convolution2d_37", "best_triton_kernel_desc": "ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=4, num_warps=4"}
+AUTOTUNE convolution(134x128x127x1, 128x128x64x1)
+strides: [128*((s64//16)) + 8064, ((s64//16)) + 63, 1, 1], [8192, 64, 1, 1]
+dtypes: torch.float32, torch.float32
+  convolution 0.3461 ms 100.0% 
+  triton_convolution2d_37 2.2518 ms 15.4% ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=4, num_warps=4
+  triton_convolution2d_32 2.2569 ms 15.3% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_29 2.3265 ms 14.9% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=256, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_28 2.3562 ms 14.7% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_33 2.4219 ms 14.3% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_31 2.7904 ms 12.4% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_36 3.2010 ms 10.8% ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=4, num_warps=4
+  triton_convolution2d_34 3.6791 ms 9.4% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=256, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_39 4.0079 ms 8.6% ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 1.1507 seconds and 0.0020 seconds precompiling for 14 choices
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Exception out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\uo\cuoxmd547m2qddjgyp6vzrojhhak6cy5ql65jbccysgs3ouq3hxd.py, ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=3, num_warps=4)
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Traceback (most recent call last):
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     choice.precompile()
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.bmreq.precompile()
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     kernel.precompile()
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self._make_launchers()
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     return result.make_launcher()
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.kernel.load_kernel(device)
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:23:09.867000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] torch.OutOfMemoryError: out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Exception out of resource: triton_convolution2d Required: 196608 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\3h\c3hzjc3ekkyykvgxl3sd7shgcfliluwrh6xp2zlw7ieubimx3szd.py, ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=256, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4)
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Traceback (most recent call last):
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     choice.precompile()
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.bmreq.precompile()
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     kernel.precompile()
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self._make_launchers()
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     return result.make_launcher()
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.kernel.load_kernel(device)
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] torch.OutOfMemoryError: out of resource: triton_convolution2d Required: 196608 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Exception out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\tx\ctx3egvppm6cv3pzu5ixciddbju6ojvls3sadczslhcrtxxkgg5k.py, ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4)
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Traceback (most recent call last):
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     choice.precompile()
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.bmreq.precompile()
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     kernel.precompile()
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self._make_launchers()
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     return result.make_launcher()
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.kernel.load_kernel(device)
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:23:09.868000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] torch.OutOfMemoryError: out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+Autotune Choices Stats:
+{"num_choices": 14, "num_triton_choices": 13, "best_kernel": "convolution", "best_time": 0.2396160066127777, "best_triton_pos": 1, "best_triton_time": 1.1273280382156372, "best_triton_kernel": "triton_convolution2d_44", "best_triton_kernel_desc": "ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4"}
+AUTOTUNE convolution(134x128x95x1, 128x128x64x1)
+strides: [128*((s64//32)) + 8064, ((s64//32)) + 63, 1, 1], [8192, 64, 1, 1]
+dtypes: torch.float32, torch.float32
+  convolution 0.2396 ms 100.0% 
+  triton_convolution2d_44 1.1273 ms 21.3% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_49 1.2585 ms 19.0% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_48 1.2769 ms 18.8% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_53 1.4428 ms 16.6% ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=4, num_warps=4
+  triton_convolution2d_52 1.5647 ms 15.3% ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=4, num_warps=4
+  triton_convolution2d_45 2.3163 ms 10.3% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=256, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_47 2.6204 ms 9.1% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_50 3.1252 ms 7.7% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=256, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_58 3.1785 ms 7.5% ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=4, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 1.0371 seconds and 0.0020 seconds precompiling for 14 choices
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Exception out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\hf\chfiod5py7x65ofjm2y6j3p3c53d4wipsm57iuhys3heuuy2kmft.py, ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4)
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Traceback (most recent call last):
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     choice.precompile()
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.bmreq.precompile()
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     kernel.precompile()
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self._make_launchers()
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     return result.make_launcher()
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.kernel.load_kernel(device)
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] torch.OutOfMemoryError: out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Exception out of resource: triton_convolution2d Required: 196608 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\ji\cjix6uy2pgzp5zgmy6v2wpc3ebngadrt5hggpjxme7fiio7jpfj3.py, ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=256, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4)
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Traceback (most recent call last):
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     choice.precompile()
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.bmreq.precompile()
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     kernel.precompile()
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self._make_launchers()
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     return result.make_launcher()
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.kernel.load_kernel(device)
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] torch.OutOfMemoryError: out of resource: triton_convolution2d Required: 196608 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Exception out of resource: triton_convolution2d Required: 196608 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\5a\c5asnviugjgjnydnoevzf5ygmkm37sdformw7rhgdubzrfrtsvc2.py, ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=256, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4)
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Traceback (most recent call last):
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     choice.precompile()
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.bmreq.precompile()
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     kernel.precompile()
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self._make_launchers()
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     return result.make_launcher()
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.kernel.load_kernel(device)
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:23:11.749000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] torch.OutOfMemoryError: out of resource: triton_convolution2d Required: 196608 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Exception out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\dk\cdkqbdnp2kpy74pryjyv7d6r6hdhbb44matmoxb4zbnsg4dnoq7r.py, ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=3, num_warps=4)
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Traceback (most recent call last):
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     choice.precompile()
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.bmreq.precompile()
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     kernel.precompile()
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self._make_launchers()
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     return result.make_launcher()
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.kernel.load_kernel(device)
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:23:11.750000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] torch.OutOfMemoryError: out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+Autotune Choices Stats:
+{"num_choices": 14, "num_triton_choices": 13, "best_kernel": "convolution", "best_time": 0.24985599517822266, "best_triton_pos": 1, "best_triton_time": 1.2840960025787354, "best_triton_kernel": "triton_convolution2d_64", "best_triton_kernel_desc": "ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4"}
+AUTOTUNE convolution(134x128x79x1, 256x128x64x1)
+strides: [128*((s64//64)) + 8064, ((s64//64)) + 63, 1, 1], [8192, 64, 1, 1]
+dtypes: torch.float32, torch.float32
+  convolution 0.2499 ms 100.0% 
+  triton_convolution2d_64 1.2841 ms 19.5% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_69 1.4418 ms 17.3% ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=4, num_warps=4
+  triton_convolution2d_68 1.5432 ms 16.2% ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=4, num_warps=4
+  triton_convolution2d_60 1.8923 ms 13.2% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=256, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_61 2.3583 ms 10.6% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=256, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_63 2.6092 ms 9.6% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_65 3.0280 ms 8.3% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=256, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_66 3.1068 ms 8.0% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=256, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_74 3.1662 ms 7.9% ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=4, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 1.2335 seconds and 0.0030 seconds precompiling for 14 choices
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Exception out of resource: triton_convolution2d Required: 196608 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\gz\cgzejoi2tfknjavosxv436yudkvu4jkkomwri6oyqdbbnce4vz3r.py, ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=256, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4)
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Traceback (most recent call last):
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     choice.precompile()
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.bmreq.precompile()
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     kernel.precompile()
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self._make_launchers()
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     return result.make_launcher()
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.kernel.load_kernel(device)
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:23:13.898000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] torch.OutOfMemoryError: out of resource: triton_convolution2d Required: 196608 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Exception out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\65\c655uzhzpdgyqp7jzknzodsgnh7fjrrsgrnprg3oldnpij37lbay.py, ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4)
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Traceback (most recent call last):
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     choice.precompile()
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.bmreq.precompile()
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     kernel.precompile()
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self._make_launchers()
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     return result.make_launcher()
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.kernel.load_kernel(device)
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] torch.OutOfMemoryError: out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Exception out of resource: triton_convolution2d Required: 196608 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\d4\cd4ri5v4zw2cbnrs2j7bdqqfxi37unvcpdrq34gehf6xr7avnymx.py, ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=256, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4)
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Traceback (most recent call last):
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     choice.precompile()
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.bmreq.precompile()
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     kernel.precompile()
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self._make_launchers()
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     return result.make_launcher()
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.kernel.load_kernel(device)
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:23:13.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] torch.OutOfMemoryError: out of resource: triton_convolution2d Required: 196608 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Exception out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\gp\cgp75vaai5myibuyaa6byyqgpcl6jad4tcjz26jqpokukkn7yc4q.py, ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=3, num_warps=4)
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Traceback (most recent call last):
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     choice.precompile()
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.bmreq.precompile()
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     kernel.precompile()
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self._make_launchers()
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     return result.make_launcher()
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.kernel.load_kernel(device)
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:23:13.900000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] torch.OutOfMemoryError: out of resource: triton_convolution2d Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+Autotune Choices Stats:
+{"num_choices": 14, "num_triton_choices": 13, "best_kernel": "convolution", "best_time": 0.5089280009269714, "best_triton_pos": 1, "best_triton_time": 2.5917439460754395, "best_triton_kernel": "triton_convolution2d_81", "best_triton_kernel_desc": "ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4"}
+AUTOTUNE convolution(134x256x71x1, 512x256x64x1)
+strides: [256*((s64//128)) + 16128, ((s64//128)) + 63, 1, 1], [16384, 64, 1, 1]
+dtypes: torch.float32, torch.float32
+  convolution 0.5089 ms 100.0% 
+  triton_convolution2d_81 2.5917 ms 19.6% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_86 2.8375 ms 17.9% ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=4, num_warps=4
+  triton_convolution2d_85 3.0732 ms 16.6% ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=4, num_warps=4
+  triton_convolution2d_77 3.8246 ms 13.3% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=256, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_78 4.9111 ms 10.4% ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=256, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_80 5.1937 ms 9.8% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_82 6.0447 ms 8.4% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=256, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_83 6.2585 ms 8.1% ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=256, BLOCK_N=64, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=2, num_warps=4
+  triton_convolution2d_84 8.7409 ms 5.8% ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=128, BLOCK_N=128, GROUPS=1, KERNEL_H=64, KERNEL_W=1, PADDING_H=0, PADDING_W=0, STRIDE_H=1, STRIDE_W=1, UNROLL=False, num_stages=3, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 1.7114 seconds and 0.0040 seconds precompiling for 14 choices
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Exception out of resource: triton_mm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\bf\cbf4gbc24cwtomfpkjrzdhfg3zripaqkvjfukhjq4aloho7yz5s4.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8)
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] Traceback (most recent call last):
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     choice.precompile()
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.bmreq.precompile()
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     kernel.precompile()
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self._make_launchers()
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     return result.make_launcher()
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.kernel.load_kernel(device)
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:23:16.595000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [0/0_1] torch.OutOfMemoryError: out of resource: triton_mm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+Autotune Choices Stats:
+{"num_choices": 21, "num_triton_choices": 20, "best_kernel": "mm", "best_time": 0.025599999353289604, "best_triton_pos": 1, "best_triton_time": 0.07884799689054489, "best_triton_kernel": "triton_mm_95", "best_triton_kernel_desc": "ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4"}
+AUTOTUNE mm(134x2048, 2048x360)
+strides: [2048, 1], [1, 2048]
+dtypes: torch.float32, torch.float32
+  mm 0.0256 ms 100.0% 
+  triton_mm_95 0.0788 ms 32.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_mm_94 0.1188 ms 21.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=1, num_warps=2
+  triton_mm_97 0.1260 ms 20.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_mm_98 0.1321 ms 19.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_mm_96 0.1331 ms 19.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_mm_102 0.1454 ms 17.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_mm_103 0.1608 ms 15.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_mm_100 0.1638 ms 15.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_mm_107 0.1681 ms 15.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 1.1217 seconds and 0.0020 seconds precompiling for 21 choices
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0] Exception out of resource: triton_mm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\vn\cvnlnses5f3pnewyjc2fu62ztvahoieoqbk3qxg7zuwqxmy3y5i2.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8)
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0] Traceback (most recent call last):
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     choice.precompile()
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self.bmreq.precompile()
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     kernel.precompile()
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self._make_launchers()
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     return result.make_launcher()
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self.kernel.load_kernel(device)
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:23:58.523000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0] torch.OutOfMemoryError: out of resource: triton_mm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+Autotune Choices Stats:
+{"num_choices": 21, "num_triton_choices": 20, "best_kernel": "triton_mm_228", "best_kernel_desc": "ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4", "best_time": 0.08089599758386612, "best_triton_pos": 0}
+AUTOTUNE mm(66x1024, 1024x4096)
+strides: [1024, 1], [1, 1024]
+dtypes: torch.float32, torch.float32
+  triton_mm_228 0.0809 ms 100.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_mm_226 0.0850 ms 95.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_mm_229 0.0880 ms 91.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_mm_233 0.0911 ms 88.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_mm_221 0.0993 ms 81.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_mm_231 0.1014 ms 79.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_mm_220 0.1085 ms 74.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=1, num_warps=2
+  triton_mm_225 0.1096 ms 73.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_mm_227 0.1147 ms 70.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=8
+  triton_mm_234 0.1219 ms 66.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8
+SingleProcess AUTOTUNE benchmarking takes 1.2340 seconds and 0.0609 seconds precompiling for 21 choices
+E0912 21:24:01.747000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [1/0] Runtime error during autotuning: 
+E0912 21:24:01.747000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [1/0] out of resource: triton_mm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.. 
+E0912 21:24:01.747000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [1/0] Ignoring this choice.
+Autotune Choices Stats:
+{"num_choices": 22, "num_triton_choices": 21, "best_kernel": "mm", "best_time": 0.03891199827194214, "best_triton_pos": 1, "best_triton_time": 0.08089599758386612, "best_triton_kernel": "triton_mm_354", "best_triton_kernel_desc": "ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4"}
+AUTOTUNE mm(66x1024, 1024x4096)
+strides: [1024, 1], [1, 1024]
+dtypes: torch.float32, torch.float32
+  mm 0.0389 ms 100.0% 
+  triton_mm_354 0.0809 ms 48.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_mm_352 0.0850 ms 45.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_mm_355 0.0881 ms 44.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_mm_359 0.0911 ms 42.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_mm_347 0.0993 ms 39.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_mm_357 0.1014 ms 38.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_mm_346 0.1075 ms 36.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=1, num_warps=2
+  triton_mm_351 0.1085 ms 35.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_mm_353 0.1147 ms 33.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=8
+SingleProcess AUTOTUNE benchmarking takes 0.8492 seconds and 0.0000 seconds precompiling for 22 choices
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0] Exception out of resource: triton_mm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\76\c764kwz7avfvwfoyp227cdwidnb36es5gn3ndefhatx65by3ennr.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8)
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0] Traceback (most recent call last):
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     choice.precompile()
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self.bmreq.precompile()
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     kernel.precompile()
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self._make_launchers()
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     return result.make_launcher()
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self.kernel.load_kernel(device)
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:24:01.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0] torch.OutOfMemoryError: out of resource: triton_mm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+Autotune Choices Stats:
+{"num_choices": 21, "num_triton_choices": 20, "best_kernel": "mm", "best_time": 0.049215998500585556, "best_triton_pos": 1, "best_triton_time": 0.14537599682807922, "best_triton_kernel": "triton_mm_242", "best_triton_kernel_desc": "ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4"}
+AUTOTUNE mm(66x4096, 4096x1024)
+strides: [4096, 1], [1, 4096]
+dtypes: torch.float32, torch.float32
+  mm 0.0492 ms 100.0% 
+  triton_mm_242 0.1454 ms 33.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_mm_241 0.2253 ms 21.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=1, num_warps=2
+  triton_mm_244 0.2478 ms 19.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_mm_245 0.2601 ms 18.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_mm_243 0.2652 ms 18.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_mm_249 0.2929 ms 16.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_mm_247 0.3011 ms 16.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_mm_250 0.3328 ms 14.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_mm_254 0.3430 ms 14.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 1.1452 seconds and 0.0020 seconds precompiling for 21 choices
+E0912 21:24:04.131000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [1/0] Runtime error during autotuning: 
+E0912 21:24:04.131000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [1/0] out of resource: triton_mm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.. 
+E0912 21:24:04.131000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [1/0] Ignoring this choice.
+Autotune Choices Stats:
+{"num_choices": 22, "num_triton_choices": 21, "best_kernel": "mm", "best_time": 0.04095999896526337, "best_triton_pos": 1, "best_triton_time": 0.1443839967250824, "best_triton_kernel": "triton_mm_368", "best_triton_kernel_desc": "ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4"}
+AUTOTUNE mm(66x4096, 4096x1024)
+strides: [4096, 1], [1, 4096]
+dtypes: torch.float32, torch.float32
+  mm 0.0410 ms 100.0% 
+  triton_mm_368 0.1444 ms 28.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_mm_367 0.2284 ms 17.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=1, num_warps=2
+  triton_mm_370 0.2478 ms 16.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_mm_371 0.2601 ms 15.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_mm_369 0.2652 ms 15.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_mm_375 0.2938 ms 13.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_mm_373 0.3012 ms 13.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_mm_376 0.3328 ms 12.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_mm_380 0.3429 ms 11.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 1.0995 seconds and 0.0000 seconds precompiling for 22 choices
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0] Exception out of resource: triton_mm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\n3\cn3c3pav6al4qyutlcuq73ti6zrm3jtwu4lgssi3vqf3vn5el3xz.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8)
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0] Traceback (most recent call last):
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     choice.precompile()
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self.bmreq.precompile()
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     kernel.precompile()
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self._make_launchers()
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     return result.make_launcher()
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self.kernel.load_kernel(device)
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:24:07.892000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0] torch.OutOfMemoryError: out of resource: triton_mm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+Autotune Choices Stats:
+{"num_choices": 21, "num_triton_choices": 20, "best_kernel": "triton_mm_118", "best_kernel_desc": "ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8", "best_time": 0.03788800165057182, "best_triton_pos": 0}
+AUTOTUNE addmm(66x1024, 66x512, 512x1024)
+strides: [0, 1], [512, 1], [1, 512]
+dtypes: torch.float32, torch.float32, torch.float32
+  triton_mm_118 0.0379 ms 100.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_mm_117 0.0399 ms 94.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_mm_119 0.0399 ms 94.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_mm_123 0.0410 ms 92.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_mm_121 0.0420 ms 90.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  addmm 0.0451 ms 84.1% 
+  triton_mm_124 0.0461 ms 82.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_mm_128 0.0471 ms 80.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_mm_126 0.0532 ms 71.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_mm_120 0.0542 ms 69.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 1.0055 seconds and 0.0020 seconds precompiling for 21 choices
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0] Exception out of resource: triton_mm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\gn\cgngivooh4kh2fdus64kre4l6di7e57wnwrhtczfhkp3rriuaxsu.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8)
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0] Traceback (most recent call last):
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     choice.precompile()
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self.bmreq.precompile()
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     kernel.precompile()
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self._make_launchers()
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     return result.make_launcher()
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self.kernel.load_kernel(device)
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:24:08.899000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [1/0] torch.OutOfMemoryError: out of resource: triton_mm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+Autotune Choices Stats:
+{"num_choices": 21, "num_triton_choices": 20, "best_kernel": "mm", "best_time": 0.026623999699950218, "best_triton_pos": 1, "best_triton_time": 0.04095999896526337, "best_triton_kernel": "triton_mm_137", "best_triton_kernel_desc": "ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4"}
+AUTOTUNE mm(66x1024, 1024x1024)
+strides: [1024, 1], [1, 1024]
+dtypes: torch.float32, torch.float32
+  mm 0.0266 ms 100.0% 
+  triton_mm_137 0.0410 ms 65.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_mm_136 0.0655 ms 40.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=1, num_warps=2
+  triton_mm_139 0.0655 ms 40.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_mm_140 0.0686 ms 38.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_mm_138 0.0706 ms 37.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_mm_144 0.0778 ms 34.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_mm_142 0.0799 ms 33.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_mm_145 0.0870 ms 30.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_mm_149 0.0891 ms 29.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 0.8749 seconds and 0.0010 seconds precompiling for 21 choices
+E0912 21:24:10.543000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [1/0] Runtime error during autotuning: 
+E0912 21:24:10.543000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [1/0] out of resource: triton_mm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.. 
+E0912 21:24:10.543000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [1/0] Ignoring this choice.
+Autotune Choices Stats:
+{"num_choices": 22, "num_triton_choices": 21, "best_kernel": "mm", "best_time": 0.023711999878287315, "best_triton_pos": 1, "best_triton_time": 0.04198399931192398, "best_triton_kernel": "triton_mm_158", "best_triton_kernel_desc": "ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4"}
+AUTOTUNE mm(66x1024, 1024x1024)
+strides: [1024, 1], [1, 1024]
+dtypes: torch.float32, torch.float32
+  mm 0.0237 ms 100.0% 
+  triton_mm_158 0.0420 ms 56.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_mm_157 0.0655 ms 36.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=1, num_warps=2
+  triton_mm_160 0.0655 ms 36.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_mm_161 0.0686 ms 34.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_mm_159 0.0696 ms 34.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_mm_165 0.0778 ms 30.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_mm_163 0.0799 ms 29.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_mm_166 0.0870 ms 27.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_mm_170 0.0891 ms 26.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 0.8326 seconds and 0.0000 seconds precompiling for 22 choices
+E0912 21:25:21.002000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] Runtime error during autotuning: 
+E0912 21:25:21.002000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] permute(sparse_coo): number of dimensions in the tensor input does not match the length of the desired ordering of dimensions i.e. input.dim() = 3 is not equal to len(dims) = 4. 
+E0912 21:25:21.002000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] Ignoring this choice.
+Autotune Choices Stats:
+{"num_choices": 2, "num_triton_choices": 0, "best_kernel": "convolution", "best_time": 0.010239999741315842}
+AUTOTUNE convolution(1x192x133, 384x192x1)
+strides: [25536, 133, 1], [192, 1, 1]
+dtypes: torch.float32, torch.float32
+  convolution 0.0102 ms 100.0% 
+  conv1x1_via_mm inf ms 0.0% 
+SingleProcess AUTOTUNE benchmarking takes 0.3823 seconds and 0.0000 seconds precompiling for 2 choices
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1] Exception out of resource: triton_bmm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\zm\czmpiwafpn4ak32xyh5ryisrooculjxy4eg4cz5i43yy34mpbo6h.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8)
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1] Traceback (most recent call last):
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     choice.precompile()
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.bmreq.precompile()
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     kernel.precompile()
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self._make_launchers()
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     return result.make_launcher()
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.kernel.load_kernel(device)
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:25:24.361000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1] torch.OutOfMemoryError: out of resource: triton_bmm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+Autotune Choices Stats:
+{"num_choices": 21, "num_triton_choices": 20, "best_kernel": "triton_bmm_3187", "best_kernel_desc": "ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4", "best_time": 0.008191999979317188, "best_triton_pos": 0}
+AUTOTUNE bmm(2x133x96, 2x96x133)
+strides: [12768, 96, 1], [12768, 133, 1]
+dtypes: torch.float32, torch.float32
+  triton_bmm_3187 0.0082 ms 100.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3188 0.0082 ms 100.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=8
+  triton_bmm_3190 0.0092 ms 88.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_bmm_3191 0.0092 ms 88.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8
+  triton_bmm_3194 0.0092 ms 88.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_bmm_3195 0.0092 ms 88.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8
+  triton_bmm_3186 0.0102 ms 80.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3184 0.0123 ms 66.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_bmm_3183 0.0133 ms 61.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_bmm_3185 0.0133 ms 61.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 0.9134 seconds and 3.0980 seconds precompiling for 21 choices
+E0912 21:25:27.727000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] Runtime error during autotuning: 
+E0912 21:25:27.727000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] out of resource: triton_bmm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.. 
+E0912 21:25:27.727000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] Ignoring this choice.
+Autotune Choices Stats:
+{"num_choices": 22, "num_triton_choices": 21, "best_kernel": "triton_bmm_3267", "best_kernel_desc": "ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8", "best_time": 0.006144000217318535, "best_triton_pos": 0}
+AUTOTUNE bmm(2x133x96, 2x96x133)
+strides: [12768, 96, 1], [12768, 133, 1]
+dtypes: torch.float32, torch.float32
+  triton_bmm_3267 0.0061 ms 100.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_bmm_3268 0.0061 ms 100.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_bmm_3269 0.0061 ms 100.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_bmm_3265 0.0072 ms 85.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=1, num_warps=2
+  triton_bmm_3271 0.0072 ms 85.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3272 0.0082 ms 75.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=8
+  triton_bmm_3274 0.0092 ms 66.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_bmm_3278 0.0092 ms 66.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_bmm_3270 0.0092 ms 66.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3275 0.0092 ms 66.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8
+SingleProcess AUTOTUNE benchmarking takes 0.6415 seconds and 0.0000 seconds precompiling for 22 choices
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1] Exception out of resource: triton_mm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\hu\chuqlbhvseala5k352wpzbztlftftsfchlvqbzgziiel2evcuqti.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8)
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1] Traceback (most recent call last):
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     choice.precompile()
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.bmreq.precompile()
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     kernel.precompile()
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self._make_launchers()
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     return result.make_launcher()
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.kernel.load_kernel(device)
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:25:27.941000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1] torch.OutOfMemoryError: out of resource: triton_mm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+Autotune Choices Stats:
+{"num_choices": 21, "num_triton_choices": 20, "best_kernel": "mm", "best_time": 0.011264000087976456, "best_triton_pos": 1, "best_triton_time": 0.043007999658584595, "best_triton_kernel": "triton_mm_3161", "best_triton_kernel_desc": "ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4"}
+AUTOTUNE mm(133x1024, 1024x192)
+strides: [1, 133], [1, 1024]
+dtypes: torch.float32, torch.float32
+  mm 0.0113 ms 100.0% 
+  triton_mm_3161 0.0430 ms 26.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_mm_3160 0.0584 ms 19.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=1, num_warps=2
+  triton_mm_3164 0.0655 ms 17.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_mm_3163 0.0696 ms 16.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_mm_3162 0.0727 ms 15.5% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_mm_3166 0.0819 ms 13.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_mm_3168 0.0819 ms 13.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_mm_3169 0.0881 ms 12.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_mm_3165 0.0940 ms 12.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 0.9060 seconds and 0.0020 seconds precompiling for 21 choices
+E0912 21:25:31.461000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] Runtime error during autotuning: 
+E0912 21:25:31.461000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] permute(sparse_coo): number of dimensions in the tensor input does not match the length of the desired ordering of dimensions i.e. input.dim() = 3 is not equal to len(dims) = 4. 
+E0912 21:25:31.461000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] Ignoring this choice.
+Autotune Choices Stats:
+{"num_choices": 2, "num_triton_choices": 0, "best_kernel": "convolution", "best_time": 0.01228800043463707}
+AUTOTUNE convolution(1x192x133, 192x192x1)
+strides: [25536, 133, 1], [192, 1, 1]
+dtypes: torch.float32, torch.float32
+  convolution 0.0123 ms 100.0% 
+  conv1x1_via_mm inf ms 0.0% 
+SingleProcess AUTOTUNE benchmarking takes 0.0500 seconds and 0.0000 seconds precompiling for 2 choices
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1] Exception out of resource: triton_bmm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\gr\cgr6z4gj5p6r4gxtxieiqrb4dv2cpgmxglhgjd2qaeagh4z56uoc.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8)
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1] Traceback (most recent call last):
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     choice.precompile()
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.bmreq.precompile()
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     kernel.precompile()
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self._make_launchers()
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     return result.make_launcher()
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.kernel.load_kernel(device)
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:25:31.946000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1] torch.OutOfMemoryError: out of resource: triton_bmm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+Autotune Choices Stats:
+{"num_choices": 21, "num_triton_choices": 20, "best_kernel": "triton_bmm_3247", "best_kernel_desc": "ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8", "best_time": 0.009216000325977802, "best_triton_pos": 0}
+AUTOTUNE bmm(2x133x265, 2x265x96)
+strides: [35378, 266, 1], [0, 96, 1]
+dtypes: torch.float32, torch.float32
+  triton_bmm_3247 0.0092 ms 100.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_bmm_3246 0.0113 ms 81.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_bmm_3245 0.0123 ms 75.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3248 0.0123 ms 75.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_bmm_3251 0.0133 ms 69.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=8
+  triton_bmm_3250 0.0144 ms 64.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3249 0.0174 ms 52.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3253 0.0174 ms 52.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_bmm_3254 0.0174 ms 52.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8
+  triton_bmm_3244 0.0184 ms 50.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=1, num_warps=2
+SingleProcess AUTOTUNE benchmarking takes 0.6967 seconds and 0.0010 seconds precompiling for 21 choices
+E0912 21:25:34.741000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] Runtime error during autotuning: 
+E0912 21:25:34.741000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] out of resource: triton_bmm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.. 
+E0912 21:25:34.741000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] Ignoring this choice.
+Autotune Choices Stats:
+{"num_choices": 22, "num_triton_choices": 21, "best_kernel": "triton_bmm_3330", "best_kernel_desc": "ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8", "best_time": 0.009216000325977802, "best_triton_pos": 0}
+AUTOTUNE bmm(2x133x265, 2x265x96)
+strides: [35378, 266, 1], [0, 96, 1]
+dtypes: torch.float32, torch.float32
+  triton_bmm_3330 0.0092 ms 100.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_bmm_3331 0.0092 ms 100.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_bmm_3329 0.0102 ms 90.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3332 0.0123 ms 75.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+  triton_bmm_3335 0.0133 ms 69.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=8
+  triton_bmm_3334 0.0145 ms 63.4% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3328 0.0154 ms 60.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=1, num_warps=2
+  triton_bmm_3333 0.0174 ms 52.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3337 0.0174 ms 52.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_bmm_3338 0.0174 ms 52.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8
+SingleProcess AUTOTUNE benchmarking takes 0.6459 seconds and 0.0000 seconds precompiling for 22 choices
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1] Exception out of resource: triton_bmm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\yl\cylfsahybq5qtwa3sgkhhysb4drl3xyjfwbzbwt2mcf4a7gsecux.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8)
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1] Traceback (most recent call last):
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     choice.precompile()
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.bmreq.precompile()
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     kernel.precompile()
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self._make_launchers()
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     return result.make_launcher()
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.kernel.load_kernel(device)
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:25:34.922000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1] torch.OutOfMemoryError: out of resource: triton_bmm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+Autotune Choices Stats:
+{"num_choices": 21, "num_triton_choices": 20, "best_kernel": "triton_bmm_3223", "best_kernel_desc": "ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=1, num_warps=2", "best_time": 0.011264000087976456, "best_triton_pos": 0}
+AUTOTUNE bmm(2x133x133, 2x133x96)
+strides: [17689, 133, 1], [12768, 1, 133]
+dtypes: torch.float32, torch.float32
+  triton_bmm_3223 0.0113 ms 100.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=1, num_warps=2
+  triton_bmm_3224 0.0143 ms 78.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3225 0.0154 ms 73.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_bmm_3226 0.0154 ms 73.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  bmm 0.0164 ms 68.8% 
+  triton_bmm_3229 0.0164 ms 68.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3228 0.0174 ms 64.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3236 0.0195 ms 57.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_bmm_3232 0.0205 ms 55.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_bmm_3227 0.0225 ms 50.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 0.7068 seconds and 0.0020 seconds precompiling for 21 choices
+E0912 21:25:36.302000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] Runtime error during autotuning: 
+E0912 21:25:36.302000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] out of resource: triton_bmm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.. 
+E0912 21:25:36.302000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] Ignoring this choice.
+Autotune Choices Stats:
+{"num_choices": 22, "num_triton_choices": 21, "best_kernel": "triton_bmm_3307", "best_kernel_desc": "ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=1, num_warps=2", "best_time": 0.011264000087976456, "best_triton_pos": 0}
+AUTOTUNE bmm(2x133x133, 2x133x96)
+strides: [17689, 133, 1], [12768, 1, 133]
+dtypes: torch.float32, torch.float32
+  triton_bmm_3307 0.0113 ms 100.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=1, num_warps=2
+  triton_bmm_3308 0.0143 ms 78.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3310 0.0154 ms 73.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_bmm_3309 0.0154 ms 73.2% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  bmm 0.0164 ms 68.8% 
+  triton_bmm_3313 0.0164 ms 68.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3312 0.0174 ms 64.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3316 0.0195 ms 57.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_bmm_3320 0.0195 ms 57.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_bmm_3311 0.0225 ms 50.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=64, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 0.6914 seconds and 0.0000 seconds precompiling for 22 choices
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1] Exception out of resource: triton_bmm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help. for benchmark choice TritonTemplateCaller(C:\dev\myapplio2\.torch_compile_cache\du\cduhlfjbbchw7jkne5xb6riqwlshaldkqvhnim3it2jqhuwkrfsp.py, ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=128, BLOCK_N=128, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8)
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1] Traceback (most recent call last):
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\concurrent\futures\thread.py", line 58, in run
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     result = self.fn(*self.args, **self.kwargs)
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 4534, in precompile_with_captured_stdout
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     choice.precompile()
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\select_algorithm.py", line 3238, in precompile
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.bmreq.precompile()
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\autotune_process.py", line 786, in precompile
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     kernel.precompile()
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 668, in precompile
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self._make_launchers()
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 881, in _make_launchers
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.launchers = [self.compile_by_disabling_pipelining(config)]
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 836, in compile_by_disabling_pipelining
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     return result.make_launcher()
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]            ^^^^^^^^^^^^^^^^^^^^^^
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\triton_heuristics.py", line 2607, in make_launcher
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.kernel.load_kernel(device)
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]   File "C:\dev\myapplio2\env\Lib\site-packages\torch\_inductor\runtime\static_triton_launcher.py", line 146, in load_kernel
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1]     self.C_impl._load_kernel(self.cubin_path, self.name, self.shared, device)
+E0912 21:25:38.541000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:4611] [3/0_1] torch.OutOfMemoryError: out of resource: triton_bmm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.
+Autotune Choices Stats:
+{"num_choices": 21, "num_triton_choices": 20, "best_kernel": "triton_bmm_3208", "best_kernel_desc": "ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4", "best_time": 0.011264000087976456, "best_triton_pos": 0}
+AUTOTUNE bmm(2x133x96, 2x96x265)
+strides: [12768, 96, 1], [0, 1, 96]
+dtypes: torch.float32, torch.float32
+  triton_bmm_3208 0.0113 ms 100.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3215 0.0123 ms 91.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_bmm_3207 0.0133 ms 84.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3211 0.0133 ms 84.6% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_bmm_3216 0.0154 ms 73.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8
+  triton_bmm_3212 0.0164 ms 68.8% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8
+  triton_bmm_3217 0.0184 ms 61.1% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=8
+  triton_bmm_3202 0.0195 ms 57.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=1, num_warps=2
+  triton_bmm_3209 0.0195 ms 57.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=64, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=8
+  triton_bmm_3213 0.0195 ms 57.9% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=64, BLOCK_M=64, BLOCK_N=128, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+SingleProcess AUTOTUNE benchmarking takes 0.8555 seconds and 0.0020 seconds precompiling for 21 choices
+E0912 21:25:39.428000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] Runtime error during autotuning: 
+E0912 21:25:39.428000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] permute(sparse_coo): number of dimensions in the tensor input does not match the length of the desired ordering of dimensions i.e. input.dim() = 3 is not equal to len(dims) = 4. 
+E0912 21:25:39.428000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] Ignoring this choice.
+Autotune Choices Stats:
+{"num_choices": 2, "num_triton_choices": 0, "best_kernel": "convolution", "best_time": 0.008191999979317188}
+AUTOTUNE convolution(1x192x133, 192x192x1)
+strides: [0, 133, 1], [192, 1, 1]
+dtypes: torch.float32, torch.float32
+  convolution 0.0082 ms 100.0% 
+  conv1x1_via_mm inf ms 0.0% 
+SingleProcess AUTOTUNE benchmarking takes 0.0363 seconds and 0.0000 seconds precompiling for 2 choices
+E0912 21:25:40.066000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] Runtime error during autotuning: 
+E0912 21:25:40.066000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] out of resource: triton_bmm Required: 131072 Hardware limit:101376 Reducing block sizes or `num_stages` may help.. 
+E0912 21:25:40.066000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [3/0_1] Ignoring this choice.
+Autotune Choices Stats:
+{"num_choices": 22, "num_triton_choices": 21, "best_kernel": "triton_bmm_3286", "best_kernel_desc": "ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=1, num_warps=2", "best_time": 0.008191999979317188, "best_triton_pos": 0}
+AUTOTUNE bmm(2x133x96, 2x96x265)
+strides: [12768, 96, 1], [0, 1, 96]
+dtypes: torch.float32, torch.float32
+  triton_bmm_3286 0.0082 ms 100.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=32, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=1, num_warps=2
+  triton_bmm_3287 0.0102 ms 80.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=128, BLOCK_M=32, BLOCK_N=32, EVEN_K=False, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3288 0.0102 ms 80.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=32, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_bmm_3289 0.0102 ms 80.0% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=32, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=5, num_warps=8
+  triton_bmm_3292 0.0113 ms 72.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3291 0.0123 ms 66.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=16, BLOCK_M=64, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=2, num_warps=4
+  triton_bmm_3295 0.0123 ms 66.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  triton_bmm_3299 0.0123 ms 66.7% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=128, BLOCK_N=64, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=3, num_warps=4
+  bmm 0.0133 ms 61.5% 
+  triton_bmm_3296 0.0154 ms 53.3% ACC_TYPE='tl.float32', ALLOW_TF32=False, BLOCK_K=32, BLOCK_M=64, BLOCK_N=128, EVEN_K=True, GROUP_M=8, USE_FAST_ACCUM=False, num_stages=4, num_warps=8
+SingleProcess AUTOTUNE benchmarking takes 0.6757 seconds and 0.0000 seconds precompiling for 22 choices
+E0912 21:26:24.004000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [6/0_1] Runtime error during autotuning: 
+E0912 21:26:24.004000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [6/0_1] permute(sparse_coo): number of dimensions in the tensor input does not match the length of the desired ordering of dimensions i.e. input.dim() = 3 is not equal to len(dims) = 4. 
+E0912 21:26:24.004000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [6/0_1] Ignoring this choice.
+Autotune Choices Stats:
+{"num_choices": 2, "num_triton_choices": 0, "best_kernel": "convolution", "best_time": 0.009216000325977802}
+AUTOTUNE convolution(1x96x133, 192x96x1)
+strides: [25536, 133, 1], [96, 1, 1]
+dtypes: torch.float32, torch.float32
+  convolution 0.0092 ms 100.0% 
+  conv1x1_via_mm inf ms 0.0% 
+SingleProcess AUTOTUNE benchmarking takes 0.0465 seconds and 0.0000 seconds precompiling for 2 choices
+E0912 21:26:25.261000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [8/0] Runtime error during autotuning: 
+E0912 21:26:25.261000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [8/0] permute(sparse_coo): number of dimensions in the tensor input does not match the length of the desired ordering of dimensions i.e. input.dim() = 3 is not equal to len(dims) = 4. 
+E0912 21:26:25.261000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [8/0] Ignoring this choice.
+Autotune Choices Stats:
+{"num_choices": 2, "num_triton_choices": 0, "best_kernel": "convolution", "best_time": 0.009216000325977802}
+AUTOTUNE convolution(1x192x133, 96x192x1)
+strides: [25536, 133, 1], [192, 1, 1]
+dtypes: torch.float32, torch.float32
+  convolution 0.0092 ms 100.0% 
+  conv1x1_via_mm inf ms 0.0% 
+SingleProcess AUTOTUNE benchmarking takes 0.0290 seconds and 0.0000 seconds precompiling for 2 choices
+E0912 21:26:28.000000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [9/0] Runtime error during autotuning: 
+E0912 21:26:28.000000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [9/0] permute(sparse_coo): number of dimensions in the tensor input does not match the length of the desired ordering of dimensions i.e. input.dim() = 3 is not equal to len(dims) = 4. 
+E0912 21:26:28.000000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [9/0] Ignoring this choice.
+Autotune Choices Stats:
+{"num_choices": 2, "num_triton_choices": 0, "best_kernel": "convolution", "best_time": 0.02252800017595291}
+AUTOTUNE convolution(1x1x63840, 32x1x1)
+strides: [0, 0, 1], [1, 1, 1]
+dtypes: torch.float32, torch.float32
+  convolution 0.0225 ms 100.0% 
+  conv1x1_via_mm inf ms 0.0% 
+SingleProcess AUTOTUNE benchmarking takes 0.0511 seconds and 0.0000 seconds precompiling for 2 choices
+E0912 21:26:29.045000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [9/0] Runtime error during autotuning: 
+E0912 21:26:29.045000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [9/0] permute(sparse_coo): number of dimensions in the tensor input does not match the length of the desired ordering of dimensions i.e. input.dim() = 3 is not equal to len(dims) = 4. 
+E0912 21:26:29.045000 18196 env\Lib\site-packages\torch\_inductor\select_algorithm.py:5067] [9/0] Ignoring this choice.
+Autotune Choices Stats:
+{"num_choices": 2, "num_triton_choices": 0, "best_kernel": "convolution", "best_time": 0.009216000325977802}
+AUTOTUNE convolution(1x256x1, 512x256x1)
+strides: [256, 1, 1], [256, 1, 1]
+dtypes: torch.float32, torch.float32
+  convolution 0.0092 ms 100.0% 
+  conv1x1_via_mm inf ms 0.0% 
+SingleProcess AUTOTUNE benchmarking takes 0.0529 seconds and 0.0000 seconds precompiling for 2 choices
+READY all_max round=0 startup=412.98s
+DONE all_max round=0 mean=87.365ms

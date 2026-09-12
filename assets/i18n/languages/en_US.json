@@ -1,4 +1,13 @@
 {
+    "Enable torch.compile for CREPE inference.": "Enable torch.compile for CREPE inference.",
+    "Enable TorchCompile for Embedder (Realtime)": "Enable TorchCompile for Embedder (Realtime)",
+    "Enable TorchCompile for RVC (Realtime)": "Enable TorchCompile for RVC (Realtime)",
+    "TorchCompile Mode applies to CREPE, Embedder and RVC. Embedder and RVC changes take effect on the next realtime start. Initial compilation may take time. Failed paths fall back to normal inference, with the reason shown in the status.": "TorchCompile Mode applies to CREPE, Embedder and RVC. Embedder and RVC changes take effect on the next realtime start. Initial compilation may take time. Failed paths fall back to normal inference, with the reason shown in the status.",
+    "Preparing compilation": "Preparing compilation",
+    "Using compiled inference": "Using compiled inference",
+    "Fell back to normal inference": "Fell back to normal inference",
+    "Preparing realtime inference. Initial compilation may take time when TorchCompile is enabled.": "Preparing realtime inference. Initial compilation may take time when TorchCompile is enabled.",
+    "Failed to start realtime inference: {error}": "Failed to start realtime inference: {error}",
     "# How to Report an Issue on GitHub": "# How to Report an Issue on GitHub",
     "## Download Model": "## Download Model",
     "## Download Pretrained Models": "## Download Pretrained Models",

@@ -12,6 +12,7 @@ now_dir = os.getcwd()
 sys.path.append(now_dir)
 
 from rvc.realtime.utils.torch import circular_write
+from rvc.realtime.compile_session import CompileSession, load_settings
 from rvc.configs.config import Config
 from rvc.infer.pipeline import Autotune, AudioProcessor
 from rvc.lib.algorithm.synthesizers import Synthesizer
@@ -101,10 +102,14 @@ class RealtimeVoiceConverter:
         sid: Tensor,
         pitch: Tensor,
         pitchf: Tensor,
+        infer_audio=None,
     ):
-        output = self.net_g.infer(feats, p_len, pitch, pitchf, sid)[0][0, 0]
+        output = (infer_audio or self.infer_audio)(feats, p_len, pitch, pitchf, sid)
 
         return torch.clip(output, -1.0, 1.0, out=output)
+
+    def infer_audio(self, feats, p_len, pitch, pitchf, sid):
+        return self.net_g.infer(feats, p_len, pitch, pitchf, sid)[0][0, 0]
 
 
 class Realtime_Pipeline:
@@ -139,6 +144,12 @@ class Realtime_Pipeline:
         self.resamplers = {}
         self.f0_model = None
         self.f0_model_secondary = None
+        self.compile_session = CompileSession(
+            load_settings(),
+            lambda feats: embedder_forward(hubert_model, feats),
+            self.vc.infer_audio,
+            self.device,
+        )
 
     def get_f0(
         self,
@@ -323,7 +334,7 @@ class Realtime_Pipeline:
         )
 
         # extract features
-        feats = embedder_forward(self.hubert_model, feats).float()
+        feats = self.compile_session.embedder(feats).float()
         feats = (
             self.hubert_model.final_proj(feats[0]).unsqueeze(0)
             if self.version == "v1"
@@ -366,7 +377,10 @@ class Realtime_Pipeline:
             pitch, pitchf = None, None
 
         p_len = torch.tensor([p_len], device=self.device, dtype=torch.int64)
-        out_audio = self.vc.inference(feats, p_len, self.sid, pitch, pitchf).float()
+        out_audio = self.vc.inference(
+            feats, p_len, self.sid, pitch, pitchf,
+            infer_audio=self.compile_session.rvc,
+        ).float()
         if volume_envelope != 1:
             out_audio = AudioProcessor.change_rms(
                 audio, self.sample_rate, out_audio, self.tgt_sr, volume_envelope
