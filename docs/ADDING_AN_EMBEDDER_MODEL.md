@@ -244,11 +244,18 @@ folders keep working.
   outside `extracted/` because `extract_index.py` indexes everything in there and silence
   does not belong in a retrieval index. The shipped `logs/mute*` folders are only a
   fallback for folders extracted before this existed.
-- **Warm starting from a 768 pretrain.** `load_pretrained` (`rvc/train/utils.py:95`) skips
-  exactly `enc_p.emb_phone.*` on a shape mismatch and inherits encoder, flow, decoder and
-  speaker embedding; the discriminator never sees the features and loads whole. Any *other*
-  shape mismatch is a real mistake (wrong sample rate or vocoder) and still exits.
-  Confirmed working: a 1024-dim run reached a usable model in 220 epochs from `f0G48k.pth`.
+- **Warm starting from a 768 pretrain.** `load_pretrained` (`rvc/train/utils.py`, rules in
+  `rvc/train/warm_start.py`) starts `enc_p.emb_phone.weight` from scratch on a shape
+  mismatch and inherits encoder, flow, decoder and speaker embedding; the discriminator
+  never sees the features and loads whole. Any *other* mismatch - including a pretrained
+  tensor that has no place in the model - is a real mistake and exits.
+  **Correction:** this section used to say a 1024-dim run was "confirmed working" from
+  `f0G48k.pth`. It trained, but from the introduction of `load_pretrained` (4288bbea,
+  2026-09-05) until the warm start rewrite, only 20% of the generator and none of the
+  discriminator actually loaded: every weight-normed layer is stored as `weight_g` /
+  `weight_v` and was skipped by a `key in target` filter hidden behind `strict=False`. A
+  run that reaches a usable model anyway is not evidence the pretrain loaded; check the
+  `Warm start (G)` / `Warm start (D)` summary at the start of training instead.
 - **A deep model's intermediate layers.** For a `do_stable_layer_norm` model, only
   `last_hidden_state` has the final LayerNorm; `hidden_states[i]` are raw pre-norm
   residuals. Measured on japanese-hubert-large: 69 per frame at layer 0 rising to 538 at

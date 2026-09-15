@@ -1,9 +1,44 @@
 import torch
+import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 from torch.nn.utils.parametrizations import spectral_norm, weight_norm
 
 from rvc.lib.algorithm.commons import get_padding
 from rvc.lib.algorithm.residuals import LRELU_SLOPE
+
+
+# The sub-discriminators each version is built from, in order. v2 is what every HiFi-GAN
+# model here has always used; v3 is what upstream Applio trains RefineGAN with. Warm
+# starting matches sub-discriminators by these descriptors rather than by position,
+# because a period 17 and a period 23 discriminator have identical shapes but look at
+# different things, and v2 and v3 disagree about what sits at index 6.
+DISCRIMINATOR_VERSIONS = {
+    "v1": {"periods": [2, 3, 5, 7, 11, 17], "resolutions": []},
+    "v2": {"periods": [2, 3, 5, 7, 11, 17, 23, 37], "resolutions": []},
+    "v3": {
+        "periods": [2, 3, 5, 7, 11],
+        "resolutions": [[1024, 120, 600], [2048, 240, 1200], [512, 50, 240]],
+    },
+}
+
+
+def discriminator_layout(version):
+    """Descriptors of a version's sub-discriminators, in ModuleList order."""
+    spec = DISCRIMINATOR_VERSIONS[version]
+    return (
+        [("S",)]
+        + [("P", period) for period in spec["periods"]]
+        + [("R", tuple(resolution)) for resolution in spec["resolutions"]]
+    )
+
+
+def describe_discriminator(discriminator):
+    """The descriptor discriminator_layout would give this sub-discriminator."""
+    if isinstance(discriminator, DiscriminatorP):
+        return ("P", discriminator.period)
+    if isinstance(discriminator, DiscriminatorR):
+        return ("R", tuple(discriminator.resolution))
+    return ("S",)
 
 
 class MultiPeriodDiscriminator(torch.nn.Module):
@@ -18,15 +53,30 @@ class MultiPeriodDiscriminator(torch.nn.Module):
     Args:
         use_spectral_norm (bool): Whether to use spectral normalization.
             Defaults to False.
+        version (str): Which set of sub-discriminators to build, see
+            DISCRIMINATOR_VERSIONS. Defaults to "v2".
     """
 
-    def __init__(self, use_spectral_norm: bool = False, checkpointing: bool = False):
+    def __init__(
+        self,
+        use_spectral_norm: bool = False,
+        checkpointing: bool = False,
+        version: str = "v2",
+    ):
         super().__init__()
-        periods = [2, 3, 5, 7, 11, 17, 23, 37]
+        if version not in DISCRIMINATOR_VERSIONS:
+            raise ValueError(f"Unknown discriminator version '{version}'")
+        self.version = version
+        periods = DISCRIMINATOR_VERSIONS[version]["periods"]
+        resolutions = DISCRIMINATOR_VERSIONS[version]["resolutions"]
         self.checkpointing = checkpointing
         self.discriminators = torch.nn.ModuleList(
             [DiscriminatorS(use_spectral_norm=use_spectral_norm)]
             + [DiscriminatorP(p, use_spectral_norm=use_spectral_norm) for p in periods]
+            + [
+                DiscriminatorR(r, use_spectral_norm=use_spectral_norm)
+                for r in resolutions
+            ]
         )
 
     def forward(self, y, y_hat):
@@ -147,3 +197,64 @@ class DiscriminatorP(torch.nn.Module):
         fmap.append(x)
         x = torch.flatten(x, 1, -1)
         return x, fmap
+
+
+class DiscriminatorR(torch.nn.Module):
+    """
+    Discriminator on a linear magnitude spectrogram at one STFT resolution.
+
+    Ported from upstream Applio, which trains RefineGAN against these (version "v3").
+
+    Args:
+        resolution (list): [n_fft, hop_length, win_length] of the STFT.
+        use_spectral_norm (bool): Whether to use spectral normalization. Defaults to False.
+    """
+
+    def __init__(self, resolution, use_spectral_norm: bool = False):
+        super().__init__()
+
+        self.resolution = resolution
+        self.lrelu_slope = LRELU_SLOPE
+        norm_f = spectral_norm if use_spectral_norm else weight_norm
+
+        self.convs = torch.nn.ModuleList(
+            [
+                norm_f(torch.nn.Conv2d(1, 32, (3, 9), padding=(1, 4))),
+                norm_f(torch.nn.Conv2d(32, 32, (3, 9), stride=(1, 2), padding=(1, 4))),
+                norm_f(torch.nn.Conv2d(32, 32, (3, 9), stride=(1, 2), padding=(1, 4))),
+                norm_f(torch.nn.Conv2d(32, 32, (3, 9), stride=(1, 2), padding=(1, 4))),
+                norm_f(torch.nn.Conv2d(32, 32, (3, 3), padding=(1, 1))),
+            ]
+        )
+        self.conv_post = norm_f(torch.nn.Conv2d(32, 1, (3, 3), padding=(1, 1)))
+
+    def forward(self, x):
+        fmap = []
+
+        x = self.spectrogram(x).unsqueeze(1)
+
+        for layer in self.convs:
+            x = F.leaky_relu(layer(x), self.lrelu_slope)
+            fmap.append(x)
+        x = self.conv_post(x)
+        fmap.append(x)
+
+        return torch.flatten(x, 1, -1), fmap
+
+    def spectrogram(self, x):
+        n_fft, hop_length, win_length = self.resolution
+        pad = int((n_fft - hop_length) / 2)
+        x = F.pad(x, (pad, pad), mode="reflect").squeeze(1)
+        # The generator output arrives in fp16/bf16 under autocast, and the CUDA FFT does
+        # not take half precision, so the STFT always runs in fp32.
+        x = torch.stft(
+            x.float(),
+            n_fft=n_fft,
+            hop_length=hop_length,
+            win_length=win_length,
+            window=torch.ones(win_length, device=x.device),
+            center=False,
+            return_complex=True,
+        )
+
+        return torch.norm(torch.view_as_real(x), p=2, dim=-1)  # [B, F, TT]

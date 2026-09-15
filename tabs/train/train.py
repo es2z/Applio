@@ -7,7 +7,11 @@ from multiprocessing import cpu_count
 import gradio as gr
 
 from assets.i18n.i18n import I18nAuto
-from rvc.train.extract.preparing_files import read_train_settings
+from rvc.train.extract.preparing_files import (
+    read_generator_lr_boost_settings,
+    read_train_settings,
+)
+from rvc.train.lr_boost import DEFAULT_G_LR_BOOST_EPOCHS, DEFAULT_G_LR_BOOST_MULTIPLIER
 
 from core import (
     run_extract_script,
@@ -321,13 +325,17 @@ def load_train_settings(model_name, sample_rate):
     Reading the run's own config.json rather than a fixed default is what lets the field
     be written back on start without silently overwriting a hand edit.
     """
-    settings = read_train_settings(
-        os.path.join(now_dir, "logs", str(model_name or "")), int(sample_rate)
-    )
+    model_path = os.path.join(now_dir, "logs", str(model_name or ""))
+    settings = read_train_settings(model_path, int(sample_rate))
     settings = settings or DEFAULT_TRAIN_SETTINGS
+    boost = read_generator_lr_boost_settings(model_path)
     return (
         gr.update(value=settings["learning_rate"]),
         gr.update(value=settings["c_mel"]),
+        gr.update(value=boost["enabled"]),
+        gr.update(visible=boost["enabled"]),
+        gr.update(value=boost["multiplier"]),
+        gr.update(value=boost["epochs"]),
     )
 
 def train_tab():
@@ -364,12 +372,12 @@ def train_tab():
                 vocoder = gr.Radio(
                     label=i18n("Vocoder"),
                     info=i18n(
-                        "Choose the vocoder for audio synthesis:\n- **HiFi-GAN**: Default option, compatible with all clients.\n- **MRF HiFi-GAN**: Higher fidelity, Applio-only.\n- **RefineGAN**: Superior audio quality, Applio-only."
+                        "Choose the vocoder for audio synthesis:\n- **HiFi-GAN**: Default option, compatible with all clients.\n- **RefineGAN**: Applio-only, trained against an extra multi-resolution discriminator with a multi-scale mel loss. Without a RefineGAN pretrained model for the sample rate it warm starts from the HiFi-GAN one (or from a custom HiFi-GAN G/D): the encoders, flow and residual blocks are inherited and the rest of the decoder starts from scratch, so consider the Initial Generator LR Boost."
                     ),
-                    choices=["HiFi-GAN", "MRF HiFi-GAN", "RefineGAN"],
+                    choices=["HiFi-GAN", "RefineGAN"],
                     value="HiFi-GAN",
-                    interactive=False,
-                    visible=False,  # to be visible once pretraineds are ready
+                    interactive=True,
+                    visible=True,
                 )
         with gr.Accordion(
             i18n("Advanced Settings"),
@@ -813,6 +821,36 @@ def train_tab():
                     step=1,
                     interactive=True,
                 )
+            g_lr_boost = gr.Checkbox(
+                label=i18n("Initial Generator LR Boost"),
+                info=i18n(
+                    "Multiply only the generator's learning rate for the first epochs of the run; the discriminator keeps the normal rate. Useful when part of the generator starts from scratch, such as RefineGAN warm started from a HiFi-GAN model. The epochs count from the start of the run, so resuming neither restarts nor skips the boost. Saved in logs/<model_name>/config.json."
+                ),
+                value=False,
+                interactive=True,
+            )
+            with gr.Row(visible=False) as g_lr_boost_settings:
+                g_lr_boost_multiplier = gr.Number(
+                    label=i18n("Generator LR Multiplier"),
+                    info=i18n(
+                        "What the generator's normal learning rate is multiplied by while the boost lasts."
+                    ),
+                    value=DEFAULT_G_LR_BOOST_MULTIPLIER,
+                    minimum=0,
+                    step=0.5,
+                    interactive=True,
+                )
+                g_lr_boost_epochs = gr.Number(
+                    label=i18n("Boost Epochs"),
+                    info=i18n(
+                        "The boost applies from epoch 1 through this epoch, then the generator returns to its normal learning rate."
+                    ),
+                    value=DEFAULT_G_LR_BOOST_EPOCHS,
+                    minimum=1,
+                    precision=0,
+                    step=1,
+                    interactive=True,
+                )
             index_algorithm = gr.Radio(
                 label=i18n("Index Algorithm"),
                 info=i18n(
@@ -827,7 +865,14 @@ def train_tab():
             component.change(
                 fn=load_train_settings,
                 inputs=[model_name, sampling_rate],
-                outputs=[learning_rate, c_mel],
+                outputs=[
+                    learning_rate,
+                    c_mel,
+                    g_lr_boost,
+                    g_lr_boost_settings,
+                    g_lr_boost_multiplier,
+                    g_lr_boost_epochs,
+                ],
             )
 
         def enforce_terms(terms_accepted, *args):
@@ -880,6 +925,9 @@ def train_tab():
                     checkpointing,
                     learning_rate,
                     c_mel,
+                    g_lr_boost,
+                    g_lr_boost_multiplier,
+                    g_lr_boost_epochs,
                 ],
                 outputs=[train_output_info],
             )
@@ -1079,6 +1127,11 @@ def train_tab():
                 fn=toggle_visible,
                 inputs=[overtraining_detector],
                 outputs=[overtraining_settings],
+            )
+            g_lr_boost.change(
+                fn=toggle_visible,
+                inputs=[g_lr_boost],
+                outputs=[g_lr_boost_settings],
             )
             train_button.click(
                 fn=enable_stop_train_button,

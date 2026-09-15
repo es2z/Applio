@@ -513,14 +513,26 @@ def run_train_script(
     checkpointing: bool = False,
     learning_rate: float = None,
     c_mel: float = None,
+    g_lr_boost: bool = None,
+    g_lr_boost_multiplier: float = None,
+    g_lr_boost_epochs: int = None,
 ):
 
-    # These two live only in logs/<model>/config.json, so set them there rather than
+    # These live only in logs/<model>/config.json, so set them there rather than
     # threading them through train.py's positional argv. Passing None leaves them alone.
-    from rvc.train.extract.preparing_files import apply_train_settings
+    from rvc.train.extract.preparing_files import (
+        apply_generator_lr_boost_settings,
+        apply_train_settings,
+    )
 
     apply_train_settings(
         os.path.join(logs_path, model_name), learning_rate=learning_rate, c_mel=c_mel
+    )
+    apply_generator_lr_boost_settings(
+        os.path.join(logs_path, model_name),
+        enabled=g_lr_boost,
+        multiplier=g_lr_boost_multiplier,
+        epochs=g_lr_boost_epochs,
     )
 
     if pretrained == True:
@@ -1999,6 +2011,26 @@ def parse_arguments():
         default=None,
     )
     train_parser.add_argument(
+        "--g_lr_boost_multiplier",
+        type=float,
+        help=(
+            "Initial Generator LR Boost: multiply only the generator's learning rate by "
+            "this during the first --g_lr_boost_epochs epochs. Defaults to whatever is "
+            "already in logs/<model_name>/config.json (3.0)."
+        ),
+        default=None,
+    )
+    train_parser.add_argument(
+        "--g_lr_boost_epochs",
+        type=int,
+        help=(
+            "Initial Generator LR Boost: how many epochs, counted from the start of the "
+            "run and kept across resumes. 0 turns it off. Defaults to whatever is already "
+            "in logs/<model_name>/config.json (off)."
+        ),
+        default=None,
+    )
+    train_parser.add_argument(
         "--vocoder",
         type=str,
         help="Vocoder name",
@@ -2434,6 +2466,8 @@ def main():
                 checkpointing=args.checkpointing,
                 learning_rate=args.learning_rate,
                 c_mel=args.c_mel,
+                g_lr_boost_multiplier=args.g_lr_boost_multiplier,
+                g_lr_boost_epochs=args.g_lr_boost_epochs,
             )
         elif args.mode == "index":
             run_index_script(

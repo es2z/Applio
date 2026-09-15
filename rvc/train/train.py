@@ -40,6 +40,12 @@ from utils import (
     save_checkpoint,
     summarize,
 )
+from lr_boost import (
+    generator_lr_boost_factor,
+    read_generator_lr_boost,
+    restore_learning_rates,
+    scale_learning_rates,
+)
 
 # Zluda hijack
 import rvc.lib.zluda
@@ -70,6 +76,13 @@ g_lr_coeff = 1.0
 d_step_per_g_step = 1
 multiscale_mel_loss = False
 bf16_adamw = False
+disc_version = "v2"
+
+# Upstream Applio trains RefineGAN against the v3 discriminator (five periods plus three
+# STFT resolution discriminators) with the multi-scale mel loss. HiFi-GAN keeps v2.
+if vocoder == "RefineGAN":
+    disc_version = "v3"
+    multiscale_mel_loss = True
 
 current_dir = os.getcwd()
 
@@ -106,6 +119,21 @@ except FileNotFoundError:
     sys.exit(1)
 
 config.data.training_files = os.path.join(experiment_dir, "filelist.txt")
+
+# Stamped onto every resume checkpoint next to embedder_identity, so a resume cannot
+# continue into a different vocoder and a warm start from these files knows what it is
+# inheriting from.
+architecture_identity = {
+    "vocoder": vocoder,
+    "sample_rate": config.data.sample_rate,
+    "disc_version": disc_version,
+}
+
+try:
+    g_lr_boost_multiplier, g_lr_boost_epochs = read_generator_lr_boost(config.train)
+except ValueError as error:
+    print(f"Invalid Initial Generator LR Boost settings in {config_save_path}: {error}")
+    sys.exit(1)
 
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = True
@@ -438,7 +466,9 @@ def run(
     )
 
     net_d = MultiPeriodDiscriminator(
-        config.model.use_spectral_norm, checkpointing=checkpointing
+        config.model.use_spectral_norm,
+        checkpointing=checkpointing,
+        version=disc_version,
     )
 
     if torch.cuda.is_available():
@@ -485,34 +515,53 @@ def run(
         print("Using BFloat16 for training.")
     elif rank == 0 and train_dtype == torch.float16:
         print("Using Float16 for training.")
+    if rank == 0 and g_lr_boost_epochs > 0:
+        print(
+            f"Initial Generator LR Boost: generator learning rate x{g_lr_boost_multiplier:g} "
+            f"through epoch {g_lr_boost_epochs}"
+        )
 
     # Load checkpoint if available
     scaler_dict = {}
-    assert_resumable(experiment_dir, embedder_identity)
-    try:
-        print("Starting training...")
-        _, _, _, epoch_str, scaler_dict = load_checkpoint(
-            latest_checkpoint_path(experiment_dir, "D_*.pth"), net_d, optim_d
-        )
-        _, _, _, epoch_str, _ = load_checkpoint(
-            latest_checkpoint_path(experiment_dir, "G_*.pth"), net_g, optim_g
-        )
+    assert_resumable(experiment_dir, embedder_identity, architecture_identity)
+    print("Starting training...")
+    resume_g = latest_checkpoint_path(experiment_dir, "G_*.pth")
+    resume_d = latest_checkpoint_path(experiment_dir, "D_*.pth")
+    if resume_g and resume_d:
+        # A checkpoint that is there but does not load is an error. It used to be caught
+        # and treated as "nothing to resume", which quietly restarted from the pretrained
+        # model and then overwrote the checkpoint.
+        _, _, _, epoch_str, scaler_dict = load_checkpoint(resume_d, net_d, optim_d)
+        _, _, _, epoch_str, _ = load_checkpoint(resume_g, net_g, optim_g)
         epoch_str += 1
         global_step = (epoch_str - 1) * len(train_loader)
-
-    except Exception as e:
+    else:
+        if resume_g or resume_d:
+            print(
+                f"Found {os.path.basename(resume_g or resume_d)} without a matching "
+                f"{'D' if resume_g else 'G'}_*.pth, so not resuming from it."
+            )
         epoch_str = 1
         global_step = 0
 
+        # Weights only: a warm start never takes optimizer or scaler state.
         if pretrainG not in ("", "None"):
-            if rank == 0:
-                print(f"Loaded pretrained (G) '{pretrainG}'")
-            load_pretrained(net_g, pretrainG, "G", verbose=rank == 0)
+            load_pretrained(
+                net_g,
+                pretrainG,
+                "G",
+                verbose=rank == 0,
+                target_identity=architecture_identity,
+            )
 
         if pretrainD not in ("", "None"):
-            if rank == 0:
-                print(f"Loaded pretrained (D) '{pretrainD}'")
-            load_pretrained(net_d, pretrainD, "D", verbose=rank == 0)
+            load_pretrained(
+                net_d,
+                pretrainD,
+                "D",
+                verbose=rank == 0,
+                target_identity=architecture_identity,
+            )
 
     # Initialize schedulers
     scheduler_g = torch.optim.lr_scheduler.ExponentialLR(
@@ -652,6 +701,19 @@ def train_and_evaluate(
         data_iterator = enumerate(train_loader)
 
     epoch_recorder = EpochRecorder()
+
+    # Initial Generator LR Boost (rvc/train/lr_boost.py): generator only, and taken back
+    # off below before anything logs or saves the learning rate.
+    g_lr_factor = generator_lr_boost_factor(
+        epoch, g_lr_boost_multiplier, g_lr_boost_epochs
+    )
+    boosted_g_lrs = scale_learning_rates(optim_g, g_lr_factor)
+    if boosted_g_lrs is not None and rank == 0:
+        print(
+            f"Initial Generator LR Boost: epoch {epoch} of {g_lr_boost_epochs}, generator "
+            f"learning rate x{g_lr_factor:g} = {optim_g.param_groups[0]['lr']:.3e}"
+        )
+
     with tqdm(total=len(train_loader), leave=False) as pbar:
         for batch_idx, info in data_iterator:
             if device.type == "cuda" and not cache_data_in_gpu:
@@ -808,6 +870,7 @@ def train_and_evaluate(
             pbar.update(1)
         # end of batch train
     # end of tqdm
+    restore_learning_rates(optim_g, boosted_g_lrs)
     with torch.no_grad():
         torch.cuda.empty_cache()
 
@@ -844,7 +907,8 @@ def train_and_evaluate(
             config.data.mel_fmax,
         )
 
-        lr = optim_g.param_groups[0]["lr"]
+        # The generator's effective learning rate this epoch, boost included.
+        lr = optim_g.param_groups[0]["lr"] * g_lr_factor
 
         scalar_dict = {
             "loss/g/total": loss_gen_all,
@@ -999,6 +1063,7 @@ def train_and_evaluate(
                 os.path.join(experiment_dir, "G_" + checkpoint_suffix),
                 scaler,
                 embedder_identity,
+                architecture_identity,
             )
             save_checkpoint(
                 net_d,
@@ -1008,6 +1073,7 @@ def train_and_evaluate(
                 os.path.join(experiment_dir, "D_" + checkpoint_suffix),
                 scaler,
                 embedder_identity,
+                architecture_identity,
             )
             if custom_save_every_weights:
                 model_add.append(

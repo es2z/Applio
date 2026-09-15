@@ -978,13 +978,20 @@ class TrainSettingsTest(unittest.TestCase):
                 self.assertEqual(train["c_mel"], 45)
 
     def test_the_training_tab_passes_them_last(self):
-        # run_train_script takes them as its final two parameters, and gradio forwards the
-        # inputs list positionally, so the order of the two has to agree.
+        # run_train_script takes the config.json settings as its final parameters, and
+        # gradio forwards the inputs list positionally, so the order has to agree.
         import inspect
         from core import run_train_script
 
+        expected = [
+            "learning_rate",
+            "c_mel",
+            "g_lr_boost",
+            "g_lr_boost_multiplier",
+            "g_lr_boost_epochs",
+        ]
         names = list(inspect.signature(run_train_script).parameters)
-        self.assertEqual(names[-2:], ["learning_rate", "c_mel"])
+        self.assertEqual(names[-len(expected) :], expected)
 
         source = (
             Path(__file__).resolve().parents[1] / "tabs" / "train" / "train.py"
@@ -1002,8 +1009,8 @@ class TrainSettingsTest(unittest.TestCase):
                 )
             ):
                 inputs = next(kw.value for kw in node.keywords if kw.arg == "inputs")
-                tail = [element.id for element in inputs.elts[-2:]]
-                self.assertEqual(tail, ["learning_rate", "c_mel"])
+                tail = [element.id for element in inputs.elts[-len(expected) :]]
+                self.assertEqual(tail, expected)
                 return
         self.fail("could not find the train button wiring")
 

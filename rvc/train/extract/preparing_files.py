@@ -2,6 +2,13 @@ import os
 import shutil
 from random import shuffle
 from rvc.configs.config import Config
+from rvc.train.lr_boost import (
+    DEFAULT_G_LR_BOOST_EPOCHS,
+    DEFAULT_G_LR_BOOST_MULTIPLIER,
+    G_LR_BOOST_EPOCHS_KEY,
+    G_LR_BOOST_MULTIPLIER_KEY,
+    validate_generator_lr_boost,
+)
 import json
 
 config = Config()
@@ -76,6 +83,86 @@ def apply_train_settings(model_path: str, **settings):
         for key, value in settings.items()
         if key in TRAIN_SETTING_KEYS and value is not None and train.get(key) != value
     }
+    if not changed:
+        return
+    train.update(changed)
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=4)
+    for key, value in changed.items():
+        print(f"Set {key} to {value} in {config_path}")
+
+
+def read_generator_lr_boost_settings(model_path: str):
+    """What the Initial Generator LR Boost controls should show for a run.
+
+    Off unless the run's config.json has a boost epoch count above 0. When it is off the
+    number boxes show the defaults, so ticking the box offers something sensible.
+    """
+    train = {}
+    config_path = os.path.join(model_path, "config.json")
+    if os.path.isfile(config_path):
+        with open(config_path, "r") as f:
+            train = json.load(f).get("train", {})
+    epochs = train.get(G_LR_BOOST_EPOCHS_KEY) or 0
+    enabled = epochs > 0
+    return {
+        "enabled": enabled,
+        "multiplier": train.get(
+            G_LR_BOOST_MULTIPLIER_KEY, DEFAULT_G_LR_BOOST_MULTIPLIER
+        ),
+        "epochs": epochs if enabled else DEFAULT_G_LR_BOOST_EPOCHS,
+    }
+
+
+def apply_generator_lr_boost_settings(
+    model_path: str, enabled=None, multiplier=None, epochs=None
+):
+    """Write the Initial Generator LR Boost settings into a run's config.json.
+
+    enabled=True writes both values. enabled=False switches a previously enabled boost
+    off by setting its epoch count to 0, and leaves a config that never had one alone, so
+    training with the box unticked changes nothing. enabled=None (the CLI) writes only the
+    values that were passed. Raises ValueError for values train.py would refuse.
+    """
+    config_path = os.path.join(model_path, "config.json")
+    if not os.path.isfile(config_path):
+        return
+    with open(config_path, "r") as f:
+        config = json.load(f)
+    train = config.setdefault("train", {})
+
+    if enabled is None:
+        wanted = {}
+        if multiplier is not None or epochs is not None:
+            valid_multiplier, valid_epochs = validate_generator_lr_boost(
+                (
+                    multiplier
+                    if multiplier is not None
+                    else train.get(
+                        G_LR_BOOST_MULTIPLIER_KEY, DEFAULT_G_LR_BOOST_MULTIPLIER
+                    )
+                ),
+                epochs if epochs is not None else train.get(G_LR_BOOST_EPOCHS_KEY, 0),
+            )
+            if multiplier is not None:
+                wanted[G_LR_BOOST_MULTIPLIER_KEY] = valid_multiplier
+            if epochs is not None:
+                wanted[G_LR_BOOST_EPOCHS_KEY] = valid_epochs
+    elif enabled:
+        valid_multiplier, valid_epochs = validate_generator_lr_boost(multiplier, epochs)
+        if valid_epochs == 0:
+            raise ValueError(
+                "Initial Generator LR Boost is enabled with 0 epochs. Untick it, or give "
+                "it at least 1 epoch."
+            )
+        wanted = {
+            G_LR_BOOST_MULTIPLIER_KEY: valid_multiplier,
+            G_LR_BOOST_EPOCHS_KEY: valid_epochs,
+        }
+    else:
+        wanted = {G_LR_BOOST_EPOCHS_KEY: 0} if train.get(G_LR_BOOST_EPOCHS_KEY) else {}
+
+    changed = {key: value for key, value in wanted.items() if train.get(key) != value}
     if not changed:
         return
     train.update(changed)

@@ -340,10 +340,12 @@ before writing any code.
   and the embedder reads that amplified noise as speech. Set it to 0.0 for the literal
   `Wav2Vec2FeatureExtractor` behaviour.
 - **Warm starting from the stock 768 pretrains works and is the intended path.**
-  `enc_p.emb_phone` is the only tensor whose shape depends on the embedder, so
-  `load_pretrained` (`rvc/train/utils.py`) skips exactly that pair and inherits the
-  encoder, flow, decoder and speaker embedding; the discriminator loads whole. Any *other*
-  shape mismatch is a real mistake (wrong sample rate or vocoder) and still stops the run.
+  `enc_p.emb_phone.weight` is the only tensor whose shape depends on the embedder, so
+  `load_pretrained` (rules in `rvc/train/warm_start.py`) starts exactly that one from
+  scratch and inherits the encoder, flow, decoder and speaker embedding; the discriminator
+  loads whole. Any *other* mismatch still stops the run. Measured after the loader rewrite:
+  `f0G48k.pth` into a 1024-dim 48k HiFi-GAN inherits 559 of 560 tensors (99.5% of the
+  parameters). See "The pretrained loading bug" below for why that was 20% before.
 - `embedder_output_layer` selects which layer the features come from, 0 meaning the last.
   It is worth experimenting with here and nowhere else: content peaks below the top layer
   of a 24-layer model while speaker identity is strongest near the bottom, which matters
@@ -386,7 +388,8 @@ before writing any code.
   pretrains skips exactly `enc_p.emb_phone` (verified end to end: extract -> 1024-wide
   `.npy` and `mute.npy`, `text_enc_hidden_dim` 1024, FAISS index `d=1024`, train from
   `f0G48k.pth`, infer, and realtime through `create_pipeline`), and the resume guard
-  refuses a `G_*.pth` stamped with a different embedder.
+  refuses a `G_*.pth` stamped with a different embedder. That "train from `f0G48k.pth`"
+  ran, but under the pretrained loading bug below: only 20% of G and none of D loaded.
 - Realtime cost is indistinguishable from `japanese-hubert-large` - same architecture.
   Measured back to back on an RTX 4090 over a 1.5 s window, fp32: 12.6 ms against 13.1 ms.
 
@@ -400,6 +403,108 @@ continued from a generator whose `enc_p.emb_phone` - and the Adam moments behind
 been fitted to the old features, which produces a model that sounds broken and never
 recovers rather than an error. If you hit the refusal, either train under a new model name
 or delete the `G_*.pth` / `D_*.pth` to start again from the pretrain.
+
+### The pretrained loading bug (4288bbea .. the warm start rewrite)
+From 2026-09-05 until `rvc/train/warm_start.py` existed, **every run started from a
+pretrained model - stock or custom - began with a random flow, most of a random decoder,
+a random posterior encoder and an entirely random discriminator.** Resuming was never
+affected. The cause: every checkpoint on disk (stock `f0G48k.pth`, and every `G_*.pth` /
+`D_*.pth`, because `save_checkpoint` writes them that way) stores weight-normed layers as
+`*.weight_g` / `*.weight_v`, while the live `state_dict` names them
+`*.parametrizations.weight.original0/1`. The old `load_pretrained` filtered with
+`key in target` *before* any renaming, and `load_state_dict(strict=False)` hid the rest.
+`load_checkpoint` (resume) renamed first, which is why resuming worked while a new folder
+pointed at the same `G_2333333.pth` sounded like epoch 1.
+
+Measured on the 48k kushinada config: `f0G48k.pth` loaded 20.3% of G's parameters,
+`G_2333333.pth` 20.9%, and both D files 0% (274 and 110 skipped keys). After the rewrite
+they load 99.5% (only `enc_p.emb_phone.weight`, a width change), 100% and 100%.
+What that meant for the sound, from `naru_dekai_20260913_kushinada_hubert_large/G_2333333.pth`
+on 16 training clips before any step: mel L1 1.95 from scratch, **2.36 with the old
+loader** (worse than scratch), 0.35 with the new one. And in real training of a new
+folder from that G/D, `loss_avg_50/g/mel` at step 50 was 62.8 under the bug against 16.4
+after the fix.
+
+The rewrite normalises names first, decides the fate of every tensor before loading,
+**exits if any pretrained tensor has no place in the model**, and always prints a
+`Warm start (G)` / `Warm start (D)` summary. Read that summary; "the run trained" is not
+evidence that the pretrain loaded. `load_state_dict` still accepts the legacy names on
+its own through torch's weight_norm compatibility hook - the problem was only ever the
+filtering in front of it.
+
+### RefineGAN at 32k / 40k / 48k
+The Vocoder radio in the Training tab is visible again (`HiFi-GAN`, `RefineGAN`). Nothing
+about RefineGAN was tied to 32k except upstream only shipping 32k pretrains:
+- The decoder's upsampling chain divides cleanly for every stock config (48k:
+  `[12,10,2,2]`, f0 downsampled 480 -> 240 -> 120 -> 12 -> 1), and the forward output is
+  exactly `segment_size` (17280) at 48k. `cond` now takes `gin_channels` instead of a
+  literal 256, and `Synthesizer` passes `gin_channels` / `upsample_initial_channel`
+  through; with the stock 256 / 512 the weights are unchanged.
+- The decoder is independent of the embedder width, so 768 and 1024 both work through the
+  existing `enc_p.emb_phone` mechanism; `enc_p` / `enc_q` / `flow` / `emb_g` are key for key
+  identical between the two vocoders.
+- `train.py` follows upstream for RefineGAN: `MultiPeriodDiscriminator(version="v3")`
+  (scale + periods 2, 3, 5, 7, 11 + three `DiscriminatorR` STFT resolutions) and the
+  multi-scale mel loss. HiFi-GAN keeps v2 and the single-scale loss, unchanged.
+  `DiscriminatorR` runs its STFT in fp32 because CUDA FFT rejects half precision.
+  Measured on an RTX 4090, one fp16 G+D step at batch 4 peaks at 2.7 GiB.
+- Decoder size: RefineGAN 13.2M parameters, HiFi-GAN 15.7M at 48k.
+- `pretrained_selector` falls back to the HiFi-GAN pretrain at the same sample rate when
+  `rvc/models/pretraineds/refinegan/f0G{sr}k.pth` does not exist, and says so; with
+  nothing at all it now prints that it is training from scratch instead of doing it
+  silently.
+- Inference, realtime, export and the blender needed no change: they build the
+  `Synthesizer` from `cpt["vocoder"]`, and the blender already refuses mismatched key sets.
+
+### Warm starting across embedders and vocoders
+`rvc/train/warm_start.py` is the single place that decides what a pretrained G / D may
+contribute. It works from meaning, not from shape equality:
+- **Identity of the source.** Vocoder from the decoder's keys (works for every checkpoint
+  ever saved), else the recorded `vocoder`. `save_checkpoint` now stamps `vocoder`,
+  `sample_rate` and `disc_version` into every `G_*.pth` / `D_*.pth` next to the embedder
+  identity. A legacy HiFi-GAN's sample rate is recognised from its transposed-conv kernel
+  sizes, which differ between the stock configs; a legacy RefineGAN's cannot be (its
+  shapes do not depend on the sample rate).
+- **Generator, same vocoder:** everything name for name; a shape mismatch stops the run,
+  except `enc_p.emb_phone` when the embedder width differs.
+- **Generator, HiFi-GAN <-> RefineGAN:** `enc_p` / `enc_q` / `flow` / `emb_g` whole, then
+  `CROSS_VOCODER_DECODER_PORTS`: the 12 residual blocks
+  (`dec.resblocks.{3i+k}` <-> `dec.upsample_conv_blocks.{i}.blocks.{k}.1`, same channels,
+  kernel sizes and dilations, checked) and `conv_post`, converted between plain and
+  weight-normed (`g = ||w||`, `v = w`; back as `g * v / ||v||`). Everything else in the
+  decoder starts from scratch and is listed. Only done when both sample rates are known
+  and equal; otherwise the decoder is left entirely fresh with a note. This is a good
+  starting point, not an identical function: the LeakyReLU slope is 0.1 vs 0.2 and
+  RefineGAN puts a fresh `input_conv` in front of each stage. Measured from
+  `G_2333333.pth` into a 1024-dim 48k RefineGAN: 535 of 588 tensors, 93.6% of parameters.
+- **Discriminator:** sub-discriminators matched by descriptor (`S`, `P(period)`,
+  `R(resolution)`), never by index - a period 17 and a period 23 discriminator have the
+  same shapes. v2 -> v3 inherits S and P2..P11 (99.4% of v3's parameters), starts the
+  three R from scratch and leaves P17/23/37 out. An unrecognised layout stops the run.
+- **Always weights only.** Optimizer and scaler state never cross a warm start.
+- **Resume guard.** `assert_resumable` now also refuses a `G_*.pth` whose vocoder (from its
+  keys) or recorded sample rate / discriminator version differs from the run. And
+  `train.py` only takes the pretrain path when there is no `G_*.pth` + `D_*.pth` pair: a
+  checkpoint that exists but fails to load is an error. Before, any exception - including
+  a shape mismatch - quietly restarted from the pretrain and then overwrote the checkpoint.
+
+To add another vocoder pair, write a port function that returns `(target_key,
+source_keys, convert)` entries and register it in `CROSS_VOCODER_DECODER_PORTS`; the
+engine validates every shape before loading anything and abandons the port as a whole if
+one entry does not fit.
+
+### Initial Generator LR Boost
+Training tab > Advanced: `Initial Generator LR Boost`, with `Generator LR Multiplier`
+(default 3.0) and `Boost Epochs` (default 10) shown only while ticked. Stored as
+`train.g_lr_boost_multiplier` / `train.g_lr_boost_epochs` in `logs/<model>/config.json`
+(`--g_lr_boost_multiplier` / `--g_lr_boost_epochs` on the CLI); epochs 0 or absent is off.
+`rvc/train/lr_boost.py` multiplies only `optim_g`'s learning rate from epoch 1 through the
+boost epoch, around the optimizer steps, and restores the exact previous values before
+anything logs or saves. So the lr in `G_*.pth` and the ExponentialLR chain are bit for bit
+the unboosted ones, the boost is decided from the absolute epoch number (a resume neither
+restarts nor loses it), and with it off nothing touches the optimizer. Unticking a
+previously enabled boost writes epochs 0; unticking on a config that never had one leaves
+the file untouched. TensorBoard's `learning_rate` shows the effective generator rate.
 
 ### TorchCompile during training (extraction only)
 `training_compile_extraction` (`assets/config.json`, default off) compiles the embedder

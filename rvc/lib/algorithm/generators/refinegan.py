@@ -9,6 +9,12 @@ from torch.utils.checkpoint import checkpoint
 
 from rvc.lib.algorithm.commons import init_weights, get_padding
 
+# Kernel sizes and dilations of the residual blocks inside every upsampling stage. They
+# are the same as HiFi-GAN's resblock_kernel_sizes / resblock_dilation_sizes in every
+# stock config, which is what lets rvc/train/warm_start.py port those blocks across.
+RESBLOCK_KERNEL_SIZES = (3, 7, 11)
+RESBLOCK_DILATION = (1, 3, 5)
+
 
 class ResBlock(nn.Module):
     """
@@ -357,7 +363,7 @@ class RefineGANGenerator(nn.Module):
         self.mel_conv.apply(init_weights)
 
         if gin_channels != 0:
-            self.cond = nn.Conv1d(256, channels // 2, 1)
+            self.cond = nn.Conv1d(gin_channels, channels // 2, 1)
 
         self.upsample_blocks = nn.ModuleList([])
         self.upsample_conv_blocks = nn.ModuleList([])
@@ -371,8 +377,8 @@ class RefineGANGenerator(nn.Module):
                 ParallelResBlock(
                     in_channels=channels + channels // 4,
                     out_channels=new_channels,
-                    kernel_sizes=(3, 7, 11),
-                    dilation=(1, 3, 5),
+                    kernel_sizes=RESBLOCK_KERNEL_SIZES,
+                    dilation=RESBLOCK_DILATION,
                     leaky_relu_slope=leaky_relu_slope,
                 )
             )
