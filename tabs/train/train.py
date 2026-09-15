@@ -1,3 +1,4 @@
+from tabs.components import mangio_crepe_decoder
 import os
 import shutil
 import sys
@@ -553,6 +554,7 @@ def train_tab():
                 value="rmvpe",
                 interactive=True,
             )
+            mangio_crepe_decoder(f0_method)
 
             embedder_model = gr.Radio(
                 label=i18n("Embedder Model"),

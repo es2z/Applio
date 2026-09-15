@@ -36,6 +36,10 @@ from rvc.realtime.compile_session import (
     load_settings as load_realtime_compile_settings,
     save_settings as save_realtime_compile_settings,
 )
+from rvc.train.extract.compile_extract import (
+    load_enabled as load_training_compile_extraction,
+    save_enabled as save_training_compile_extraction,
+)
 from tabs.settings.sections.torch_compile import (
     load_torch_compile_enabled,
     load_torch_compile_mode,
@@ -164,9 +168,22 @@ with gr.Blocks(
                 label=i18n("Enable TorchCompile for RVC (Realtime)"),
                 value=realtime_compile_settings.rvc,
             )
+        with gr.Row():
+            compile_extraction = gr.Checkbox(
+                label=i18n("Enable TorchCompile for Extraction (Training)"),
+                info=i18n(
+                    "Compile the embedder and the RMVPE/FCPE pitch models during training feature extraction. Per file this is x1.3-1.5, but compilation itself costs about 35 s per run, so it only pays off past roughly 4000 clips (about 4 hours of dataset). Leave it off for smaller datasets. The training step itself is never compiled: it measured x1.03."
+                ),
+                value=load_training_compile_extraction(),
+            )
         gr.Markdown(i18n(
             "TorchCompile Mode applies to CREPE, Embedder and RVC. Embedder and RVC changes take effect on the next realtime start. Initial compilation may take time. Failed paths fall back to normal inference, with the reason shown in the status."
         ))
+        compile_extraction.change(
+            fn=save_training_compile_extraction,
+            inputs=[compile_extraction],
+            outputs=[], show_progress=False,
+        )
         for component in (compile_embedder, compile_rvc):
             component.change(
                 fn=save_realtime_compile_settings,

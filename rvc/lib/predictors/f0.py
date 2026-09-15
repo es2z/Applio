@@ -12,6 +12,7 @@ from swift_f0 import SwiftF0
 import numpy as np
 import onnxruntime as ort
 from rvc.lib.predictors import onnxcrepe
+from rvc.lib.predictors.crepe_decoder import resolve_decoder
 from tabs.settings.sections.torch_compile import get_torch_compile_settings
 
 
@@ -112,6 +113,9 @@ class MANGIO_CREPE:
             device=self.device,
             pad=True,
             return_periodicity=True,
+            # viterbi, torchcrepe's default, is not repeatable on CUDA; see
+            # rvc/lib/predictors/crepe_decoder.py.
+            decoder=resolve_decoder(),
             compile_model=compile_enabled,
             compile_mode=compile_mode,
         )

@@ -1,3 +1,4 @@
+from tabs.components import mangio_crepe_decoder
 import os, sys
 import gradio as gr
 import regex as re
@@ -1121,6 +1122,7 @@ def inference_tab():
                     value="rmvpe",
                     interactive=True,
                 )
+                mangio_crepe_decoder(f0_method)
                 embedder_model = gr.Radio(
                     label=i18n("Embedder Model"),
                     info=i18n("Model used for learning speaker embedding."),
@@ -1758,6 +1760,7 @@ def inference_tab():
                     value="rmvpe",
                     interactive=True,
                 )
+                mangio_crepe_decoder(f0_method_batch)
                 embedder_model_batch = gr.Radio(
                     label=i18n("Embedder Model"),
                     info=i18n("Model used for learning speaker embedding."),

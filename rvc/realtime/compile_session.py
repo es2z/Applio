@@ -43,7 +43,10 @@ def save_settings(embedder, rvc):
 class CompiledPath:
     """Keep the eager callable for recovery, including lazy compilation failures."""
 
-    def __init__(self, name, eager, enabled, mode, device):
+    def __init__(self, name, eager, enabled, mode, device, dynamic=False, cudagraphs=None):
+        """dynamic/cudagraphs default to the realtime shape: one fixed-size window per
+        call, CUDA graphs wherever the mode asks for them. Training extraction passes
+        dynamic=True and cudagraphs=False because every clip has its own length."""
         self.name = name
         self.eager = eager
         self.compiled = None
@@ -64,7 +67,7 @@ class CompiledPath:
 
             options = dict(list_mode_options(mode))
             options.update({
-                "triton.cudagraphs": mode != "default",
+                "triton.cudagraphs": (mode != "default") if cudagraphs is None else cudagraphs,
                 "triton.cudagraph_trees": True,
                 "fx_graph_cache": True,
             })
@@ -75,7 +78,7 @@ class CompiledPath:
             )
             self.compiled = torch.compile(
                 eager, backend="inductor", options=options, fullgraph=False,
-                dynamic=False,
+                dynamic=dynamic,
             )
             self.state = "Preparing compilation"
         except Exception as exc:  # noqa: BLE001 - backend errors vary by PyTorch/Triton version
@@ -90,20 +93,20 @@ class CompiledPath:
         print(f"[Realtime compile] {self.name}: {self.reason}")
         traceback.print_exc()
 
-    def __call__(self, *args):
+    def __call__(self, *args, **kwargs):
         if self.compiled is None:
-            return self.eager(*args)
+            return self.eager(*args, **kwargs)
         try:
             # Each path owns its outputs; no CUDA-graph tensor escapes into the
             # next path/iteration or the audio/SOLA buffers.
             torch.compiler.cudagraph_mark_step_begin()
-            result = self.compiled(*args).clone()
+            result = self.compiled(*args, **kwargs).clone()
             self.state = "Using compiled inference"
             return result
         except Exception as exc:  # noqa: BLE001 - retry eager; real model errors propagate below
             self.fallback(exc)
             # A genuine model/input failure still propagates from eager execution.
-            return self.eager(*args)
+            return self.eager(*args, **kwargs)
 
     def status(self):
         reason = f" ({self.reason})" if self.reason else ""

@@ -24,6 +24,7 @@ from rvc.lib.utils import (
     load_audio_16k,
     load_embedding,
 )
+from rvc.train.extract.compile_extract import compile_f0_predictor, compiled_extractor
 from rvc.train.extract.preparing_files import generate_config, generate_filelist
 from rvc.lib.predictors.crepe_models import (
     CREPE_METHOD_TO_MODEL,
@@ -65,6 +66,9 @@ class FeatureInput:
                 device=self.device, sample_rate=self.sample_rate, hop_size=self.hop_size
             )
         self.f0_method = f0_method
+        # rmvpe/fcpe gain ~1.3-1.5x from compilation; crepe compiles itself through
+        # get_torch_compile_settings, and swift runs on CPU.
+        compile_f0_predictor(getattr(self, "model", None), f0_method, self.device)
 
     def compute_f0(self, x, p_len=None):
         if self.f0_method in CREPE_METHOD_TO_MODEL:
@@ -164,6 +168,11 @@ def process_file_embedding(
     )
     model.eval()
     n_threads = max(1, n_threads)
+    # One compiled callable shared by every thread in this process; falls back to
+    # eager on its own if compilation is off or fails.
+    forward = compiled_extractor(
+        "Embedder", lambda feats: embedder_forward(model, feats), device
+    )
 
     def worker(file_info):
         wav_file_path, _, _, out_file_path = file_info
@@ -172,7 +181,7 @@ def process_file_embedding(
         feats = torch.from_numpy(load_audio_16k(wav_file_path)).to(device).float()
         feats = feats.view(1, -1)
         with torch.no_grad():
-            result = embedder_forward(model, feats)
+            result = forward(feats)
         feats_out = result.squeeze(0).float().cpu().numpy()
         if not np.isnan(feats_out).any():
             np.save(out_file_path, feats_out, allow_pickle=False)

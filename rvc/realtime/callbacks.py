@@ -6,6 +6,7 @@ import torch
 
 sys.path.append(os.getcwd())
 
+from rvc.realtime.rng import apply_seed
 from rvc.realtime.audio import Audio
 from rvc.realtime.core import VoiceChanger
 
@@ -78,11 +79,18 @@ class AudioCallbacks:
             monitor,
         )
 
-        # Compile/capture with the same shapes and grad mode as the audio callback,
-        # before opening any audio device. Use a tone, since silence can bypass F0.
+        # Warm up with the same shapes and grad mode as the audio callback, before
+        # opening any audio device. Use a tone, since silence can bypass F0.
+        # This runs even without compilation: it is what builds the lazily created F0
+        # model, whose weight initialisation consumes RNG. Doing that before the seed is
+        # applied is what makes two sessions actually line up - otherwise the second
+        # session reuses torchcrepe's cached model, draws less randomness than the
+        # first, and diverges.
         runtime = self.vc.vc_model
-        if runtime.pipeline.compile_session.enabled and not pass_through:
-            print("[Realtime] Preparing compilation. The first start may take time.")
+        if not pass_through:
+            compiling = runtime.pipeline.compile_session.enabled
+            if compiling:
+                print("[Realtime] Preparing compilation. The first start may take time.")
             devices = [torch.device(runtime.device)] if torch.device(runtime.device).type == "cuda" else []
             tone = (0.01 * np.sin(
                 2 * np.pi * 220 * np.arange(self.vc.block_frame) / 48000
@@ -92,7 +100,7 @@ class AudioCallbacks:
             runtime.vad = None
             try:
                 with torch.random.fork_rng(devices=devices), torch.no_grad():
-                    for _ in range(3):
+                    for _ in range(3 if compiling else 1):
                         runtime.inference(
                             tone, f0_up_key, index_rate, protect, volume_envelope,
                             f0_autotune, f0_autotune_strength, proposed_pitch,
@@ -103,6 +111,12 @@ class AudioCallbacks:
                 runtime.vad = vad
                 runtime.flush_buffers()
                 runtime.consecutive_silence_frames = 0
+
+        # Last, so the stream starts from the same RNG state however much randomness
+        # model and kernel setup happened to consume above.
+        self.seed = apply_seed()
+        if self.seed is not None:
+            print(f"[Realtime] Fixed RNG seed {self.seed}.")
 
     def change_voice(
         self,

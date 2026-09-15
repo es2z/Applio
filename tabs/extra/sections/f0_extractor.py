@@ -1,3 +1,4 @@
+from tabs.components import mangio_crepe_decoder
 import os
 import librosa
 import gradio as gr
@@ -51,6 +52,7 @@ def f0_extractor_tab():
         choices=[*CREPE_UI_METHODS, "fcpe", "rmvpe"],
         value="rmvpe",
     )
+    mangio_crepe_decoder(f0_method)
     button = gr.Button(i18n("Extract F0 Curve"))
 
     with gr.Row():

@@ -17,6 +17,20 @@ SAMPLE_RATE = 16000
 AUDIO_SAMPLE_RATE = 48000
 
 
+def silence_blocks_to_stop(convert_size_16k, block_frame_16k):
+    """How many consecutive silent input blocks before the conversion window holds
+    nothing but silence.
+
+    The window is longer than one block (it carries extra_convert_size, the crossfade
+    and the SOLA search), so a decaying tail is still inside it for a block or two after
+    the speaker stops. Gating on the first silent block would cut that tail off mid
+    decay, which is why the input silence decision used to be discarded entirely. Waiting
+    for the whole window keeps the tail and still stops the model converting room tone
+    forever.
+    """
+    return max(1, -(-convert_size_16k // max(1, block_frame_16k)))
+
+
 class Realtime:
     def __init__(
         self,
@@ -41,13 +55,20 @@ class Realtime:
         self.return_length = 0
         self.skip_head = 0
         self.silence_front = 0
-        # Convert dB to RMS
-        self.input_sensitivity = 10 ** (silent_threshold / 20)
+        # Convert dB to RMS. A threshold of 0 dBFS or above would call every possible
+        # input silent, so treat it as "no threshold" rather than muting everything.
+        self.input_sensitivity = (
+            10 ** (silent_threshold / 20) if silent_threshold < 0 else 0.0
+        )
         self.window_size = self.sample_rate // 100
         self.dtype = torch.float32  # torch.float16 if config.is_half else torch.float32
 
         # Track consecutive silence for buffer flushing
         self.consecutive_silence_frames = 0
+        # Consecutive silent *inputs*, which is what VAD and the silence threshold
+        # actually decide; realloc sizes the window this has to cover.
+        self.consecutive_input_silence = 0
+        self.silence_blocks_to_stop = 1
         self.silence_threshold_for_flush = 3  # Flush buffers after 3 consecutive silent frames (fast cleanup)
 
         self.vad = (
@@ -109,6 +130,9 @@ class Realtime:
         ) != 0:  # Compensate for truncation due to hop size in model output.
             convert_size_16k = convert_size_16k + (self.window_size - modulo)
         self.convert_feature_size_16k = convert_size_16k // self.window_size
+        self.silence_blocks_to_stop = silence_blocks_to_stop(
+            convert_size_16k, block_frame_16k
+        )
 
         self.skip_head = extra_frame_16k // self.window_size
         self.return_length = self.convert_feature_size_16k - self.skip_head
@@ -146,6 +170,7 @@ class Realtime:
             self.pitch_buffer.zero_()
         if self.pitchf_buffer is not None:
             self.pitchf_buffer.zero_()
+        self.consecutive_input_silence = 0
 
     def inference(
         self,
@@ -171,14 +196,22 @@ class Realtime:
         vol_t = torch.sqrt(torch.square(self.audio_buffer).mean())
         vol = max(vol_t.item(), 0)
 
-        # Check for silence using VAD or volume threshold
-        is_input_silent = False
-        if self.vad is not None:
-            is_speech = self.vad.is_speech(audio_input_16k.cpu().numpy().copy())
-            if not is_speech:
-                is_input_silent = True
-        elif vol < self.input_sensitivity:
-            is_input_silent = True
+        # Check for silence using the level threshold, then the VAD.
+        # The threshold has to come first and has to apply even when the VAD is on:
+        # webrtcvad is stateful, and after it has processed real speech it reports
+        # digital silence as speech for a chunk or two (measured: fresh -> False,
+        # after speech -> True, True, False). Gating on the VAD alone therefore never
+        # fires, which is why the model used to keep converting - and amplifying by
+        # sqrt(vol) below - room tone forever.
+        is_input_silent = vol < self.input_sensitivity
+        if not is_input_silent and self.vad is not None:
+            # Any single scored frame counts as speech, so the start of an utterance is
+            # never clipped. That only works because VADProcessor discards the
+            # detector's warm-up frames; without that, room tone reads as speech too.
+            is_input_silent = not self.vad.is_speech(
+                audio_input_16k.cpu().numpy().copy()
+            )
+        window_is_silent = self.track_input_silence(is_input_silent)
 
         # Always write to convert buffer, even if input is silent
         # This ensures proper fade-out processing and prevents incomplete audio tails
@@ -205,8 +238,15 @@ class Realtime:
             proposed_pitch_threshold,
         )
 
-        # Check if output is actually silent (processing complete)
-        is_output_silent = audio_model is None or torch.abs(audio_model).max() < 1e-6
+        # Check if output is actually silent (processing complete).
+        # The generator always emits a noise floor, so the amplitude test alone never
+        # fires on real input: without window_is_silent the model keeps converting room
+        # tone indefinitely and it is then amplified by sqrt(vol) below.
+        is_output_silent = (
+            audio_model is None
+            or window_is_silent
+            or torch.abs(audio_model).max() < 1e-6
+        )
 
         # Track silence for buffer flushing based on OUTPUT silence only
         # This is important for 2-stream mode (separate input/output streams)
@@ -230,6 +270,14 @@ class Realtime:
         # Continue outputting even if input is silent
         audio_out: torch.Tensor = self.resample_out(audio_model * torch.sqrt(vol_t))
         return audio_out, vol
+
+    def track_input_silence(self, is_input_silent):
+        """Count consecutive silent inputs; True once the whole window is silence."""
+        if is_input_silent:
+            self.consecutive_input_silence += 1
+        else:
+            self.consecutive_input_silence = 0
+        return self.consecutive_input_silence >= self.silence_blocks_to_stop
 
     def __del__(self):
         del self.pipeline

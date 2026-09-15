@@ -1,3 +1,4 @@
+from tabs.components import mangio_crepe_decoder
 import gradio as gr
 import sounddevice as sd
 import os
@@ -11,6 +12,11 @@ import torch
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 
+from rvc.realtime.rng import (
+    RANDOM as RANDOM_SEED,
+    load_seed as load_realtime_seed,
+    save_seed as save_realtime_seed,
+)
 from rvc.realtime.callbacks import AudioCallbacks
 from rvc.realtime.audio import list_audio_device
 from rvc.realtime.core import AUDIO_SAMPLE_RATE
@@ -496,7 +502,16 @@ def start_realtime(
         return
 
     compile_session = callbacks.vc.vc_model.pipeline.compile_session
-    yield "Realtime is ready!" + compile_session.status(), interactive_false, interactive_true
+    seed_status = (
+        "\nRNG seed: {}".format(callbacks.seed)
+        if callbacks.seed is not None
+        else ""
+    )
+    yield (
+        "Realtime is ready!" + seed_status + compile_session.status(),
+        interactive_false,
+        interactive_true,
+    )
 
     while running and callbacks is not None and audio_manager is not None:
         time.sleep(0.1)
@@ -518,7 +533,11 @@ def start_realtime(
             yield "Reconnecting...", interactive_false, interactive_true
         elif hasattr(audio_manager, "latency"):
             # Normal operation - show latency
-            yield f"Latency: {audio_manager.latency:.2f} ms" + compile_session.status(), interactive_false, interactive_true
+            yield (
+                f"Latency: {audio_manager.latency:.2f} ms" + seed_status + compile_session.status(),
+                interactive_false,
+                interactive_true,
+            )
 
     return gr.update(), gr.update(), gr.update()
 
@@ -906,6 +925,7 @@ def realtime_tab():
                         ),
                         interactive=True,
                     )
+                    mangio_crepe_decoder(f0_method)
                     hybrid_blend_ratio = gr.Slider(
                         minimum=0.0,
                         maximum=1.0,
@@ -1011,14 +1031,28 @@ def realtime_tab():
                 )
                 silent_threshold = gr.Slider(
                     minimum=-90,
-                    maximum=-60,
+                    maximum=-20,
                     value=-90,
                     step=1,
                     label=i18n("Silence Threshold (dB)"),
                     info=i18n(
-                        "Volume level below which audio is treated as silence and not processed. Helps to save CPU resources and reduce background noise."
+                        "Volume level below which audio is treated as silence and not converted. -90 only catches digital silence; raise it towards your room noise floor (often around -50) to stop the model turning room tone into a voice. Output is only muted once the whole conversion window is silent, so tails are not cut."
                     ),
                     interactive=True,
+                )
+                realtime_seed = gr.Number(
+                    value=load_realtime_seed() if load_realtime_seed() is not None else RANDOM_SEED,
+                    precision=0,
+                    label=i18n("RNG Seed"),
+                    info=i18n(
+                        "The generator draws fresh noise every chunk, so the voice differs slightly every session. Fixing the seed makes it repeatable, which is also what makes an A/B of any other setting meaningful. -1 keeps it random. Saved globally, not per template."
+                    ),
+                    interactive=True,
+                )
+                realtime_seed.change(
+                    fn=save_realtime_seed,
+                    inputs=[realtime_seed],
+                    outputs=[], show_progress=False,
                 )
 
         def enforce_terms(terms_accepted, *args):

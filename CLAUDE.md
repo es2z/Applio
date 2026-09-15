@@ -401,6 +401,88 @@ been fitted to the old features, which produces a model that sounds broken and n
 recovers rather than an error. If you hit the refusal, either train under a new model name
 or delete the `G_*.pth` / `D_*.pth` to start again from the pretrain.
 
+### TorchCompile during training (extraction only)
+`training_compile_extraction` (`assets/config.json`, default off) compiles the embedder
+and the RMVPE/FCPE pitch models during training feature extraction
+(`rvc/train/extract/compile_extract.py`). CREPE already compiles itself through the
+"Enable TorchCompile (CREPE)" setting.
+
+Per file this is x1.32 (embedder), x1.33 (RMVPE), x1.52 (FCPE) on an RTX 4090, measured
+A-B-A so warm-up cannot be read as a speedup. But tracing costs ~17 s per worker process
+per stage and the inductor cache does not remove it, so end to end on 200 clips the
+compiled run measured 61 s against 27 s eager. **Break-even is around 4000 clips (~4
+hours of dataset); below that, leave it off.**
+
+Every clip has a different length (771 distinct lengths in 1364 files), so these compile
+with `dynamic=True` and no CUDA graphs. Output is bit-identical for RMVPE and within
+2.1e-04 relative for the embedder - the same fp32 rounding level that separates eager
+from compiled anywhere else.
+
+**The training step itself is deliberately not compiled.** net_g + net_d measured x1.03
+against an eager control that reproduced to x1.00, needs MSVC on PATH for inductor's C++
+wrapper, costs 60-240 s of compile time, and would prefix every saved checkpoint key with
+`_orig_mod.`. Enabling TF32 matmul on top measured x0.99 - the model is convolution bound
+and cuDNN already runs convolutions in TF32. Compiling does cut peak VRAM by 24%
+(6.38 -> 4.84 GiB), which is worth knowing if the goal is a larger batch rather than speed.
+
+Full numbers, including why compiling does not improve audio quality, are in
+`TORCHCOMPILE_ACCURACY_REPORT.md`.
+
+### Realtime input gating and the fixed RNG seed
+`is_input_silent` in `rvc/realtime/core.py` used to be computed and then never read, so
+both the VAD checkbox and the Silence Threshold slider did nothing: the model converted
+room tone forever and `audio_model * sqrt(vol)` amplified it. The gate is now real, but
+it waits until the **whole conversion window** is silent (`silence_blocks_to_stop`,
+2 blocks for the reference template) rather than the first silent block - gating earlier
+cuts a decaying tail mid-decay, which is why the decision had been discarded. A threshold
+of 0 dBFS or above means "no gating", since `10 ** (0 / 20)` is 1.0 and would mute
+everything. The slider now reaches -20 dB; real room tone sits near -50, out of reach of
+the old -60 limit.
+
+`VADProcessor` builds its `webrtcvad.Vad` **per call and discards the first 3 frames**.
+Measured on 0.96 s blocks of -50 dBFS room tone: a detector carried through the session
+called 27-31 of 32 frames speech, a fresh one 3 of 32 (its warm-up), and a fresh one with
+those 3 frames dropped 0 of 29 - against 2-29 of 29 for real speech. That separation is
+what lets the original "any single frame is speech" rule stand, so an utterance is never
+clipped at the onset.
+
+`realtime_seed` (`assets/config.json`, "RNG Seed" in the Realtime tab, -1 = random) fixes
+the generator's per-chunk noise so the voice stops drifting between sessions. It is
+applied in `AudioCallbacks.__init__` **after** the warm-up, and the warm-up now runs even
+without compilation, because the lazily built F0 model's weight initialisation consumes
+RNG and a second session that reuses torchcrepe's cache would otherwise diverge.
+
+**A seed does not make two sessions identical, and the residual is `mangio-crepe`.**
+Repeating the same input in one process: rmvpe, fcpe and crepe-full are bit-identical,
+while mangio-crepe-full-speech drifts 25.9 cents and mangio-crepe-full 26.7 cents. The
+cause is the decoder - see below. Numbers are in `TORCHCOMPILE_ACCURACY_REPORT.md`.
+
+### Mangio-CREPE decoder
+`mangio_crepe_decoder` (`assets/config.json`, default `viterbi`) picks how mangio-crepe
+turns the network output into a pitch (`rvc/lib/predictors/crepe_decoder.py`). The picker
+appears next to every "Pitch extraction algorithm" control and only while a mangio-crepe
+method is selected; it is built once in `tabs/components.py` and reused by realtime,
+inference, batch inference, TTS, training extraction and the F0 curve tool.
+
+Measured on an RTX 4090, five consecutive runs of the same audio in one process:
+
+| decoder | repeatable | worst drift | realtime cost |
+|---|---|---|---|
+| `viterbi` (default, what mangio-crepe always used) | no | 23.5 cents | 107 ms/block |
+| `weighted_argmax` | **bit-identical** | 0 | **84 ms/block** |
+| `argmax` | no | 30.9 cents | 76 ms/block |
+
+CUDA `argmax` breaks ties arbitrarily and CREPE's bins are 20 cents apart, so one tie
+moves the estimate a whole bin; `viterbi` decodes a path through those same per-frame
+choices and inherits it. `weighted_argmax` averages around the peak instead, which is why
+the plain `CREPE` class has always passed it explicitly.
+
+`weighted_argmax` is both repeatable and ~24 ms/block cheaper (measured in both
+orderings), but it is a different estimator: against `viterbi` it moves the output by
+1.043 dB median mel distance, about what changing the RNG seed does (1.188 dB). So it
+changes the voice, which is why the default is left alone and the choice is exposed
+rather than made here.
+
 ### Realtime embedder precision
 `embedder_precision` (`fp32` / `bf16` / `fp16`, default `fp32`) is saved in
 `assets/config.json` and in realtime templates. Measured on an RTX 4090 over a 1.5 s
