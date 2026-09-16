@@ -45,6 +45,7 @@ from rvc.lib.algorithm.generators.refinegan import (
 HIFIGAN = "HiFi-GAN"
 MRF_HIFIGAN = "MRF HiFi-GAN"
 REFINEGAN = "RefineGAN"
+SIFIGAN = "SiFi-GAN"
 
 # Warm starting a run whose embedder is wider than the pretrain's only works because
 # exactly one tensor pair depends on that width.
@@ -88,6 +89,8 @@ def detect_vocoder(state_dict):
     def has(prefix):
         return any(key.startswith(prefix) for key in state_dict)
 
+    if has("dec.sn.") and has("dec.fn."):
+        return SIFIGAN
     if has("dec.upsample_conv_blocks."):
         return REFINEGAN
     if has("dec.mrfs."):
@@ -109,15 +112,15 @@ def _stock_model_config(sample_rate):
         return json.load(f)["model"]
 
 
-def infer_hifigan_sample_rate(state_dict):
-    """Sample rate of a HiFi-GAN generator that did not record one.
+def _sample_rate_from_upsample_kernels(state_dict, prefix):
+    """Sample rate from a stack of transposed convolutions, by their kernel widths.
 
-    The transposed convolution kernels are twice the upsample rates, and the stock
-    configs all differ there ([20,16,4,4] / [16,16,4,4] / [24,20,4,4]).
+    The stock configs all differ there ([20,16,4,4] / [16,16,4,4] / [24,20,4,4]), so the
+    widths identify the rate on their own. None when they match no stock config.
     """
     kernels = []
-    while f"dec.ups.{len(kernels)}.parametrizations.weight.original1" in state_dict:
-        weight = state_dict[f"dec.ups.{len(kernels)}.parametrizations.weight.original1"]
+    while f"{prefix}{len(kernels)}.parametrizations.weight.original1" in state_dict:
+        weight = state_dict[f"{prefix}{len(kernels)}.parametrizations.weight.original1"]
         kernels.append(weight.shape[-1])
     if not kernels:
         return None
@@ -127,6 +130,21 @@ def infer_hifigan_sample_rate(state_dict):
         if _stock_model_config(sample_rate)["upsample_kernel_sizes"] == kernels
     ]
     return matches[0] if len(matches) == 1 else None
+
+
+def infer_hifigan_sample_rate(state_dict):
+    """Sample rate of a HiFi-GAN generator that did not record one."""
+    return _sample_rate_from_upsample_kernels(state_dict, "dec.ups.")
+
+
+def infer_sifigan_sample_rate(state_dict):
+    """Sample rate of a SiFi-GAN generator that did not record one.
+
+    Unlike RefineGAN, a SiFi-GAN decoder's shapes *do* depend on the sample rate - its
+    filter network uses the same transposed convolutions as HiFi-GAN - so this must be
+    established before any decoder tensor is inherited.
+    """
+    return _sample_rate_from_upsample_kernels(state_dict, "dec.fn.upsamples.")
 
 
 def _indices(state_dict, prefix):
@@ -273,11 +291,28 @@ def _refinegan_resblock_prefixes(state_dict):
     ]
 
 
+def _sifigan_resblock_prefixes(state_dict):
+    return [f"dec.fn.blocks.{j}." for j in _indices(state_dict, "dec.fn.blocks.")]
+
+
+def _sifigan_filter_is_rvc(decoder):
+    """Whether a SiFi-GAN decoder's filter blocks are this repository's ResBlock.
+
+    The "official" variant drops the second, undilated convolution of every dilation and
+    uses different kernel sizes, so its blocks have no `convs2` and cannot be paired with
+    a HiFi-GAN decoder's residual blocks.
+    """
+    blocks = list(decoder.fn["blocks"])
+    return bool(blocks) and hasattr(blocks[0], "convs2")
+
+
 def _module_resblock_dilations(decoder):
     if hasattr(decoder, "upsample_conv_blocks"):
         blocks = [
             block[1] for stage in decoder.upsample_conv_blocks for block in stage.blocks
         ]
+    elif hasattr(decoder, "fn"):
+        blocks = list(decoder.fn["blocks"])
     else:
         blocks = list(decoder.resblocks)
     return [tuple(conv.dilation[0] for conv in block.convs1) for block in blocks]
@@ -377,6 +412,173 @@ def _port_refinegan_to_hifigan(source, target, source_sample_rate, target_decode
     return entries, None
 
 
+# A SiFi-GAN decoder's filter network *is* this repository's HiFi-GAN decoder: the same
+# conv_pre and speaker conditioning, the same sine source module, transposed convolutions
+# of identical shape (the stock upsample_kernel_sizes are kept rather than the official
+# 2 * rate assertion, precisely so they line up), the same residual block stack in stage
+# outer / kernel inner order, and the same final 32 -> 1 projection before tanh. So these
+# pair by name alone.
+_SIFIGAN_SHARED_WITH_HIFIGAN = ("dec.conv_pre.", "dec.cond.", "dec.m_source.")
+_SIFIGAN_HIFIGAN_RENAMES = (
+    # (HiFi-GAN prefix, SiFi-GAN prefix)
+    ("dec.ups.", "dec.fn.upsamples."),
+    ("dec.conv_post.", "dec.fn.output_conv."),
+)
+
+
+def _hifigan_key_for_sifigan(sifigan_key):
+    """The HiFi-GAN name of a SiFi-GAN decoder tensor, or None if it has no counterpart."""
+    for shared in _SIFIGAN_SHARED_WITH_HIFIGAN:
+        if sifigan_key.startswith(shared):
+            return sifigan_key
+    for hifigan_prefix, sifigan_prefix in _SIFIGAN_HIFIGAN_RENAMES:
+        if sifigan_key.startswith(sifigan_prefix):
+            return hifigan_prefix + sifigan_key[len(sifigan_prefix) :]
+    return None
+
+
+def _sifigan_hifigan_entries(target_keys, to_sifigan):
+    """Name-for-name entries between a HiFi-GAN and a SiFi-GAN decoder."""
+    entries = []
+    for key in target_keys:
+        if not key.startswith(DECODER_PREFIX):
+            continue
+        if to_sifigan:
+            counterpart = _hifigan_key_for_sifigan(key)
+        else:
+            # target is HiFi-GAN: find the SiFi-GAN name that maps back to this key
+            counterpart = None
+            for shared in _SIFIGAN_SHARED_WITH_HIFIGAN:
+                if key.startswith(shared):
+                    counterpart = key
+                    break
+            else:
+                for hifigan_prefix, sifigan_prefix in _SIFIGAN_HIFIGAN_RENAMES:
+                    if key.startswith(hifigan_prefix):
+                        counterpart = sifigan_prefix + key[len(hifigan_prefix) :]
+                        break
+        if counterpart is not None:
+            entries.append((key, (counterpart,), _same))
+    return entries
+
+
+def _port_hifigan_to_sifigan(source, target, source_sample_rate, target_decoder):
+    entries = _sifigan_hifigan_entries(target, to_sifigan=True)
+    if _sifigan_filter_is_rvc(target_decoder):
+        source_prefixes = _hifigan_resblock_prefixes(source)
+        target_prefixes = _sifigan_resblock_prefixes(target)
+        if _hifigan_config_dilations(
+            source_sample_rate, len(source_prefixes)
+        ) != _module_resblock_dilations(target_decoder):
+            return None, "the residual block dilations differ"
+        block_entries, reason = _port_resblocks(
+            source,
+            target,
+            source_prefixes,
+            target_prefixes,
+            (
+                len(_indices(source, "dec.ups.")),
+                len(_indices(target, "dec.fn.upsamples.")),
+            ),
+        )
+        if block_entries is None:
+            return None, reason
+        entries += block_entries
+    return entries, None
+
+
+def _port_sifigan_to_hifigan(source, target, source_sample_rate, target_decoder):
+    entries = _sifigan_hifigan_entries(target, to_sifigan=False)
+    source_prefixes = _sifigan_resblock_prefixes(source)
+    target_prefixes = _hifigan_resblock_prefixes(target)
+    if len(source_prefixes) == len(target_prefixes):
+        block_entries, reason = _port_resblocks(
+            source,
+            target,
+            source_prefixes,
+            target_prefixes,
+            (
+                len(_indices(source, "dec.fn.upsamples.")),
+                len(_indices(target, "dec.ups.")),
+            ),
+        )
+        if block_entries is None:
+            return None, reason
+        entries += block_entries
+    return entries, None
+
+
+def _port_refinegan_to_sifigan(source, target, source_sample_rate, target_decoder):
+    if not _sifigan_filter_is_rvc(target_decoder):
+        return None, (
+            "this model's SiFi-GAN filter network follows the official paper and has no "
+            "counterpart in a RefineGAN decoder"
+        )
+    source_prefixes = _refinegan_resblock_prefixes(source)
+    target_prefixes = _sifigan_resblock_prefixes(target)
+    if [REFINEGAN_RESBLOCK_DILATION] * len(
+        source_prefixes
+    ) != _module_resblock_dilations(target_decoder):
+        return None, "the residual block dilations differ"
+    entries, reason = _port_resblocks(
+        source,
+        target,
+        source_prefixes,
+        target_prefixes,
+        (
+            len(_indices(source, "dec.upsample_conv_blocks.")),
+            len(_indices(target, "dec.fn.upsamples.")),
+        ),
+    )
+    if entries is None:
+        return None, reason
+    entries.append(
+        (
+            "dec.fn.output_conv.weight",
+            (
+                "dec.conv_post.parametrizations.weight.original0",
+                "dec.conv_post.parametrizations.weight.original1",
+            ),
+            _weight_norm_compose,
+        )
+    )
+    return entries, None
+
+
+def _port_sifigan_to_refinegan(source, target, source_sample_rate, target_decoder):
+    source_prefixes = _sifigan_resblock_prefixes(source)
+    target_prefixes = _refinegan_resblock_prefixes(target)
+    if [REFINEGAN_RESBLOCK_DILATION] * len(
+        target_prefixes
+    ) != _module_resblock_dilations(target_decoder):
+        return None, "the residual block dilations differ"
+    entries, reason = _port_resblocks(
+        source,
+        target,
+        source_prefixes,
+        target_prefixes,
+        (
+            len(_indices(source, "dec.fn.upsamples.")),
+            len(_indices(target, "dec.upsample_conv_blocks.")),
+        ),
+    )
+    if entries is None:
+        return None, reason
+    entries += [
+        (
+            "dec.conv_post.parametrizations.weight.original0",
+            ("dec.fn.output_conv.weight",),
+            _weight_norm_magnitude,
+        ),
+        (
+            "dec.conv_post.parametrizations.weight.original1",
+            ("dec.fn.output_conv.weight",),
+            _same,
+        ),
+    ]
+    return entries, None
+
+
 # Decoder parts that mean the same thing in two vocoders, for a warm start between them.
 #
 # HiFi-GAN <-> RefineGAN: the residual blocks of each upsampling stage (same channels
@@ -387,12 +589,23 @@ def _port_refinegan_to_hifigan(source, target, source_sample_rate, target_decode
 # convolutions have no counterpart in a parameter-free linear upsample, noise_convs are
 # not downsample_blocks, and only HiFi-GAN's harmonic merge has a bias.
 #
-# This is a good starting point rather than an identical function: HiFi-GAN's blocks use
-# a LeakyReLU slope of 0.1 where RefineGAN's use 0.2, and in RefineGAN they sit behind a
-# freshly initialised input_conv.
+# HiFi-GAN <-> SiFi-GAN: everything above plus conv_pre, cond, m_source and the
+# transposed convolutions, because SiFi-GAN's filter network is the HiFi-GAN decoder.
+# Only HiFi-GAN's noise_convs (SiFi-GAN injects the sine through its source network) and
+# SiFi-GAN's whole source network have no counterpart.
+#
+# RefineGAN <-> SiFi-GAN: the same range as HiFi-GAN <-> RefineGAN, for the same reasons.
+#
+# These are a good starting point rather than an identical function: HiFi-GAN's blocks
+# use a LeakyReLU slope of 0.1 where RefineGAN's use 0.2, and in RefineGAN they sit
+# behind a freshly initialised input_conv.
 CROSS_VOCODER_DECODER_PORTS = {
     (HIFIGAN, REFINEGAN): _port_hifigan_to_refinegan,
     (REFINEGAN, HIFIGAN): _port_refinegan_to_hifigan,
+    (HIFIGAN, SIFIGAN): _port_hifigan_to_sifigan,
+    (SIFIGAN, HIFIGAN): _port_sifigan_to_hifigan,
+    (REFINEGAN, SIFIGAN): _port_refinegan_to_sifigan,
+    (SIFIGAN, REFINEGAN): _port_sifigan_to_refinegan,
 }
 
 
@@ -416,7 +629,7 @@ def _plan_decoder(transfer, source_identity, target_identity, target_module):
                 f"and this model is {target_rate} Hz"
             )
             return
-        if source_rate is None and target_vocoder not in (HIFIGAN, None):
+        if source_rate is None and target_vocoder not in (HIFIGAN, SIFIGAN, None):
             transfer.notes.append(
                 f"the pretrained model does not record its sample rate and a "
                 f"{target_vocoder} decoder's shapes do not depend on it, so it is assumed "
@@ -469,9 +682,10 @@ def _plan_decoder(transfer, source_identity, target_identity, target_module):
                     if converted:
                         transfer.transformed.append(target_key)
                 transfer.notes.append(
-                    f"decoder ported {source_vocoder} -> {target_vocoder}: residual blocks "
-                    "and conv_post only. They are a starting point, not an identical "
-                    "function (different LeakyReLU slope, new input convolutions)."
+                    f"decoder ported {source_vocoder} -> {target_vocoder}: "
+                    f"{_describe_modules(sorted(ported))}. A starting point, not an "
+                    "identical function (the blocks can sit behind a different LeakyReLU "
+                    "slope and freshly initialised input convolutions)."
                 )
 
     if reason is not None:
@@ -510,8 +724,14 @@ def _plan_generator(transfer, checkpoint, target_identity, target_module):
 
     source_vocoder = detect_vocoder(source) or checkpoint.get("vocoder")
     source_rate = checkpoint.get("sample_rate")
-    if source_rate is None and source_vocoder == HIFIGAN:
-        source_rate = infer_hifigan_sample_rate(source)
+    if source_rate is None:
+        # Both of these decoders encode the sample rate in their transposed convolution
+        # kernel widths, so it can be recovered from a checkpoint written before the
+        # metadata stamp existed. A RefineGAN decoder's shapes carry no such trace.
+        if source_vocoder == HIFIGAN:
+            source_rate = infer_hifigan_sample_rate(source)
+        elif source_vocoder == SIFIGAN:
+            source_rate = infer_sifigan_sample_rate(source)
     target_identity = target_identity or {}
     _plan_decoder(
         transfer,

@@ -109,6 +109,18 @@ def extract_model(
         opt["text_enc_hidden_dim"] = hps.model.text_enc_hidden_dim
         opt["speakers_id"] = speakers_id
         opt["vocoder"] = vocoder
+        if vocoder == "SiFi-GAN":
+            # Read off the weights rather than threaded through as another argument, the
+            # same way detect_vocoder works: the "official" filter blocks drop the second
+            # undilated convolution, so they have no convs2.
+            opt["sifigan_filter_resblock"] = (
+                "rvc"
+                if any(
+                    key.startswith("dec.fn.blocks.") and ".convs2." in key
+                    for key in ckpt
+                )
+                else "official"
+            )
 
         torch.save(
             replace_keys_in_dict(

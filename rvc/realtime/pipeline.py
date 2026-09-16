@@ -81,12 +81,18 @@ class RealtimeVoiceConverter:
             self.version = self.cpt.get("version", "v1")
             self.text_enc_hidden_dim = checkpoint_text_enc_hidden_dim(self.cpt)
             self.vocoder = self.cpt.get("vocoder", "HiFi-GAN")
+            # Only SiFi-GAN reads this; it decides the shape of the filter network's
+            # residual blocks, so the model cannot be rebuilt without it.
+            self.sifigan_filter_resblock = self.cpt.get(
+                "sifigan_filter_resblock", "rvc"
+            )
             print(f"[Realtime] Loading model with vocoder: {self.vocoder}")
             self.net_g = Synthesizer(
                 *self.cpt["config"],
                 use_f0=self.use_f0,
                 text_enc_hidden_dim=self.text_enc_hidden_dim,
                 vocoder=self.vocoder,
+                sifigan_filter_resblock=self.sifigan_filter_resblock,
             )
 
             self.net_g.load_state_dict(self.cpt["weight"], strict=False)

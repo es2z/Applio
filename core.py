@@ -511,6 +511,7 @@ def run_train_script(
     d_pretrained_path: str = None,
     vocoder: str = "HiFi-GAN",
     checkpointing: bool = False,
+    sifigan_filter_resblock: str = "rvc",
     learning_rate: float = None,
     c_mel: float = None,
     g_lr_boost: bool = None,
@@ -572,6 +573,8 @@ def run_train_script(
                 cleanup,
                 vocoder,
                 checkpointing,
+                # Appended last so the existing positions never shift.
+                sifigan_filter_resblock,
             ],
         ),
     ]
@@ -2034,8 +2037,19 @@ def parse_arguments():
         "--vocoder",
         type=str,
         help="Vocoder name",
-        choices=["HiFi-GAN", "MRF HiFi-GAN", "RefineGAN"],
+        choices=["HiFi-GAN", "MRF HiFi-GAN", "RefineGAN", "SiFi-GAN"],
         default="HiFi-GAN",
+    )
+    train_parser.add_argument(
+        "--sifigan_filter_resblock",
+        type=str,
+        help=(
+            "SiFi-GAN only: the filter network's residual blocks. 'rvc' matches this "
+            "repository's HiFi-GAN decoder, so a HiFi-GAN or RefineGAN pretrain can be "
+            "inherited almost whole. 'official' follows the SiFi-GAN paper and cannot."
+        ),
+        choices=["rvc", "official"],
+        default="rvc",
     )
     train_parser.add_argument(
         "--checkpointing",
@@ -2464,6 +2478,7 @@ def main():
                 d_pretrained_path=args.d_pretrained_path,
                 vocoder=args.vocoder,
                 checkpointing=args.checkpointing,
+                sifigan_filter_resblock=args.sifigan_filter_resblock,
                 learning_rate=args.learning_rate,
                 c_mel=args.c_mel,
                 g_lr_boost_multiplier=args.g_lr_boost_multiplier,

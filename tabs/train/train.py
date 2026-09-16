@@ -372,12 +372,22 @@ def train_tab():
                 vocoder = gr.Radio(
                     label=i18n("Vocoder"),
                     info=i18n(
-                        "Choose the vocoder for audio synthesis:\n- **HiFi-GAN**: Default option, compatible with all clients.\n- **RefineGAN**: Applio-only, trained against an extra multi-resolution discriminator with a multi-scale mel loss. Without a RefineGAN pretrained model for the sample rate it warm starts from the HiFi-GAN one (or from a custom HiFi-GAN G/D): the encoders, flow and residual blocks are inherited and the rest of the decoder starts from scratch, so consider the Initial Generator LR Boost."
+                        "Choose the vocoder for audio synthesis:\n- **HiFi-GAN**: Default option, compatible with all clients.\n- **RefineGAN**: Applio-only, trained against an extra multi-resolution discriminator with a multi-scale mel loss. Without a RefineGAN pretrained model for the sample rate it warm starts from the HiFi-GAN one (or from a custom HiFi-GAN G/D): the encoders, flow and residual blocks are inherited and the rest of the decoder starts from scratch, so consider the Initial Generator LR Boost.\n- **SiFi-GAN**: Applio-only source-filter vocoder whose convolutions follow the pitch, trained against the same multi-resolution discriminator plus a loss that supervises its excitation signal. Its filter network is the HiFi-GAN decoder, so warm start it from a **HiFi-GAN** model (the stock pretrained one will do): measured over 50 epochs that is about 22% better on the mel loss than training from scratch. A RefineGAN model is not a useful starting point for it even at the same sample rate and embedder width, because only its residual blocks carry over. Only the source network starts from scratch either way, so consider the Initial Generator LR Boost."
                     ),
-                    choices=["HiFi-GAN", "RefineGAN"],
+                    choices=["HiFi-GAN", "RefineGAN", "SiFi-GAN"],
                     value="HiFi-GAN",
                     interactive=True,
                     visible=True,
+                )
+                sifigan_filter_resblock = gr.Radio(
+                    label=i18n("SiFi-GAN Filter Blocks"),
+                    info=i18n(
+                        "SiFi-GAN only: how the filter network's residual blocks are built.\n- **rvc**: Identical to this fork's HiFi-GAN decoder, so a HiFi-GAN or RefineGAN pretrained model is inherited almost whole and only the source network starts from scratch. Recommended.\n- **official**: Follows the SiFi-GAN paper (one convolution per dilation, kernel sizes 3/5/7). Faithful to the paper, but its filter blocks have no counterpart in an existing model and start from scratch too."
+                    ),
+                    choices=["rvc", "official"],
+                    value="rvc",
+                    interactive=True,
+                    visible=False,
                 )
         with gr.Accordion(
             i18n("Advanced Settings"),
@@ -923,6 +933,7 @@ def train_tab():
                     d_pretrained_path,
                     vocoder,
                     checkpointing,
+                    sifigan_filter_resblock,
                     learning_rate,
                     c_mel,
                     g_lr_boost,
@@ -1069,6 +1080,18 @@ def train_tab():
                 fn=toggle_architecture,
                 inputs=[architecture],
                 outputs=[sampling_rate, vocoder],
+            )
+
+            def toggle_sifigan_settings(vocoder_choice):
+                return {
+                    "visible": vocoder_choice == "SiFi-GAN",
+                    "__type__": "update",
+                }
+
+            vocoder.change(
+                fn=toggle_sifigan_settings,
+                inputs=[vocoder],
+                outputs=[sifigan_filter_resblock],
             )
             refresh.click(
                 fn=refresh_models_and_datasets,

@@ -4,6 +4,10 @@ from rvc.lib.algorithm.generators.hifigan_mrf import HiFiGANMRFGenerator
 from rvc.lib.algorithm.generators.hifigan_nsf import HiFiGANNSFGenerator
 from rvc.lib.algorithm.generators.hifigan import HiFiGANGenerator
 from rvc.lib.algorithm.generators.refinegan import RefineGANGenerator
+from rvc.lib.algorithm.generators.sifigan import (
+    DEFAULT_SOURCE_SCALE_INIT,
+    SiFiGANGenerator,
+)
 from rvc.lib.algorithm.commons import slice_segments, rand_slice_segments
 from rvc.lib.algorithm.residuals import ResidualCouplingBlock
 from rvc.lib.algorithm.encoders import TextEncoder, PosteriorEncoder
@@ -62,12 +66,18 @@ class Synthesizer(torch.nn.Module):
         vocoder: str = "HiFi-GAN",
         randomized: bool = True,
         checkpointing: bool = False,
+        sifigan_filter_resblock: str = "rvc",
+        sifigan_source_scale_init: float = DEFAULT_SOURCE_SCALE_INIT,
         **kwargs,
     ):
         super().__init__()
         self.segment_size = segment_size
         self.use_f0 = use_f0
         self.randomized = randomized
+        # SiFi-GAN's decoder returns (waveform, source excitation) rather than just the
+        # waveform. Recorded here so forward() and infer() can normalise it without
+        # asking the decoder's type.
+        self.dec_has_source = vocoder == "SiFi-GAN" and use_f0
 
         self.enc_p = TextEncoder(
             inter_channels,
@@ -106,6 +116,20 @@ class Synthesizer(torch.nn.Module):
                     upsample_initial_channel=upsample_initial_channel,
                     checkpointing=checkpointing,
                 )
+            elif vocoder == "SiFi-GAN":
+                self.dec = SiFiGANGenerator(
+                    inter_channels,
+                    resblock_kernel_sizes,
+                    resblock_dilation_sizes,
+                    upsample_rates,
+                    upsample_initial_channel,
+                    upsample_kernel_sizes,
+                    gin_channels=gin_channels,
+                    sr=sr,
+                    checkpointing=checkpointing,
+                    filter_resblock=sifigan_filter_resblock,
+                    source_scale_init=sifigan_source_scale_init,
+                )
             else:
                 self.dec = HiFiGANNSFGenerator(
                     inter_channels,
@@ -124,6 +148,9 @@ class Synthesizer(torch.nn.Module):
                 self.dec = None
             elif vocoder == "RefineGAN":
                 print("RefineGAN does not support training without pitch guidance.")
+                self.dec = None
+            elif vocoder == "SiFi-GAN":
+                print("SiFi-GAN does not support training without pitch guidance.")
                 self.dec = None
             else:
                 self.dec = HiFiGANGenerator(
@@ -193,16 +220,36 @@ class Synthesizer(torch.nn.Module):
                     o = self.dec(z_slice, pitchf, g=g)
                 else:
                     o = self.dec(z_slice, g=g)
-                return o, ids_slice, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
+                source = None
+                if self.dec_has_source:
+                    o, source = o
+                return (
+                    o,
+                    ids_slice,
+                    x_mask,
+                    y_mask,
+                    (z, z_p, m_p, logs_p, m_q, logs_q),
+                    source,
+                )
             # future use for finetuning using the entire dataset each pass
             else:
                 if self.use_f0:
                     o = self.dec(z, pitchf, g=g)
                 else:
                     o = self.dec(z, g=g)
-                return o, None, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
+                source = None
+                if self.dec_has_source:
+                    o, source = o
+                return (
+                    o,
+                    None,
+                    x_mask,
+                    y_mask,
+                    (z, z_p, m_p, logs_p, m_q, logs_q),
+                    source,
+                )
         else:
-            return None, None, x_mask, None, (None, None, m_p, logs_p, None, None)
+            return None, None, x_mask, None, (None, None, m_p, logs_p, None, None), None
 
     @torch.jit.export
     def infer(
@@ -241,5 +288,8 @@ class Synthesizer(torch.nn.Module):
             if self.use_f0
             else self.dec(z * x_mask, g=g)
         )
+        # SiFi-GAN also returns the source excitation, which inference does not use.
+        if self.dec_has_source:
+            o = o[0]
 
         return o, x_mask, (z, z_p, m_p, logs_p)

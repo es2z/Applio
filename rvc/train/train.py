@@ -69,6 +69,9 @@ overtraining_threshold = int(sys.argv[13])
 cleanup = strtobool(sys.argv[14])
 vocoder = sys.argv[15]
 checkpointing = strtobool(sys.argv[16])
+# Appended after checkpointing so none of the existing positions shift. Only meaningful
+# for SiFi-GAN; a caller that passes the old 16 arguments gets the default.
+sifigan_filter_resblock = sys.argv[17] if len(sys.argv) > 17 else "rvc"
 # experimental settings
 randomized = True
 d_lr_coeff = 1.0
@@ -80,7 +83,10 @@ disc_version = "v2"
 
 # Upstream Applio trains RefineGAN against the v3 discriminator (five periods plus three
 # STFT resolution discriminators) with the multi-scale mel loss. HiFi-GAN keeps v2.
-if vocoder == "RefineGAN":
+# SiFi-GAN gets the same treatment: the official implementation trains it against a
+# UnivNet multi-resolution spectral discriminator plus a HiFi-GAN multi-period one, which
+# is what v3 already is, so there is nothing to port on the discriminator side.
+if vocoder in ("RefineGAN", "SiFi-GAN"):
     disc_version = "v3"
     multiscale_mel_loss = True
 
@@ -128,6 +134,11 @@ architecture_identity = {
     "sample_rate": config.data.sample_rate,
     "disc_version": disc_version,
 }
+if vocoder == "SiFi-GAN":
+    # The filter network's residual blocks have different shapes in the two variants, so
+    # a resume must not continue into the other one. Only stamped for SiFi-GAN so that
+    # the other vocoders' checkpoints are unchanged.
+    architecture_identity["sifigan_filter_resblock"] = sifigan_filter_resblock
 
 try:
     g_lr_boost_multiplier, g_lr_boost_epochs = read_generator_lr_boost(config.train)
@@ -463,6 +474,7 @@ def run(
         vocoder=vocoder,
         checkpointing=checkpointing,
         randomized=randomized,
+        sifigan_filter_resblock=sifigan_filter_resblock,
     )
 
     net_d = MultiPeriodDiscriminator(
@@ -505,6 +517,28 @@ def run(
     else:
         fn_mel_loss = torch.nn.L1Loss()
         print("Using Single-Scale Mel loss function")
+
+    # SiFi-GAN only. Without a loss on the source network's excitation that network is
+    # unsupervised and the source-filter decomposition never forms, which is the whole
+    # point of the vocoder. Never built for HiFi-GAN or RefineGAN, so their training
+    # loops are unchanged.
+    fn_reg_loss = None
+    if vocoder == "SiFi-GAN":
+        c_reg = float(getattr(config.train, "c_reg", 1.0))
+        if c_reg > 0:
+            from rvc.train.source_loss import ResidualLoss
+
+            fn_reg_loss = ResidualLoss(
+                sample_rate=config.data.sample_rate,
+                hop_size=config.data.hop_length,
+            )
+            if torch.cuda.is_available():
+                fn_reg_loss = fn_reg_loss.cuda(device_id)
+            else:
+                fn_reg_loss = fn_reg_loss.to(device)
+            print(f"Using SiFi-GAN source regularization loss (c_reg={c_reg})")
+        else:
+            print("SiFi-GAN source regularization loss is off (c_reg=0)")
 
     # Wrap models with DDP for multi-gpu processing
     if n_gpus > 1 and device.type == "cuda":
@@ -627,6 +661,7 @@ def run(
             device_id,
             reference,
             fn_mel_loss,
+            fn_reg_loss,
             scaler,
         )
 
@@ -649,6 +684,7 @@ def train_and_evaluate(
     device_id,
     reference,
     fn_mel_loss,
+    fn_reg_loss,
     scaler,
 ):
     """
@@ -741,9 +777,14 @@ def train_and_evaluate(
                 model_output = net_g(
                     phone, phone_lengths, pitch, pitchf, spec, spec_lengths, sid
                 )
-                y_hat, ids_slice, x_mask, z_mask, (z, z_p, m_p, logs_p, m_q, logs_q) = (
-                    model_output
-                )
+                (
+                    y_hat,
+                    ids_slice,
+                    x_mask,
+                    z_mask,
+                    (z, z_p, m_p, logs_p, m_q, logs_q),
+                    y_source,
+                ) = model_output
                 # slice of the original waveform to match a generate slice
                 if randomized:
                     wave = commons.slice_segments(
@@ -804,6 +845,19 @@ def train_and_evaluate(
             loss_fm = feature_loss(fmap_r, fmap_g)
             loss_gen, _ = generator_loss(y_d_hat_g)
             loss_gen_all = loss_gen + loss_fm + loss_mel + loss_kl
+            if fn_reg_loss is not None and y_source is not None:
+                # The F0 of this segment, sliced exactly as the Synthesizer sliced it
+                # internally so the excitation, the target waveform and the pitch line up.
+                segment_frames = config.train.segment_size // config.data.hop_length
+                pitchf_slice = (
+                    commons.slice_segments(pitchf, ids_slice, segment_frames, 2)
+                    if ids_slice is not None
+                    else pitchf
+                )
+                loss_reg = fn_reg_loss(
+                    y_source.float(), wave.float(), pitchf_slice.float()
+                ) * float(getattr(config.train, "c_reg", 1.0))
+                loss_gen_all = loss_gen_all + loss_reg
 
             if loss_gen_all < lowest_value["value"]:
                 lowest_value = {

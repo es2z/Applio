@@ -122,6 +122,7 @@ def describe_architecture_mismatch(checkpoint, current, subject="it"):
     for key, label in (
         ("sample_rate", "sample rate"),
         ("disc_version", "discriminator version"),
+        ("sifigan_filter_resblock", "SiFi-GAN filter block variant"),
     ):
         was, now = checkpoint.get(key), current.get(key)
         if was is not None and now is not None and was != now:

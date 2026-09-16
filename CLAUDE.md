@@ -456,6 +456,162 @@ about RefineGAN was tied to 32k except upstream only shipping 32k pretrains:
 - Inference, realtime, export and the blender needed no change: they build the
   `Synthesizer` from `cpt["vocoder"]`, and the blender already refuses mismatched key sets.
 
+### SiFi-GAN at 32k / 40k / 48k
+A third vocoder, from the official ICASSP 2023 implementation
+([chomeyama/SiFiGAN](https://github.com/chomeyama/SiFiGAN), MIT). The decoder is split in
+two: a **source network** (`dec.sn.*`) that turns a sine excitation into an excitation
+signal using convolutions whose dilation follows the pitch, and a **filter network**
+(`dec.fn.*`) that shapes it into the waveform. `enc_p` / `enc_q` / `flow` / `emb_g` / F0 /
+speaker conditioning are untouched; only the decoder is new.
+
+The integration is deliberately shaped so a HiFi-GAN pretrain is worth as much as possible:
+
+- **The filter network *is* this fork's HiFi-GAN decoder.** `conv_pre`, `cond`, `m_source`
+  (the same `SourceModuleHnNSF`), `fn.upsamples` <-> `dec.ups`, `fn.blocks` <->
+  `dec.resblocks` and `fn.output_conv` <-> `dec.conv_post` are key for key and shape for
+  shape identical. Verified for all three sample rates in `tests/test_sifigan.py`.
+- **The official `assert upsample_kernel_sizes[i] == 2 * upsample_scales[i]` is not used.**
+  This fork uses the odd-rate padding from `HiFiGANNSFGenerator` instead, so the stock
+  kernels work unchanged. That assertion would reject 40k outright (`[16,16,4,4]` against
+  `[10,10,2,2]`), and using 2*rate kernels instead would break the 1:1 correspondence with
+  `dec.ups` at 40k. The stock kernels give both.
+- **The official downsample padding is off by one for 40k.** `upsample_scales[i] -
+  (kernel % 2 == 0)` assumes kernel == 2*rate; generalised to `ceil((kernel - rate) / 2)`,
+  which divides the length by exactly the rate for both kernel sets.
+- Output is exactly `frames * prod(upsample_rates)` = `segment_size`, same as the others.
+- **`forward()` now returns six elements**, the sixth being the source excitation
+  (`None` for every other vocoder). `infer()` drops it. `rvc/train/train.py` is the only
+  caller of `forward()`; inference and realtime use `infer()`.
+- `train.py` gives SiFi-GAN the same treatment as RefineGAN: `disc_version="v3"` and the
+  multi-scale mel loss. The official SiFi-GAN trains against a UnivNet multi-resolution
+  spectral discriminator plus a HiFi-GAN multi-period one, which is what v3 already is, so
+  **no discriminator was ported.**
+- Decoder size at 48k: SiFi-GAN 27.9M parameters against HiFi-GAN 15.7M and RefineGAN
+  13.2M. Whole `Synthesizer` at 48k/768: 49.8M against HiFi-GAN's 37.6M.
+
+#### The pitch-dependent dilations
+`d[i]` is `(sample_rate / dense_factors[i]) / f0`, repeated to
+`frames * cumprod(upsample_rates)[i]` - the length of the feature map after stage `i`
+(48k: `[432, 4320, 8640, 17280]` for a 36-frame segment). Unvoiced frames (`f0 == 0`) are
+given the pitch that makes the factor exactly 1, i.e. no adaptation.
+
+Two things about the official formula that are easy to get wrong and are reproduced here
+verbatim: **`dilated_factor` is called with the full sample rate for every stage**, not
+with that stage's own rate (the collater computes `df_sample_rates` but only uses it in a
+length assertion), and `dense_factors` defaults to the official `[0.5, 1, 4, 8]`. The
+resulting dilation-to-period ratio is `hop / (dense_factor_i * cumprod_i)`: official 24k
+gives `[48, 6, 0.5, 0.125]`, this fork's 48k gives `[80, 4, 0.5, 0.125]`, so **the two
+innermost stages match the official exactly** and the outer two differ because the
+upsampling schedule does. `dense_factors = [0.833, 0.667, 4, 8]` would match all four.
+
+#### Filter blocks: `rvc` (default) or `official`
+Training tab > Vocoder > `SiFi-GAN` reveals a second radio. `rvc` builds the filter blocks
+from this repository's `ResBlock` (kernel sizes 3/7/11, dilations 1/3/5, two convolutions
+per dilation), which is what makes the 1:1 correspondence above possible. `official`
+follows the paper (one convolution per dilation, kernel sizes 3/5/7) and its filter blocks
+consequently have no counterpart in any existing model.
+
+It is a structural choice, so it travels like `vocoder` does: `sys.argv[17]` (appended, so
+no existing position shifts), stamped into `architecture_identity` and therefore into every
+`G_*.pth` / `D_*.pth`, and into the exported `.pth`. `assert_resumable` refuses a resume
+that changes it. In `extract_model` it is **read off the weights** rather than threaded
+through as an argument, the same way `detect_vocoder` works: the official blocks have no
+`convs2`.
+
+#### The source regularisation loss
+`rvc/train/source_loss.py` (`ResidualLoss`) plus `rvc/lib/algorithm/cheaptrick.py`, both
+ported from the official repo. It asks the excitation's mel spectrum to match the target
+waveform's with the CheapTrick spectral envelope divided out. **Without it the source
+network is unsupervised and the source-filter decomposition never forms** - what is left is
+an ordinary vocoder with quasi-periodic convolutions in it.
+
+- Weight is `train.c_reg` in `logs/<model>/config.json`, default 1.0, `0` turns it off.
+  Built only when the vocoder is SiFi-GAN, so the other vocoders' training loops are
+  byte-for-byte unchanged.
+- **`c_reg` is deliberately *not* in `TRAIN_SETTING_KEYS`.** `read_train_settings` returns
+  a config's values only when *all* the listed keys are present, so adding one would make
+  every existing model folder fall through to the stock config and show the wrong
+  learning_rate / c_mel.
+- CheapTrick needs `fft_size > 3 * sample_rate / f0_floor`. The defaults are
+  `fft_size=4096, f0_floor=50, f0_ceil=1100` to cover this fork's F0 range rather than the
+  official 2048/100/840, which would clamp everything under 100 Hz. Buffers cost ~37 MB.
+- Pure torch and differentiable; measured in a real step, the source network receives
+  gradient on 142 tensors.
+
+#### `source_scales`: why a faithful port of the official generator warm starts badly
+Mel L1 against the ground truth on 16 real training clips **before any optimizer step**
+(48k, kushinada-hubert-large 1024-dim, posterior-encoder path). This is the instrument
+that caught the pretrained loading bug; training loss at step N mixes in optimizer
+transients and cannot answer this. Reference points, all healthy:
+
+| configuration | mel L1 |
+|---|---|
+| HiFi-GAN from scratch | 1.847 |
+| **HiFi-GAN <- stock `f0G48k` (768 -> 1024)** | **0.685** |
+| RefineGAN from scratch | 3.250 |
+| **RefineGAN <- its own `G_*.pth` (100%)** | **0.435** |
+
+Built exactly as the paper describes, SiFi-GAN warm started **worse than from scratch**.
+The cause is not a missing tensor. Its filter stages compute
+`fn.upsamples[i](c) + embs[-i-1]`, where `embs` comes from the **freshly initialised
+source network**, while the HiFi-GAN residual blocks being inherited were trained on
+`ups(x) + noise_convs(har_source)`, whose additive term is a tanh-bounded sine. Measured
+rms ratio of additive term to upsampled path:
+
+| stage | HiFi-GAN (trained on this) | SiFi-GAN at init, no gain |
+|---|---|---|
+| 0 | 0.67 | 0.12 |
+| 1 | 0.21 | 0.95 |
+| 2 | 0.17 | **3.00** |
+| 3 | 0.43 | **2.68** |
+
+The fresh source network's output has rms 0.390 against the sine's 0.030, about 13x, so
+the inherited blocks are driven by a term three times their own input and run far out of
+distribution.
+
+So `SiFiGANGenerator` adds **`dec.source_scales`**, a learnable per-stage gain on that
+additive term (`DEFAULT_SOURCE_SCALE_INIT`, and `sifigan_source_scale_init` on
+`Synthesizer`). RefineGAN's `AdaIN` already does the same thing in this repository with a
+1e-4 initialised weight. The source network is supervised directly by the regularisation
+loss, so a small gain does not starve it. Chosen by measurement, every configuration
+built from the same RNG state:
+
+| gain | SiFi-GAN from scratch | SiFi-GAN <- stock `f0G48k` | SiFi-GAN <- 1024-dim RefineGAN |
+|---|---|---|---|
+| 1.00 (the paper) | 1.907 | **2.876** | 3.480 |
+| 0.30 | 1.830 | 1.946 | 3.826 |
+| 0.10 | 1.893 | 1.245 | 3.869 |
+| **0.03 (default)** | 1.929 | **0.999** | 3.881 |
+| 0.00 | 1.952 | 1.069 | 3.881 |
+
+At the paper's gain the warm start is 51% *worse* than scratch; at 0.03 it is 48%
+*better*. The curve is flat between 0 and 0.1 but both ends are worse than 0.03, so a
+little source signal helps and a lot of it hurts.
+
+**The RefineGAN -> SiFi-GAN port is worth nothing at initialisation** (3.5 - 3.9 at every
+gain, against 1.9 from scratch) and no gain rescues it: that port carries only
+`fn.blocks` and `fn.output_conv`, so the inherited blocks sit behind a random `conv_pre`,
+`cond` and `fn.upsamples` whatever the source term does. Warm start SiFi-GAN from a
+**HiFi-GAN** checkpoint, not a RefineGAN one, even when a same-width RefineGAN is the
+model you happen to have.
+
+The head start survives training, which a step-0 number alone cannot show. Two 50 epoch
+runs on the same 128 clips, batch 4, 32 steps/epoch, both at the default gain, one warm
+started from the stock `f0G48k` / `f0D48k` and one from scratch:
+
+| epoch | `mel` warm | `mel` scratch | `kl` warm | `kl` scratch |
+|---|---|---|---|---|
+| 1 | 31.79 | 61.65 | 8.69 | 60.33 |
+| 10 | 27.08 | 39.58 | 1.82 | 1.76 |
+| 30 | 25.02 | 33.66 | 1.29 | 1.80 |
+| 50 | **24.84** | 31.81 | **1.15** | 1.73 |
+
+`fm` is higher for the warm start (8.7 against 4.4), which is what a run further along
+looks like rather than a problem. The gain itself is learnable and behaves: from 0.03 the
+warm started run moved it to `[0.013, 0.022, 0.032, 0.012]` and the scratch run to
+`[0.035, 0.028, 0.027, 0.022]` - the model with inherited blocks pushes the source term
+*down* rather than opening the gate, and neither runs away towards the paper's 1.0.
+
 ### Warm starting across embedders and vocoders
 `rvc/train/warm_start.py` is the single place that decides what a pretrained G / D may
 contribute. It works from meaning, not from shape equality:
@@ -463,8 +619,11 @@ contribute. It works from meaning, not from shape equality:
   ever saved), else the recorded `vocoder`. `save_checkpoint` now stamps `vocoder`,
   `sample_rate` and `disc_version` into every `G_*.pth` / `D_*.pth` next to the embedder
   identity. A legacy HiFi-GAN's sample rate is recognised from its transposed-conv kernel
-  sizes, which differ between the stock configs; a legacy RefineGAN's cannot be (its
-  shapes do not depend on the sample rate).
+  sizes, which differ between the stock configs, and so is a legacy SiFi-GAN's (from
+  `dec.fn.upsamples`, the same transposed convolutions); a legacy RefineGAN's cannot be
+  (its shapes do not depend on the sample rate). **A SiFi-GAN decoder's shapes do depend
+  on it**, so it is excluded from the "shapes do not depend on the sample rate" assumption
+  in `_plan_decoder` - claiming otherwise would inherit a whole decoder across rates.
 - **Generator, same vocoder:** everything name for name; a shape mismatch stops the run,
   except `enc_p.emb_phone` when the embedder width differs.
 - **Generator, HiFi-GAN <-> RefineGAN:** `enc_p` / `enc_q` / `flow` / `emb_g` whole, then
@@ -477,6 +636,20 @@ contribute. It works from meaning, not from shape equality:
   starting point, not an identical function: the LeakyReLU slope is 0.1 vs 0.2 and
   RefineGAN puts a fresh `input_conv` in front of each stage. Measured from
   `G_2333333.pth` into a 1024-dim 48k RefineGAN: 535 of 588 tensors, 93.6% of parameters.
+- **Generator, HiFi-GAN <-> SiFi-GAN:** the largest port of the three, because SiFi-GAN's
+  filter network is the HiFi-GAN decoder: `conv_pre`, `cond`, `m_source`, `fn.upsamples`
+  <-> `dec.ups`, `fn.blocks` <-> `dec.resblocks` and `fn.output_conv` <-> `dec.conv_post`,
+  all name for name. Measured at 48k/768: **HiFi-GAN -> SiFi-GAN 75.5%** of parameters
+  (552 tensors), **SiFi-GAN -> HiFi-GAN 99.9%**. Only HiFi-GAN's `noise_convs` are dropped
+  (SiFi-GAN injects the sine through its source network instead), and only `dec.sn.*` plus
+  `dec.fn.downsamples.*` start fresh - the latter shrink the *excitation* for the filter
+  skips, a different job from `noise_convs`, which is why they have no counterpart either.
+  With `filter_resblock="official"` the residual-block entries are simply left out rather
+  than allowed to clash, so the port is not abandoned as a whole: 62.2% still transfers.
+- **Generator, RefineGAN <-> SiFi-GAN:** the same range as HiFi-GAN <-> RefineGAN, for the
+  same reasons - the residual blocks (identical channels, kernels and dilations) and
+  `conv_post` with the weight-norm conversion. Measured at 48k/768: RefineGAN -> SiFi-GAN
+  66.1%, SiFi-GAN -> RefineGAN 93.6%.
 - **Discriminator:** sub-discriminators matched by descriptor (`S`, `P(period)`,
   `R(resolution)`), never by index - a period 17 and a period 23 discriminator have the
   same shapes. v2 -> v3 inherits S and P2..P11 (99.4% of v3's parameters), starts the
