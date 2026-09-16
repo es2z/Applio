@@ -538,6 +538,45 @@ an ordinary vocoder with quasi-periodic convolutions in it.
 - Pure torch and differentiable; measured in a real step, the source network receives
   gradient on 142 tensors.
 
+**What it costs, measured.** Two 50 epoch runs from scratch on the same 128 clips,
+identical but for `c_reg`:
+
+| | `mel` at 50 | `kl` at 50 |
+|---|---|---|
+| `c_reg = 1.0` (default) | 31.81 | 1.73 |
+| `c_reg = 0` | **28.42** | 1.68 |
+
+So the loss costs **3.4 of mel** and buys 0.05 of kl. That is not an argument for turning it
+off: what it is there to buy - the source-filter decomposition, and with it the pitch
+controllability that is the whole point of SiFi-GAN - is not something either number can
+see. But anyone comparing SiFi-GAN's mel against another vocoder should know that roughly
+3 points of it are being spent here, and that `c_reg` is the knob.
+
+#### How it compares to RefineGAN, measured
+Same 128 clips, batch 4, same v3 discriminator and multi-scale mel loss, warm starts from
+the same stock `f0G48k` / `f0D48k`, 50 epochs. Because the loss function and the
+discriminator are identical here, these numbers *are* directly comparable (unlike a
+SiFi-GAN or RefineGAN run against a HiFi-GAN one).
+
+| | `mel` at 50 | `kl` at 50 |
+|---|---|---|
+| SiFi-GAN, warm | **24.84** | 1.15 |
+| RefineGAN, warm | 27.37 | **0.53** |
+| SiFi-GAN, scratch | **31.81** | 1.73 |
+| RefineGAN, scratch | 49.52 | **0.22** |
+
+- **SiFi-GAN converges far faster on mel**, and it is architectural rather than an artifact
+  of the warm start: the gap from scratch (17.7) dwarfs the gap when both are warm started
+  (2.5). It also wins from the weaker position - from the same pretrain SiFi-GAN inherits
+  75.1% of its parameters where RefineGAN inherits 93.1%, because SiFi-GAN's decoder is
+  bigger (27.9M against 13.2M) and its source network is entirely new.
+- **RefineGAN is consistently better on `kl`**, by 0.6 warm and 1.5 from scratch, and
+  `c_reg` accounts for only 0.05 of that - it is the architecture. `kl` is the number this
+  fork's notes tie to conversion quality, so this is not a footnote.
+- At 50 epochs SiFi-GAN has flattened (mel -0.09 over the last 10 epochs) while warm
+  RefineGAN is still moving (-0.93), so **whether the mel lead survives is unmeasured**.
+  50 epochs on 128 clips is an early, small experiment, and neither number is perceptual.
+
 #### `source_scales`: why a faithful port of the official generator warm starts badly
 Mel L1 against the ground truth on 16 real training clips **before any optimizer step**
 (48k, kushinada-hubert-large 1024-dim, posterior-encoder path). This is the instrument
