@@ -1,4 +1,3 @@
-from tabs.components import mangio_crepe_decoder
 import os
 import shutil
 import sys
@@ -332,6 +331,7 @@ def load_train_settings(model_name, sample_rate):
     return (
         gr.update(value=settings["learning_rate"]),
         gr.update(value=settings["c_mel"]),
+        gr.update(value=settings["lr_decay"]),
         gr.update(value=boost["enabled"]),
         gr.update(visible=boost["enabled"]),
         gr.update(value=boost["multiplier"]),
@@ -562,7 +562,6 @@ def train_tab():
                 value="rmvpe",
                 interactive=True,
             )
-            mangio_crepe_decoder(f0_method)
 
             embedder_model = gr.Radio(
                 label=i18n("Embedder Model"),
@@ -821,6 +820,17 @@ def train_tab():
                     step=1,
                     interactive=True,
                 )
+                lr_decay = gr.Number(
+                    label=i18n("Learning Rate Decay"),
+                    info=i18n(
+                        "What the learning rate of both the generator and the discriminator is multiplied by after every epoch. 0.999875 is the default and leaves 88% of the learning rate after 1000 epochs; 1 keeps it constant, and 0.9995 leaves 61% after 1000 epochs. Read from and written back to logs/<model_name>/config.json. When resuming, a changed value takes over from the second resumed epoch."
+                    ),
+                    value=DEFAULT_TRAIN_SETTINGS["lr_decay"],
+                    minimum=0,
+                    maximum=1,
+                    step=0.000025,
+                    interactive=True,
+                )
             g_lr_boost = gr.Checkbox(
                 label=i18n("Initial Generator LR Boost"),
                 info=i18n(
@@ -868,6 +878,7 @@ def train_tab():
                 outputs=[
                     learning_rate,
                     c_mel,
+                    lr_decay,
                     g_lr_boost,
                     g_lr_boost_settings,
                     g_lr_boost_multiplier,
@@ -925,6 +936,7 @@ def train_tab():
                     checkpointing,
                     learning_rate,
                     c_mel,
+                    lr_decay,
                     g_lr_boost,
                     g_lr_boost_multiplier,
                     g_lr_boost_epochs,

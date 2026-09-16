@@ -900,13 +900,13 @@ class RealtimeWiringTest(unittest.TestCase):
 
 
 class TrainSettingsTest(unittest.TestCase):
-    """learning_rate and c_mel live only in logs/<model>/config.json.
+    """learning_rate, c_mel and lr_decay live only in logs/<model>/config.json.
 
     The Training tab reads them from there and writes them back, so the invariant that
     matters is that handing back what was read cannot disturb a hand-tuned file.
     """
 
-    STOCK = {"learning_rate": 0.0001, "c_mel": 45}
+    STOCK = {"learning_rate": 0.0001, "c_mel": 45, "lr_decay": 0.999875}
 
     def _run_dir(self, temp_dir, config=None):
         model_dir = Path(temp_dir) / "run"
@@ -922,15 +922,36 @@ class TrainSettingsTest(unittest.TestCase):
             )
 
     def test_an_existing_run_shows_its_own_values(self):
+        seed = {"train": {"learning_rate": 7e-05, "c_mel": 50, "lr_decay": 0.99925}}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self.assertEqual(
+                read_train_settings(self._run_dir(temp_dir, seed), 48000),
+                {"learning_rate": 7e-05, "c_mel": 50, "lr_decay": 0.99925},
+            )
+
+    def test_a_key_the_run_lacks_falls_back_on_its_own(self):
         seed = {"train": {"learning_rate": 7e-05, "c_mel": 50}}
         with tempfile.TemporaryDirectory() as temp_dir:
             self.assertEqual(
                 read_train_settings(self._run_dir(temp_dir, seed), 48000),
-                {"learning_rate": 7e-05, "c_mel": 50},
+                {"learning_rate": 7e-05, "c_mel": 50, "lr_decay": 0.999875},
             )
 
+    def test_an_out_of_range_lr_decay_is_refused(self):
+        seed = {"train": {"learning_rate": 7e-05, "c_mel": 50, "lr_decay": 0.999875}}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run = self._run_dir(temp_dir, seed)
+            for bad in (0, -0.5, 1.5):
+                with self.assertRaises(ValueError):
+                    apply_train_settings(run, lr_decay=bad)
+            apply_train_settings(run, lr_decay=1)
+            after = json.loads((Path(run) / "config.json").read_text(encoding="utf-8"))
+        self.assertEqual(after["train"]["lr_decay"], 1)
+
     def test_writing_back_what_was_read_is_a_no_op(self):
-        seed = {"train": {"learning_rate": 7e-05, "c_mel": 50, "c_kl": 1.0}}
+        seed = {
+            "train": {"learning_rate": 7e-05, "c_mel": 50, "lr_decay": 0.99925, "c_kl": 1.0}
+        }
         with tempfile.TemporaryDirectory() as temp_dir:
             run = self._run_dir(temp_dir, seed)
             path = Path(run) / "config.json"
@@ -976,6 +997,7 @@ class TrainSettingsTest(unittest.TestCase):
                 )["train"]
                 self.assertEqual(train["learning_rate"], 0.0001)
                 self.assertEqual(train["c_mel"], 45)
+                self.assertEqual(train["lr_decay"], 0.999875)
 
     def test_the_training_tab_passes_them_last(self):
         # run_train_script takes the config.json settings as its final parameters, and
@@ -986,6 +1008,7 @@ class TrainSettingsTest(unittest.TestCase):
         expected = [
             "learning_rate",
             "c_mel",
+            "lr_decay",
             "g_lr_boost",
             "g_lr_boost_multiplier",
             "g_lr_boost_epochs",

@@ -513,6 +513,7 @@ def run_train_script(
     checkpointing: bool = False,
     learning_rate: float = None,
     c_mel: float = None,
+    lr_decay: float = None,
     g_lr_boost: bool = None,
     g_lr_boost_multiplier: float = None,
     g_lr_boost_epochs: int = None,
@@ -526,7 +527,10 @@ def run_train_script(
     )
 
     apply_train_settings(
-        os.path.join(logs_path, model_name), learning_rate=learning_rate, c_mel=c_mel
+        os.path.join(logs_path, model_name),
+        learning_rate=learning_rate,
+        c_mel=c_mel,
+        lr_decay=lr_decay,
     )
     apply_generator_lr_boost_settings(
         os.path.join(logs_path, model_name),
@@ -2011,6 +2015,16 @@ def parse_arguments():
         default=None,
     )
     train_parser.add_argument(
+        "--lr_decay",
+        type=float,
+        help=(
+            "Per-epoch learning rate multiplier for both the generator and the "
+            "discriminator, above 0 and at most 1. Defaults to whatever is already in "
+            "logs/<model_name>/config.json (0.999875)."
+        ),
+        default=None,
+    )
+    train_parser.add_argument(
         "--g_lr_boost_multiplier",
         type=float,
         help=(
@@ -2466,6 +2480,7 @@ def main():
                 checkpointing=args.checkpointing,
                 learning_rate=args.learning_rate,
                 c_mel=args.c_mel,
+                lr_decay=args.lr_decay,
                 g_lr_boost_multiplier=args.g_lr_boost_multiplier,
                 g_lr_boost_epochs=args.g_lr_boost_epochs,
             )

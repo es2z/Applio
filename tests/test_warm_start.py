@@ -412,6 +412,27 @@ class GeneratorLrBoostTest(unittest.TestCase):
         )
 
 
+class LrDecayOnResumeTest(unittest.TestCase):
+    """The Training tab says a changed lr_decay takes over from the second resumed epoch."""
+
+    def test_a_changed_decay_takes_over_after_the_first_resumed_epoch(self):
+        optimizer = torch.optim.AdamW([torch.nn.Parameter(torch.zeros(1))], lr=1e-4)
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.999875)
+        for _ in range(2):  # epochs 1 and 2, saved before each scheduler step as train.py does
+            saved_lr = optimizer.param_groups[0]["lr"]
+            state = optimizer.state_dict()
+            scheduler.step()
+
+        resumed = torch.optim.AdamW([torch.nn.Parameter(torch.zeros(1))], lr=1e-4)
+        resumed.load_state_dict(state)
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(resumed, gamma=0.99, last_epoch=1)
+        epoch_3 = resumed.param_groups[0]["lr"]
+        scheduler.step()
+        epoch_4 = resumed.param_groups[0]["lr"]
+        self.assertEqual(epoch_3, saved_lr)
+        self.assertAlmostEqual(epoch_4, saved_lr * 0.99, places=15)
+
+
 class GeneratorLrBoostSettingsTest(unittest.TestCase):
     def _config(self, temp_dir, train=None):
         path = Path(temp_dir) / "config.json"

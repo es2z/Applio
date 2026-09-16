@@ -493,6 +493,18 @@ source_keys, convert)` entries and register it in `CROSS_VOCODER_DECODER_PORTS`;
 engine validates every shape before loading anything and abandons the port as a whole if
 one entry does not fit.
 
+### Learning rate decay in the Training tab
+`Learning Rate Decay` sits next to `Learning Rate` and `Mel Loss Weight` and is handled
+the same way (`TRAIN_SETTING_KEYS` in `rvc/train/extract/preparing_files.py`, `--lr_decay`
+on the CLI): read from `logs/<model>/config.json` `train.lr_decay`, written back on start,
+and must be above 0 and at most 1. `read_train_settings` now falls back to the stock config
+per key, so a run config lacking one key still shows its own values for the rest.
+
+Unlike `learning_rate`, a changed `lr_decay` does take effect on a resume, because
+`train.py` rebuilds the ExponentialLR from the config every run while the learning rate
+itself comes back from the optimizer state in `G_*.pth` / `D_*.pth`. The first resumed
+epoch still runs at the saved learning rate, and the new decay applies from the next one.
+
 ### Initial Generator LR Boost
 Training tab > Advanced: `Initial Generator LR Boost`, with `Generator LR Multiplier`
 (default 3.0) and `Boost Epochs` (default 10) shown only while ticked. Stored as
@@ -565,9 +577,15 @@ cause is the decoder - see below. Numbers are in `TORCHCOMPILE_ACCURACY_REPORT.m
 ### Mangio-CREPE decoder
 `mangio_crepe_decoder` (`assets/config.json`, default `viterbi`) picks how mangio-crepe
 turns the network output into a pitch (`rvc/lib/predictors/crepe_decoder.py`). The picker
-appears next to every "Pitch extraction algorithm" control and only while a mangio-crepe
+appears next to the "Pitch extraction algorithm" control and only while a mangio-crepe
 method is selected; it is built once in `tabs/components.py` and reused by realtime,
-inference, batch inference, TTS, training extraction and the F0 curve tool.
+inference, batch inference, TTS and the F0 curve tool.
+
+**Training extraction is not part of this setting.** It always decodes with `viterbi`
+(`TRAINING_MANGIO_CREPE_DECODER` in `rvc/train/extract/extract.py`, passed to
+`MANGIO_CREPE(decoder=...)`), and the Training tab has no picker. The setting is global,
+so before this a decoder chosen for inference or realtime silently changed the pitch every
+later extraction trained on.
 
 Measured on an RTX 4090, five consecutive runs of the same audio in one process:
 
