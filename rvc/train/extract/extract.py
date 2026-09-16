@@ -32,6 +32,9 @@ from rvc.lib.predictors.crepe_models import (
     resolve_crepe_model,
 )
 from rvc.lib.predictors.f0 import CREPE, FCPE, RMVPE, MANGIO_CREPE
+from rvc.lib.predictors.crepe_decoder import DEFAULT_DECODER
+
+TRAINING_MANGIO_CREPE_DECODER = DEFAULT_DECODER  # viterbi
 from rvc.configs.config import Config
 
 # Load config
@@ -54,8 +57,14 @@ class FeatureInput:
                 device=self.device, sample_rate=self.sample_rate, hop_size=self.hop_size
             )
         elif f0_method in MANGIO_CREPE_METHOD_TO_MODEL:
+            # Training always decodes with viterbi, whatever the inference / realtime
+            # decoder setting says, so the pitch a model is trained on never depends on
+            # a setting made for another tab.
             self.model = MANGIO_CREPE(
-                device=self.device, sample_rate=self.sample_rate, hop_size=self.hop_size
+                device=self.device,
+                sample_rate=self.sample_rate,
+                hop_size=self.hop_size,
+                decoder=TRAINING_MANGIO_CREPE_DECODER,
             )
         elif f0_method == "rmvpe":
             self.model = RMVPE(

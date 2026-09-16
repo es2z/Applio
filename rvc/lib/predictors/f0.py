@@ -73,10 +73,12 @@ class CREPE:
 
 
 class MANGIO_CREPE:
-    def __init__(self, device, sample_rate=16000, hop_size=160):
+    def __init__(self, device, sample_rate=16000, hop_size=160, decoder=None):
         self.device = device
         self.sample_rate = sample_rate
         self.hop_size = hop_size
+        # A decoder name from crepe_decoder.DECODERS, or None for the saved setting.
+        self.decoder = decoder
 
     def get_f0(self, x, f0_min=50, f0_max=1100, p_len=None, model="full"):
         if p_len is None:
@@ -115,7 +117,7 @@ class MANGIO_CREPE:
             return_periodicity=True,
             # viterbi, torchcrepe's default, is not repeatable on CUDA; see
             # rvc/lib/predictors/crepe_decoder.py.
-            decoder=resolve_decoder(),
+            decoder=resolve_decoder(self.decoder),
             compile_model=compile_enabled,
             compile_mode=compile_mode,
         )

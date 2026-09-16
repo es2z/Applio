@@ -45,15 +45,18 @@ def generate_config(
 
 # learning_rate and c_mel are not part of the extract step, but logs/<model>/config.json is
 # the only place they live, so reading and writing them belongs next to generate_config.
-TRAIN_SETTING_KEYS = ("learning_rate", "c_mel")
+TRAIN_SETTING_KEYS = ("learning_rate", "c_mel", "lr_decay")
 
 
 def read_train_settings(model_path: str, sample_rate: int):
-    """Current learning_rate / c_mel for a run, falling back to the stock config.
+    """Current learning_rate / c_mel / lr_decay for a run, falling back to the stock config.
 
     A run that has not been extracted yet has no config.json, so the values the UI shows
-    are the ones it would inherit from rvc/configs/<sample_rate>.json.
+    are the ones it would inherit from rvc/configs/<sample_rate>.json. Each key falls back
+    on its own, so a run config that lacks one of them still shows its own values for the
+    others.
     """
+    settings = {}
     for path in (
         os.path.join(model_path, "config.json"),
         os.path.join("rvc", "configs", f"{sample_rate}.json"),
@@ -61,17 +64,24 @@ def read_train_settings(model_path: str, sample_rate: int):
         if os.path.isfile(path):
             with open(path, "r") as f:
                 train = json.load(f).get("train", {})
-            if all(key in train for key in TRAIN_SETTING_KEYS):
-                return {key: train[key] for key in TRAIN_SETTING_KEYS}
-    return {}
+            for key in TRAIN_SETTING_KEYS:
+                if key not in settings and key in train:
+                    settings[key] = train[key]
+    return settings if len(settings) == len(TRAIN_SETTING_KEYS) else {}
 
 
 def apply_train_settings(model_path: str, **settings):
-    """Write learning_rate / c_mel into a run's config.json, leaving everything else be.
+    """Write learning_rate / c_mel / lr_decay into a run's config.json, leaving the rest be.
 
     Only touches keys that were actually passed and actually differ, so a caller that
     hands back what read_train_settings gave it is a no-op and cannot clobber a hand edit.
     """
+    lr_decay = settings.get("lr_decay")
+    if lr_decay is not None and not 0 < float(lr_decay) <= 1:
+        raise ValueError(
+            f"lr_decay is a per-epoch multiplier and must be above 0 and at most 1, "
+            f"got {lr_decay}."
+        )
     config_path = os.path.join(model_path, "config.json")
     if not os.path.isfile(config_path):
         return
