@@ -6,6 +6,7 @@ from torch.nn.utils.parametrizations import weight_norm
 
 from rvc.lib.algorithm.modules import WaveNet
 from rvc.lib.algorithm.commons import get_padding, init_weights
+from rvc.lib.algorithm.conformer.snake import Snake
 
 LRELU_SLOPE = 0.1
 
@@ -78,6 +79,40 @@ class ResBlock(torch.nn.Module):
             x = conv2(x)
             x = x + x_residual
         return apply_mask(x, x_mask)
+
+    def remove_weight_norm(self):
+        for conv in chain(self.convs1, self.convs2):
+            remove_weight_norm(conv)
+
+
+class SnakeResBlock(torch.nn.Module):
+    """ResBlock with Snake activations in place of LeakyReLU.
+
+    Ported from ResBlock_Snake_Fused in the Codename RVC fork, and used only by the
+    CodenameRingFormer decoder. `convs1` and `convs2` are name for name and shape for
+    shape identical to ResBlock above - which is what makes a HiFi-GAN decoder's residual
+    blocks a candidate for a warm start at all (see rvc/train/warm_start.py) - and the
+    only additions are the two Snake activations, one alpha vector each.
+    """
+
+    def __init__(
+        self, channels: int, kernel_size: int = 3, dilations: Tuple[int] = (1, 3, 5)
+    ):
+        super().__init__()
+        self.convs1 = ResBlock._create_convs(channels, kernel_size, dilations)
+        self.convs2 = ResBlock._create_convs(channels, kernel_size, [1] * len(dilations))
+        self.snake1 = Snake(channels, init="periodic", correction="std")
+        self.snake2 = Snake(channels, init="periodic", correction="std")
+
+    def forward(self, x: torch.Tensor, x_mask: torch.Tensor = None):
+        for conv1, conv2 in zip(self.convs1, self.convs2):
+            x_residual = x
+            xt = apply_mask(self.snake1(x), x_mask)
+            xt = conv1(xt)
+            xt = apply_mask(self.snake2(xt), x_mask)
+            xt = conv2(xt)
+            x = apply_mask(xt + x_residual, x_mask)
+        return x
 
     def remove_weight_norm(self):
         for conv in chain(self.convs1, self.convs2):

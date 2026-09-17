@@ -300,6 +300,33 @@ def checkpoint_text_enc_hidden_dim(checkpoint):
     return 768 if checkpoint.get("version", "v1") == "v2" else 256
 
 
+def checkpoint_gen_istft(checkpoint):
+    """(gen_istft_n_fft, gen_istft_hop_size) of a CodenameRingFormer checkpoint.
+
+    Its decoder ends in an iSTFT, and both settings decide shapes: conv_post emits
+    gen_istft_n_fft + 2 channels and noise_convs take that many in. The FFT size is
+    therefore recoverable from the weights of every such checkpoint; the hop is not, so it
+    comes from the recorded key and falls back to the stock relation (n_fft = 4 * hop).
+
+    (None, None) for every other vocoder, which is what Synthesizer's defaults expect.
+    """
+    weight = checkpoint.get("weight", {})
+    if not any(key.startswith("dec.conformers.") for key in weight):
+        return None, None
+    n_fft = checkpoint.get("gen_istft_n_fft")
+    for key in (
+        "dec.conv_post.weight_v",
+        "dec.conv_post.parametrizations.weight.original1",
+    ):
+        if key in weight:
+            n_fft = weight[key].shape[0] - 2
+            break
+    hop = checkpoint.get("gen_istft_hop_size")
+    if hop is None and n_fft is not None:
+        hop = n_fft // 4
+    return n_fft, hop
+
+
 def embedder_identity(model, embedder_name=None):
     """The properties of an embedder that its extracted features depend on.
 

@@ -43,6 +43,85 @@ def generate_config(
     print(f"Set text_enc_hidden_dim to {text_enc_hidden_dim} in {config_save_path}")
 
 
+# The decoder settings a vocoder is allowed to redefine. Every vocoder but
+# CodenameRingFormer builds its decoder from the stock values; CodenameRingFormer upsamples
+# in the STFT frame domain instead of the waveform domain, so its rates, kernels and the
+# two iSTFT settings all differ and the stock ones would build the wrong decoder.
+VOCODER_MODEL_KEYS = (
+    "upsample_rates",
+    "upsample_kernel_sizes",
+    "upsample_initial_channel",
+    "resblock_kernel_sizes",
+    "resblock_dilation_sizes",
+    "gen_istft_n_fft",
+    "gen_istft_hop_size",
+)
+
+VOCODER_CONFIG_DIRS = {"CodenameRingFormer": "codename_ringformer"}
+
+
+def vocoder_model_config(vocoder: str, sample_rate: int):
+    """The decoder settings a vocoder needs at this sample rate.
+
+    The stock config for the rate, with whatever the vocoder's own config overrides. A
+    vocoder with no config directory of its own simply gets the stock values.
+    """
+    with open(
+        os.path.join("rvc", "configs", f"{sample_rate}.json"), "r", encoding="utf-8"
+    ) as f:
+        model = json.load(f)["model"]
+    settings = {key: model[key] for key in VOCODER_MODEL_KEYS if key in model}
+    directory = VOCODER_CONFIG_DIRS.get(vocoder)
+    if directory is not None:
+        with open(
+            os.path.join("rvc", "configs", directory, f"{sample_rate}.json"),
+            "r",
+            encoding="utf-8",
+        ) as f:
+            settings.update(
+                {
+                    key: value
+                    for key, value in json.load(f)["model"].items()
+                    if key in VOCODER_MODEL_KEYS
+                }
+            )
+    return settings
+
+
+def resolve_vocoder_model_config(model_path: str, sample_rate: int, vocoder: str):
+    """Point a run's config.json at the decoder its vocoder actually builds.
+
+    Rewritten the way generate_config rewrites text_enc_hidden_dim: only the keys that
+    differ, so learning_rate, c_mel and anything else hand-tuned survives. Keys the stock
+    config does not have - the two iSTFT settings - are removed again when the vocoder does
+    not want them, so pointing a folder back at HiFi-GAN leaves nothing behind. Resuming
+    into a different vocoder is refused by assert_resumable regardless.
+
+    Returns the settings so the caller can apply them to HParams it has already loaded.
+    """
+    settings = vocoder_model_config(vocoder, sample_rate)
+    config_path = os.path.join(model_path, "config.json")
+    if not os.path.isfile(config_path):
+        return settings
+    with open(config_path, "r") as f:
+        config = json.load(f)
+    model = config.setdefault("model", {})
+    changed = {key: value for key, value in settings.items() if model.get(key) != value}
+    removed = [key for key in VOCODER_MODEL_KEYS if key not in settings and key in model]
+    if not changed and not removed:
+        return settings
+    model.update(changed)
+    for key in removed:
+        del model[key]
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=4)
+    for key, value in changed.items():
+        print(f"Set {key} to {value} in {config_path} for the {vocoder} vocoder")
+    for key in removed:
+        print(f"Removed {key} from {config_path}, unused by the {vocoder} vocoder")
+    return settings
+
+
 # learning_rate and c_mel are not part of the extract step, but logs/<model>/config.json is
 # the only place they live, so reading and writing them belongs next to generate_config.
 TRAIN_SETTING_KEYS = ("learning_rate", "c_mel", "lr_decay")
