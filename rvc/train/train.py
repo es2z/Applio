@@ -89,6 +89,11 @@ disc_version = "v2"
 if vocoder in ("RefineGAN", "SiFi-GAN"):
     disc_version = "v3"
     multiscale_mel_loss = True
+# The Codename RVC fork trains RingFormer against its own layout - a scale discriminator,
+# eight periods and three STFT resolutions - and against a single-scale mel loss with
+# c_mel 45, so the mel loss is left as HiFi-GAN's.
+elif vocoder == "CodenameRingFormer":
+    disc_version = "codename-ringformer"
 
 current_dir = os.getcwd()
 
@@ -125,6 +130,19 @@ except FileNotFoundError:
     sys.exit(1)
 
 config.data.training_files = os.path.join(experiment_dir, "filelist.txt")
+
+# CodenameRingFormer's decoder upsamples in the STFT frame domain rather than the waveform
+# domain, so its upsample rates, kernels and the two iSTFT settings all differ from the
+# stock config and the stock ones would build the wrong decoder. Applied to the HParams in
+# every process, including the spawned workers; main() is what writes them back to
+# config.json, once, in the parent.
+from rvc.train.extract.preparing_files import (
+    resolve_vocoder_model_config,
+    vocoder_model_config,
+)
+
+for _key, _value in vocoder_model_config(vocoder, config.data.sample_rate).items():
+    config.model[_key] = _value
 
 # Stamped onto every resume checkpoint next to embedder_identity, so a resume cannot
 # continue into a different vocoder and a warm start from these files knows what it is
@@ -173,6 +191,10 @@ avg_losses = {
     "mel_loss_50": deque(maxlen=50),
     "gen_loss_50": deque(maxlen=50),
 }
+if vocoder == "CodenameRingFormer":
+    # Its spectral loss is a real part of the generator's objective, so it is logged like
+    # the rest rather than only folded into the total.
+    avg_losses["sd_loss_50"] = deque(maxlen=50)
 
 import logging
 
@@ -208,6 +230,9 @@ def main():
 
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(randint(20000, 55555))
+    # Only the parent runs main(), so config.json is written once rather than raced over
+    # by every rank. The values themselves were applied to the HParams at module scope.
+    resolve_vocoder_model_config(experiment_dir, config.data.sample_rate, vocoder)
     # Check sample rate
     wavs = glob.glob(
         os.path.join(os.path.join(experiment_dir, "sliced_audios"), "*.wav")
@@ -540,6 +565,28 @@ def run(
         else:
             print("SiFi-GAN source regularization loss is off (c_reg=0)")
 
+    # CodenameRingFormer only. Its decoder predicts a spectrum and inverts it, so the
+    # magnitude it predicted and the phase of what came back out are both supervised
+    # directly, at the decoder's own iSTFT resolution. Never built for any other vocoder,
+    # so their training loops are unchanged.
+    fn_spectral_loss = None
+    if vocoder == "CodenameRingFormer":
+        c_sd = float(getattr(config.train, "c_sd", 0.7))
+        if c_sd > 0:
+            from rvc.train.spectral_loss import SpectralDistanceLoss
+
+            fn_spectral_loss = SpectralDistanceLoss(
+                n_fft=config.model.gen_istft_n_fft,
+                hop_size=config.model.gen_istft_hop_size,
+            )
+            if torch.cuda.is_available():
+                fn_spectral_loss = fn_spectral_loss.cuda(device_id)
+            else:
+                fn_spectral_loss = fn_spectral_loss.to(device)
+            print(f"Using CodenameRingFormer spectral loss (c_sd={c_sd})")
+        else:
+            print("CodenameRingFormer spectral loss is off (c_sd=0)")
+
     # Wrap models with DDP for multi-gpu processing
     if n_gpus > 1 and device.type == "cuda":
         net_g = DDP(net_g, device_ids=[device_id])
@@ -662,6 +709,7 @@ def run(
             reference,
             fn_mel_loss,
             fn_reg_loss,
+            fn_spectral_loss,
             scaler,
         )
 
@@ -685,6 +733,7 @@ def train_and_evaluate(
     reference,
     fn_mel_loss,
     fn_reg_loss,
+    fn_spectral_loss,
     scaler,
 ):
     """
@@ -783,8 +832,11 @@ def train_and_evaluate(
                     x_mask,
                     z_mask,
                     (z, z_p, m_p, logs_p, m_q, logs_q),
-                    y_source,
+                    dec_extra,
                 ) = model_output
+                # Whatever this vocoder's decoder returns besides the waveform: SiFi-GAN's
+                # source excitation, CodenameRingFormer's (magnitude, phase), or None.
+                y_source = dec_extra if vocoder == "SiFi-GAN" else None
                 # slice of the original waveform to match a generate slice
                 if randomized:
                     wave = commons.slice_segments(
@@ -859,6 +911,16 @@ def train_and_evaluate(
                 ) * float(getattr(config.train, "c_reg", 1.0))
                 loss_gen_all = loss_gen_all + loss_reg
 
+            loss_sd = None
+            if fn_spectral_loss is not None and dec_extra is not None:
+                # dec_extra is (magnitude, phase); the phase term works from the waveforms
+                # rather than the predicted phase, as upstream does.
+                magnitude, _ = dec_extra
+                loss_sd = fn_spectral_loss(wave, y_hat, magnitude) * float(
+                    getattr(config.train, "c_sd", 0.7)
+                )
+                loss_gen_all = loss_gen_all + loss_sd
+
             if loss_gen_all < lowest_value["value"]:
                 lowest_value = {
                     "step": global_step,
@@ -888,6 +950,8 @@ def train_and_evaluate(
             avg_losses["kl_loss_50"].append(loss_kl.detach())
             avg_losses["mel_loss_50"].append(loss_mel.detach())
             avg_losses["gen_loss_50"].append(loss_gen_all.detach())
+            if loss_sd is not None:
+                avg_losses["sd_loss_50"].append(loss_sd.detach())
 
             if rank == 0 and global_step % 50 == 0:
                 # logging rolling averages
@@ -915,6 +979,10 @@ def train_and_evaluate(
                         torch.stack(list(avg_losses["gen_loss_50"]))
                     ),
                 }
+                if avg_losses.get("sd_loss_50"):
+                    scalar_dict["loss_avg_50/g/sd"] = torch.mean(
+                        torch.stack(list(avg_losses["sd_loss_50"]))
+                    )
                 summarize(
                     writer=writer,
                     global_step=global_step,
@@ -975,6 +1043,8 @@ def train_and_evaluate(
             "loss/g/mel": loss_mel,
             "loss/g/kl": loss_kl,
         }
+        if loss_sd is not None:
+            scalar_dict["loss/g/sd"] = loss_sd
 
         image_dict = {
             "slice/mel_org": plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),

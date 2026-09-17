@@ -29,6 +29,7 @@ from rvc.lib.predictors.f0 import (
     SWIFT,
 )
 from rvc.lib.utils import (
+    checkpoint_gen_istft,
     checkpoint_text_enc_hidden_dim,
     embedder_forward,
     load_embedding,
@@ -86,6 +87,10 @@ class RealtimeVoiceConverter:
             self.sifigan_filter_resblock = self.cpt.get(
                 "sifigan_filter_resblock", "rvc"
             )
+            # Only CodenameRingFormer reads these, and (None, None) for anything else
+            # leaves Synthesizer's defaults in place. They decide the width of conv_post
+            # and noise_convs, so that decoder cannot be rebuilt without them.
+            gen_istft_n_fft, gen_istft_hop_size = checkpoint_gen_istft(self.cpt)
             print(f"[Realtime] Loading model with vocoder: {self.vocoder}")
             self.net_g = Synthesizer(
                 *self.cpt["config"],
@@ -93,6 +98,8 @@ class RealtimeVoiceConverter:
                 text_enc_hidden_dim=self.text_enc_hidden_dim,
                 vocoder=self.vocoder,
                 sifigan_filter_resblock=self.sifigan_filter_resblock,
+                gen_istft_n_fft=gen_istft_n_fft,
+                gen_istft_hop_size=gen_istft_hop_size,
             )
 
             self.net_g.load_state_dict(self.cpt["weight"], strict=False)

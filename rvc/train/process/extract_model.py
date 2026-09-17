@@ -109,6 +109,12 @@ def extract_model(
         opt["text_enc_hidden_dim"] = hps.model.text_enc_hidden_dim
         opt["speakers_id"] = speakers_id
         opt["vocoder"] = vocoder
+        if vocoder == "CodenameRingFormer":
+            # opt["config"] is a fixed positional list, so these go in as their own keys.
+            # conv_post's width gives the FFT size back, but nothing in the weights records
+            # the hop, and the decoder cannot be rebuilt without it.
+            opt["gen_istft_n_fft"] = getattr(hps.model, "gen_istft_n_fft", None)
+            opt["gen_istft_hop_size"] = getattr(hps.model, "gen_istft_hop_size", None)
         if vocoder == "SiFi-GAN":
             # Read off the weights rather than threaded through as another argument, the
             # same way detect_vocoder works: the "official" filter blocks drop the second

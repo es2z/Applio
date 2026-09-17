@@ -46,6 +46,7 @@ HIFIGAN = "HiFi-GAN"
 MRF_HIFIGAN = "MRF HiFi-GAN"
 REFINEGAN = "RefineGAN"
 SIFIGAN = "SiFi-GAN"
+CODENAME_RINGFORMER = "CodenameRingFormer"
 
 # Warm starting a run whose embedder is wider than the pretrain's only works because
 # exactly one tensor pair depends on that width.
@@ -95,6 +96,10 @@ def detect_vocoder(state_dict):
         return REFINEGAN
     if has("dec.mrfs."):
         return MRF_HIFIGAN
+    # Before HiFi-GAN: a CodenameRingFormer decoder has dec.resblocks and dec.ups too, and
+    # only the Conformer stack tells the two apart.
+    if has("dec.conformers."):
+        return CODENAME_RINGFORMER
     if has("dec.resblocks.") and has("dec.ups."):
         return HIFIGAN
     return None
@@ -145,6 +150,22 @@ def infer_sifigan_sample_rate(state_dict):
     established before any decoder tensor is inherited.
     """
     return _sample_rate_from_upsample_kernels(state_dict, "dec.fn.upsamples.")
+
+
+def infer_codename_ringformer_sample_rate(state_dict):
+    """Sample rate of a CodenameRingFormer generator that did not record one.
+
+    Its transposed convolutions are [8, 8] at every rate, so the kernel widths say
+    nothing. conv_post does: it emits gen_istft_n_fft + 2 channels, and every stock config
+    sets gen_istft_n_fft = 4 * gen_istft_hop_size while prod(upsample_rates) *
+    gen_istft_hop_size = hop_length = sample_rate / 100, so the rate is n_fft * 400
+    (120 -> 48000, 100 -> 40000, 80 -> 32000). Its shapes therefore do depend on the rate.
+    """
+    weight = state_dict.get("dec.conv_post.parametrizations.weight.original1")
+    if weight is None:
+        return None
+    sample_rate = (weight.shape[0] - 2) * 400
+    return sample_rate if sample_rate in STOCK_SAMPLE_RATES else None
 
 
 def _indices(state_dict, prefix):
@@ -344,6 +365,29 @@ def _port_resblocks(source, target, source_prefixes, target_prefixes, stages):
                     (key, (source_prefix + key[len(target_prefix) :],), _same)
                 )
     return entries, None
+
+
+def _port_leading_resblocks(source, target, source_prefixes, target_prefixes):
+    """Pair each of the target's residual blocks with the source's block of the same index.
+
+    Unlike _port_resblocks this does not require the two decoders to have the same number
+    of upsampling stages: a CodenameRingFormer decoder has two where a HiFi-GAN one has
+    four, and it is the leading stages whose channel counts agree (512 -> 256 -> 128 in
+    both). Whatever the shorter decoder runs out of is simply left for the caller to
+    reinitialise. Only the convolutions are paired - a Snake activation's alpha has no
+    counterpart in a LeakyReLU block - and every shape is still checked before anything is
+    loaded.
+    """
+    entries = []
+    for source_prefix, target_prefix in zip(source_prefixes, target_prefixes):
+        for key in target:
+            if key.startswith(target_prefix) and (
+                ".convs1." in key or ".convs2." in key
+            ):
+                entries.append(
+                    (key, (source_prefix + key[len(target_prefix) :],), _same)
+                )
+    return entries
 
 
 def _port_hifigan_to_refinegan(source, target, source_sample_rate, target_decoder):
@@ -579,6 +623,96 @@ def _port_sifigan_to_refinegan(source, target, source_sample_rate, target_decode
     return entries, None
 
 
+# Whether a HiFi-GAN decoder's residual blocks are offered to a CodenameRingFormer one.
+#
+# They are the same shape - stages of 256 and 128 channels, kernel sizes 3/7/11, dilations
+# 1/3/5, two convolutions per dilation - but they do not do the same job: HiFi-GAN's run on
+# a signal that is already most of the way to a waveform, while CodenameRingFormer's run on
+# iSTFT frames that only become samples after conv_post and the inverse transform.
+#
+# Shape agreement alone is not a reason to inherit, so this was measured rather than
+# assumed. Mel L1 on 16 real 48 kHz clips before any optimizer step, every configuration
+# built from the same RNG state, warm started from a 1024-dim HiFi-GAN G_2333333.pth:
+#
+#   from scratch          7.518
+#   conv_pre + cond       7.505   (40.5% of parameters inherited)
+#   + residual blocks    15.760   (58.8% inherited, and twice as bad as scratch)
+#
+# So the blocks are worse than useless here: fed iSTFT frames they are far out of the
+# distribution they were trained on, exactly as the reasoning above predicts. Turning this
+# on trades 18 points of parameter count for double the error. Controls on the same clips,
+# where inheriting a decoder does work: HiFi-GAN 4.468 from scratch, 3.970 warm started.
+CODENAME_RINGFORMER_PORTS_RESBLOCKS = False
+
+# conv_pre and cond mean exactly the same thing in both decoders: project the latent to
+# the decoder's width, and add the speaker embedding to it. conv_pre is weight-normed in
+# CodenameRingFormer and plain in HiFi-GAN, so it is converted.
+_CODENAME_RINGFORMER_TO_HIFIGAN_PLAIN = ("dec.cond.weight", "dec.cond.bias")
+
+
+def _fitting_entries(entries, source, target):
+    """Drop entries whose keys are absent on either side, e.g. cond with gin_channels 0."""
+    return [
+        entry
+        for entry in entries
+        if entry[0] in target and all(key in source for key in entry[1])
+    ]
+
+
+def _port_hifigan_to_codename_ringformer(
+    source, target, source_sample_rate, target_decoder
+):
+    entries = [
+        (
+            "dec.conv_pre.parametrizations.weight.original0",
+            ("dec.conv_pre.weight",),
+            _weight_norm_magnitude,
+        ),
+        (
+            "dec.conv_pre.parametrizations.weight.original1",
+            ("dec.conv_pre.weight",),
+            _same,
+        ),
+        ("dec.conv_pre.bias", ("dec.conv_pre.bias",), _same),
+    ] + [(key, (key,), _same) for key in _CODENAME_RINGFORMER_TO_HIFIGAN_PLAIN]
+    if CODENAME_RINGFORMER_PORTS_RESBLOCKS:
+        target_prefixes = _hifigan_resblock_prefixes(target)
+        if _hifigan_config_dilations(
+            source_sample_rate, len(target_prefixes)
+        ) != _module_resblock_dilations(target_decoder):
+            return None, "the residual block dilations differ"
+        entries += _port_leading_resblocks(
+            source, target, _hifigan_resblock_prefixes(source), target_prefixes
+        )
+    return _fitting_entries(entries, source, target), None
+
+
+def _port_codename_ringformer_to_hifigan(
+    source, target, source_sample_rate, target_decoder
+):
+    entries = [
+        (
+            "dec.conv_pre.weight",
+            (
+                "dec.conv_pre.parametrizations.weight.original0",
+                "dec.conv_pre.parametrizations.weight.original1",
+            ),
+            _weight_norm_compose,
+        ),
+        ("dec.conv_pre.bias", ("dec.conv_pre.bias",), _same),
+    ] + [(key, (key,), _same) for key in _CODENAME_RINGFORMER_TO_HIFIGAN_PLAIN]
+    if CODENAME_RINGFORMER_PORTS_RESBLOCKS:
+        target_prefixes = _hifigan_resblock_prefixes(target)
+        if _hifigan_config_dilations(
+            source_sample_rate, len(target_prefixes)
+        ) != _module_resblock_dilations(target_decoder):
+            return None, "the residual block dilations differ"
+        entries += _port_leading_resblocks(
+            source, target, _hifigan_resblock_prefixes(source), target_prefixes
+        )
+    return _fitting_entries(entries, source, target), None
+
+
 # Decoder parts that mean the same thing in two vocoders, for a warm start between them.
 #
 # HiFi-GAN <-> RefineGAN: the residual blocks of each upsampling stage (same channels
@@ -606,6 +740,8 @@ CROSS_VOCODER_DECODER_PORTS = {
     (SIFIGAN, HIFIGAN): _port_sifigan_to_hifigan,
     (REFINEGAN, SIFIGAN): _port_refinegan_to_sifigan,
     (SIFIGAN, REFINEGAN): _port_sifigan_to_refinegan,
+    (HIFIGAN, CODENAME_RINGFORMER): _port_hifigan_to_codename_ringformer,
+    (CODENAME_RINGFORMER, HIFIGAN): _port_codename_ringformer_to_hifigan,
 }
 
 
@@ -629,7 +765,12 @@ def _plan_decoder(transfer, source_identity, target_identity, target_module):
                 f"and this model is {target_rate} Hz"
             )
             return
-        if source_rate is None and target_vocoder not in (HIFIGAN, SIFIGAN, None):
+        if source_rate is None and target_vocoder not in (
+            HIFIGAN,
+            SIFIGAN,
+            CODENAME_RINGFORMER,
+            None,
+        ):
             transfer.notes.append(
                 f"the pretrained model does not record its sample rate and a "
                 f"{target_vocoder} decoder's shapes do not depend on it, so it is assumed "
@@ -732,6 +873,8 @@ def _plan_generator(transfer, checkpoint, target_identity, target_module):
             source_rate = infer_hifigan_sample_rate(source)
         elif source_vocoder == SIFIGAN:
             source_rate = infer_sifigan_sample_rate(source)
+        elif source_vocoder == CODENAME_RINGFORMER:
+            source_rate = infer_codename_ringformer_sample_rate(source)
     target_identity = target_identity or {}
     _plan_decoder(
         transfer,

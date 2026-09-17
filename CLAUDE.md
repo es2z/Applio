@@ -651,6 +651,170 @@ warm started run moved it to `[0.013, 0.022, 0.032, 0.012]` and the scratch run 
 `[0.035, 0.028, 0.027, 0.022]` - the model with inherited blocks pushes the source term
 *down* rather than opening the gate, and neither runs away towards the paper's 1.0.
 
+### CodenameRingFormer at 32k / 40k / 48k
+A fourth vocoder, from the [Codename RVC fork](https://github.com/duringleaves/codename-rvc-fork-4)
+(`rvc/lib/algorithm/generators/ringformer.py` and `rvc/lib/algorithm/conformer/`). The name
+is kept as **CodenameRingFormer** throughout - vocoder string, GUI, CLI, checkpoint
+metadata - rather than plain "RingFormer", so it is always clear which implementation it is.
+
+**It is the first decoder here that does not produce a waveform.** It produces a magnitude
+and a phase spectrum and an iSTFT turns those into samples, so its upsampling chain runs in
+the *STFT frame* domain. A Conformer - self attention plus a convolution module - sits in
+front of each upsampling stage; that attention is lucidrains' `RingAttention`, which is
+where the name comes from. `enc_p` / `enc_q` / `flow` / `emb_g` / F0 / speaker conditioning
+are untouched; only the decoder is new.
+
+- The arithmetic lands on `segment_size` exactly, at every rate. 48k, 36 latent frames:
+  F0 upsampled by `prod(upsample_rates) * gen_istft_hop_size` = 480 gives 17280 samples of
+  sine excitation, whose STFT is 577 frames; `x` goes 36 -> 144 -> 576, the reflection pad
+  makes 577, and the iSTFT gives `(577 - 1) * 30` = **17280 = segment_size**. Verified for
+  all three rates in `tests/test_codename_ringformer.py`.
+- **The harmonic source is injected as a spectrum**, not as samples: it is STFT'd and its
+  magnitude and phase are concatenated into `gen_istft_n_fft + 2` channels before
+  `noise_convs` shrink them to each stage's frame rate. That is why HiFi-GAN's
+  `noise_convs`, which take a single waveform channel, have no counterpart here.
+- Decoder size at 48k: **34.4M** parameters, against SiFi-GAN 27.9M, HiFi-GAN 15.7M and
+  RefineGAN 13.2M.
+- **`forward()` returns `(waveform, magnitude, phase)`.** `Synthesizer`'s sixth element is
+  now "whatever this vocoder's decoder returns besides the waveform" - SiFi-GAN's source
+  excitation, CodenameRingFormer's `(magnitude, phase)`, or `None` - so the tuple is still
+  six long and no other vocoder's unpacking changed. `infer()` drops it for both.
+
+#### The config is per vocoder
+`upsample_rates` is `[4, 4]` with kernels `[8, 8]`, against the stock `[12,10,2,2]` /
+`[24,20,4,4]`, so this vocoder cannot share the stock config. `rvc/configs/codename_ringformer/{32000,40000,48000}.json`
+holds the decoder keys it overrides, and `resolve_vocoder_model_config`
+(`rvc/train/extract/preparing_files.py`) writes them into `logs/<model>/config.json` on
+start - only the keys that differ, the way `generate_config` rewrites `text_enc_hidden_dim`,
+so `learning_rate` and friends survive. Pointing a folder back at another vocoder restores
+the stock values and removes the two iSTFT keys again. The write happens in `main()`, which
+only the parent process runs, so the ranks do not race over the file.
+
+Every stock rate satisfies `hop_length = sample_rate / 100 = 16 * gen_istft_hop_size` and
+`gen_istft_n_fft = 4 * gen_istft_hop_size` (48k: 120/30, 40k: 100/25, 32k: 80/20), which is
+what lets `default_istft_settings` and `checkpoint_gen_istft` recover both from a rate or a
+checkpoint. `conv_post` emits `gen_istft_n_fft + 2` channels, so the FFT size is in the
+weights of every such checkpoint; the hop is not, and is stamped into the exported `.pth`.
+
+#### Discriminator and losses
+- The discriminator layout is **`"codename-ringformer"`**, not `"v4"`: `v1` to `v3` are
+  upstream Applio's names for upstream's layouts and this one is the Codename fork's
+  (`MPD_MSD_MRD_Combined`) - a scale discriminator, periods 2, 3, 5, 7, 11, 17, 23, 37, and
+  three STFT resolutions `[[2048,240,1200], [4096,480,2400], [1024,100,480]]`.
+- Its MRD uses a **Hann** window where upstream Applio's `DiscriminatorR` uses a
+  rectangular one, so `DiscriminatorR` grew a `window` argument defaulting to `"ones"`.
+  v1 to v3 do not set it and are byte-for-byte unchanged. The window is part of the warm
+  start descriptor (`("R", resolution, window)`) because `[2048, 240, 1200]` appears in both
+  v3 and this layout and the two look at a different spectrogram.
+- **`c_sd`** (`rvc/configs/*.json`, default 0.7, `0` turns it off) weights
+  `rvc/train/spectral_loss.py`: `l1(predicted magnitude, |STFT(y)|) + phase_loss(STFT(y),
+  STFT(y_hat))`. The magnitude term supervises the spectrum the decoder *predicted*, before
+  the inverse transform; the phase term compares the two waveforms. That asymmetry is
+  upstream's. Like `c_reg` it is deliberately **not** in `TRAIN_SETTING_KEYS`.
+- `loss_sd` is logged (`loss/g/sd`, `loss_avg_50/g/sd`), unlike SiFi-GAN's `loss_reg`.
+- The mel loss stays **single-scale** with `c_mel = 45`, which is what the Codename fork's
+  RingFormer config uses. RefineGAN and SiFi-GAN keep `v3` plus the multi-scale mel loss,
+  untouched.
+
+#### Warm starting it is worth very little, and that is measured
+Mel L1 against the ground truth on 16 real 48k clips **before any optimizer step**, every
+configuration built from the same RNG state, warm started from a 1024-dim HiFi-GAN
+`G_2333333.pth`:
+
+| configuration | mel L1 | inherited |
+|---|---|---|
+| CodenameRingFormer from scratch | 7.518 | - |
+| **CodenameRingFormer <- HiFi-GAN** | **7.505** | 40.5% |
+| CodenameRingFormer <- HiFi-GAN, residual blocks too | 15.760 | 58.8% |
+| HiFi-GAN from scratch (control) | 4.468 | - |
+| HiFi-GAN <- the same checkpoint (control) | 3.970 | 99.5% |
+
+Two things this settles:
+- **The residual blocks must not be ported, even though they fit.** At 48k this vocoder's
+  blocks are 256 and 128 channels with kernel sizes 3/7/11 and dilations 1/3/5 - shape for
+  shape the first two stages of the HiFi-GAN decoder, and `convs1` / `convs2` are even named
+  the same. Loading them is **twice as bad as starting fresh**, because HiFi-GAN's blocks
+  were trained on a signal a few upsampling stages from a waveform and here they are fed
+  iSTFT frames. `CODENAME_RINGFORMER_PORTS_RESBLOCKS` in `rvc/train/warm_start.py` keeps the
+  code and the measurement together; it is off.
+- **What is left is honest but small.** `conv_pre` and `cond` are the only decoder tensors
+  that mean the same thing in both, and at step 0 they buy 0.013 of mel. The 40.5% is almost
+  entirely `enc_p` / `enc_q` / `flow` / `emb_g`, which a step-0 decoder measurement cannot
+  see. Use the Initial Generator LR Boost.
+
+#### Adaptations from the Codename fork, none of which change the state_dict
+- `TorchSTFT` took a `device` and pinned its window to it in the constructor, so it neither
+  followed `.to()` nor worked on CPU. It is a non-persistent buffer now, and transform and
+  inverse run in fp32 because the CUDA FFT rejects half precision (`DiscriminatorR` does the
+  same).
+- The Snake activation is the plain PyTorch form of upstream's fused Triton kernel, with the
+  same single `alpha` parameter of shape `(channels,)` and the same `correction="std"`
+  arithmetic, so a fused kernel is a drop-in later. Upstream's non-Triton fallback is built
+  on `torch.cuda.amp.autocast`, removed in modern torch.
+- `conv_post`'s input width is computed from the upsampling chain rather than the literal
+  128 (the same number for the stock 512 / `[4,4]`).
+- `SineGen`'s `apply_modulo` / `early_modulo` / `double_precision` branches are dropped: the
+  generator never enables them, so what is left is exactly what upstream runs.
+- Upstream's `Conformer` accepts `attn_dropout` / `ff_dropout` / `conv_dropout` and then
+  does not pass them to its blocks, so its models train at dropout 0 whatever is asked for.
+  The plumbing is fixed and the defaults are 0.0 - the behaviour its checkpoints were
+  actually trained with, now settable.
+- `ring-attention-pytorch` is a new dependency (pure python). It is imported lazily inside
+  `ConformerBlock`, so a missing install cannot break the other vocoders, and with
+  `torch.distributed` uninitialised `RingAttention` degrades to ordinary causal attention.
+
+#### The Triton kernel that silently kills the training worker
+`RingAttention` defaults `use_cuda_kernel` to `torch.cuda.is_available()`, and that path
+imports `ring_flash_attention_cuda`, whose module body is:
+
+```python
+try:
+    triton_version = version('triton-nightly')
+except:
+    print(f'latest triton must be installed. `{INSTALL_COMMAND}` first')
+    exit()
+```
+
+Triton on Windows is distributed as **`triton-windows`** (import name `triton`, 3.7.1 here),
+so that lookup raises, the module calls `exit()`, and the worker dies inside the first
+training step. There is no traceback, and `mp.Process` does not propagate a child's exit
+code, so the parent prints nothing and returns 0. The only symptom is a run that stops at
+`0%| | 0/5` and a model folder with no `G_*.pth` in it. **Triton is not missing - only the
+name it is looked up under.** The pinned 0.5.17 the Codename fork uses has the same code.
+
+So `ConformerBlock` passes `use_cuda_kernel=False` explicitly. That is not a workaround for
+a missing dependency: measured on an RTX 4090 with the version lookup patched in-process so
+the kernel really does load, fp16, 8 heads x 64:
+
+| sequence | plain attention | Triton kernel |
+|---|---|---|
+| 36 (a training segment at the first stage) | 0.412 ms | 0.232 ms (1.77x) |
+| 144 (the second stage) | 0.276 ms | 0.235 ms (1.18x) |
+| 1024 (~10 s of audio at inference) | 0.203 ms | **0.208 ms (0.98x)** |
+
+The kernel works against triton-windows, and it is beside the point: a whole Conformer
+stage costs 4.006 ms at dim 512 / 36 frames and 3.022 ms at dim 256 / 144, so attention is
+under a tenth of it and the most the kernel can save is 0.18 ms per stage - a saving that
+has gone to zero by the sequence lengths inference uses. Against that, the path is one
+`exit()` away from a dead worker nobody is told about. `tests/test_codename_ringformer.py`
+pins `use_cuda_kernel` off.
+
+#### And the fp16 backward behind it
+Turning that kernel off lands on the *other* path, `ring_flash_attn` - a hand-written
+`autograd.Function` doing block-wise attention - and **its backward mixes fp32 and fp16**:
+`expected scalar type Float but found Half`, from
+`einsum('b h i j, b i h d -> b j h d', p, doc)`, the first time a real fp16 step runs.
+autocast does not extend to backward, so a forward-only check passes and proves nothing -
+the fp16 forward measured above ran fine on exactly the module that then died in step 1.
+
+So `ConformerBlock` also passes **`force_regular_attn=True`**, which uses plain einsum and
+softmax attention that autograd handles at whatever dtype autocast chose. Nothing real is
+given up: `forward` computes `ring_attn = self.ring_attn & is_distributed()`, so in a
+single process no ring reduction was happening in the first place, and the block-wise form
+is a memory optimisation over identical maths with nothing to save at 36 and 144 frames.
+Parameters, and so the state_dict, are the same either way. The regression test takes a
+gradient in fp16 on CUDA rather than only a forward.
+
 ### Warm starting across embedders and vocoders
 `rvc/train/warm_start.py` is the single place that decides what a pretrained G / D may
 contribute. It works from meaning, not from shape equality:
@@ -662,7 +826,11 @@ contribute. It works from meaning, not from shape equality:
   `dec.fn.upsamples`, the same transposed convolutions); a legacy RefineGAN's cannot be
   (its shapes do not depend on the sample rate). **A SiFi-GAN decoder's shapes do depend
   on it**, so it is excluded from the "shapes do not depend on the sample rate" assumption
-  in `_plan_decoder` - claiming otherwise would inherit a whole decoder across rates.
+  in `_plan_decoder` - claiming otherwise would inherit a whole decoder across rates. So
+  does a CodenameRingFormer's, but not through its transposed convolutions, which are
+  `[8, 8]` at every rate: `infer_codename_ringformer_sample_rate` reads `conv_post`'s
+  output width instead, which is `gen_istft_n_fft + 2` and so gives the rate back as
+  `n_fft * 400` (120 -> 48000, 100 -> 40000, 80 -> 32000).
 - **Generator, same vocoder:** everything name for name; a shape mismatch stops the run,
   except `enc_p.emb_phone` when the embedder width differs.
 - **Generator, HiFi-GAN <-> RefineGAN:** `enc_p` / `enc_q` / `flow` / `emb_g` whole, then
@@ -689,10 +857,22 @@ contribute. It works from meaning, not from shape equality:
   same reasons - the residual blocks (identical channels, kernels and dilations) and
   `conv_post` with the weight-norm conversion. Measured at 48k/768: RefineGAN -> SiFi-GAN
   66.1%, SiFi-GAN -> RefineGAN 93.6%.
+- **Generator, HiFi-GAN <-> CodenameRingFormer:** the smallest port, deliberately. Only
+  `conv_pre` (plain one side, weight-normed the other, so converted) and `cond` mean the
+  same thing in both decoders; `dec.m_source` does not even fit (`harmonic_num` 0 against
+  8, so `Linear(1, 1)` against `Linear(9, 1)`), and the residual blocks fit but are
+  actively harmful - see the measurement in the CodenameRingFormer section. Measured at
+  48k/1024: 40.5% of parameters, nearly all of it `enc_p` / `enc_q` / `flow` / `emb_g`.
+  No RefineGAN or SiFi-GAN pair is registered for it: they would carry no more than this
+  and HiFi-GAN is the only pretrain that exists at every rate.
 - **Discriminator:** sub-discriminators matched by descriptor (`S`, `P(period)`,
   `R(resolution)`), never by index - a period 17 and a period 23 discriminator have the
   same shapes. v2 -> v3 inherits S and P2..P11 (99.4% of v3's parameters), starts the
   three R from scratch and leaves P17/23/37 out. An unrecognised layout stops the run.
+  v2 -> `codename-ringformer` is the happiest case: the scale discriminator and **all eight
+  periods** match by descriptor, so only the three resolution discriminators start fresh and
+  nothing from the pretrain is dropped. The resolution descriptor carries its window, so
+  v3's `[2048, 240, 1200]` and this layout's are not confused for one another.
 - **Always weights only.** Optimizer and scaler state never cross a warm start.
 - **Resume guard.** `assert_resumable` now also refuses a `G_*.pth` whose vocoder (from its
   keys) or recorded sample rate / discriminator version differs from the run. And

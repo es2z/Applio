@@ -16,6 +16,22 @@ def feature_loss(fmap_r, fmap_g):
     )
 
 
+def phase_loss(x_fft, g_fft):
+    """One minus the cosine similarity between two complex spectra's phases.
+
+    From the Codename RVC fork, where it is half of CodenameRingFormer's spectral loss.
+    The magnitudes are divided out, so only the phase angle is compared; the epsilon keeps
+    a silent bin from dividing by zero.
+
+    Args:
+        x_fft (torch.Tensor): complex STFT of the target waveform.
+        g_fft (torch.Tensor): complex STFT of the generated waveform.
+    """
+    x_norm = x_fft / (x_fft.abs() + 1e-9)
+    g_norm = g_fft / (g_fft.abs() + 1e-9)
+    return (1.0 - (x_norm * g_norm.conj()).real).mean()
+
+
 def discriminator_loss(disc_real_outputs, disc_generated_outputs):
     """
     Compute the discriminator loss for real and generated outputs.
