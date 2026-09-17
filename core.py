@@ -512,6 +512,8 @@ def run_train_script(
     vocoder: str = "HiFi-GAN",
     checkpointing: bool = False,
     sifigan_filter_resblock: str = "rvc",
+    # Mirrors DEFAULT_SOURCE_SCALE_INIT in rvc/lib/algorithm/generators/sifigan.py.
+    sifigan_source_scale_init: float = 0.03,
     learning_rate: float = None,
     c_mel: float = None,
     lr_decay: float = None,
@@ -579,6 +581,7 @@ def run_train_script(
                 checkpointing,
                 # Appended last so the existing positions never shift.
                 sifigan_filter_resblock,
+                sifigan_source_scale_init,
             ],
         ),
     ]
@@ -2066,6 +2069,18 @@ def parse_arguments():
         default="rvc",
     )
     train_parser.add_argument(
+        "--sifigan_source_scale_init",
+        type=float,
+        help=(
+            "SiFi-GAN only: initial value of the learnable per-stage gain on the source "
+            "network's contribution to the filter network. The paper is equivalent to "
+            "1.0, but that warm starts 51% worse than scratch from a HiFi-GAN model "
+            "while 0.03 warm starts 48% better. The gain is learnable and settles on "
+            "its own within a few hundred epochs, so this only affects early training."
+        ),
+        default=0.03,
+    )
+    train_parser.add_argument(
         "--checkpointing",
         type=lambda x: bool(strtobool(x)),
         choices=[True, False],
@@ -2493,6 +2508,7 @@ def main():
                 vocoder=args.vocoder,
                 checkpointing=args.checkpointing,
                 sifigan_filter_resblock=args.sifigan_filter_resblock,
+                sifigan_source_scale_init=args.sifigan_source_scale_init,
                 learning_rate=args.learning_rate,
                 c_mel=args.c_mel,
                 lr_decay=args.lr_decay,

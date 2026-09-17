@@ -389,6 +389,18 @@ def train_tab():
                     interactive=True,
                     visible=False,
                 )
+                sifigan_source_scale_init = gr.Number(
+                    label=i18n("SiFi-GAN Source Gain"),
+                    info=i18n(
+                        "SiFi-GAN only: the initial value of the learnable per-stage gain on the source network's contribution to the filter network. The paper is equivalent to 1.0, but at that value a warm start from a HiFi-GAN model measures 51% worse than training from scratch, because the filter blocks being inherited were trained on a much smaller additive term; 0.03 measures 48% better. The gain is learnable and settles on its own, so this only affects the first few hundred epochs: in a 48k run started at 0.03 it reached about [0.10, 0.066, 0.000, 0.014] per stage by epoch 400 and was flat afterwards, the third stage having switched itself off entirely. Leave it at 0.03 unless you are training from scratch, where the value barely matters."
+                    ),
+                    value=0.03,
+                    minimum=0.0,
+                    maximum=1.0,
+                    step=0.01,
+                    interactive=True,
+                    visible=False,
+                )
         with gr.Accordion(
             i18n("Advanced Settings"),
             open=False,
@@ -945,6 +957,7 @@ def train_tab():
                     vocoder,
                     checkpointing,
                     sifigan_filter_resblock,
+                    sifigan_source_scale_init,
                     learning_rate,
                     c_mel,
                     lr_decay,
@@ -1095,15 +1108,16 @@ def train_tab():
             )
 
             def toggle_sifigan_settings(vocoder_choice):
-                return {
-                    "visible": vocoder_choice == "SiFi-GAN",
-                    "__type__": "update",
-                }
+                visible = vocoder_choice == "SiFi-GAN"
+                return (
+                    {"visible": visible, "__type__": "update"},
+                    {"visible": visible, "__type__": "update"},
+                )
 
             vocoder.change(
                 fn=toggle_sifigan_settings,
                 inputs=[vocoder],
-                outputs=[sifigan_filter_resblock],
+                outputs=[sifigan_filter_resblock, sifigan_source_scale_init],
             )
             refresh.click(
                 fn=refresh_models_and_datasets,

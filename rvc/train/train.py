@@ -72,6 +72,12 @@ checkpointing = strtobool(sys.argv[16])
 # Appended after checkpointing so none of the existing positions shift. Only meaningful
 # for SiFi-GAN; a caller that passes the old 16 arguments gets the default.
 sifigan_filter_resblock = sys.argv[17] if len(sys.argv) > 17 else "rvc"
+# Appended after the filter variant for the same reason. This only changes how
+# dec.source_scales is initialised, not any shape, so it is deliberately absent from
+# architecture_identity: the trained values live in the checkpoint and a resume or an
+# inference load overwrites whatever the constructor put there. None means "not given",
+# which leaves Synthesizer's own default in place.
+sifigan_source_scale_init = float(sys.argv[18]) if len(sys.argv) > 18 else None
 # experimental settings
 randomized = True
 d_lr_coeff = 1.0
@@ -465,6 +471,12 @@ def run(
     from rvc.lib.algorithm.discriminators import MultiPeriodDiscriminator
     from rvc.lib.algorithm.synthesizers import Synthesizer
 
+    sifigan_source_scale = (
+        {}
+        if sifigan_source_scale_init is None
+        else {"sifigan_source_scale_init": sifigan_source_scale_init}
+    )
+
     net_g = Synthesizer(
         config.data.filter_length // 2 + 1,
         config.train.segment_size // config.data.hop_length,
@@ -475,6 +487,7 @@ def run(
         checkpointing=checkpointing,
         randomized=randomized,
         sifigan_filter_resblock=sifigan_filter_resblock,
+        **sifigan_source_scale,
     )
 
     net_d = MultiPeriodDiscriminator(
