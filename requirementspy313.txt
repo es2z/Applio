@@ -49,7 +49,10 @@ swift_f0
 einops
 # CodenameRingFormer's Conformer blocks use lucidrains' RingAttention. Pure python, and
 # with torch.distributed uninitialised it degrades to ordinary causal attention.
-ring-attention-pytorch
+# Pinned: ConformerBlock relies on its use_cuda_kernel / force_regular_attn arguments and
+# on what the code paths behind them do; tests/test_codename_ringformer.py passes on this
+# release.
+ring-attention-pytorch==0.5.20
 
 # Transformers 系
 # tokenizers/safetensors の 3.13 対応を担保するため緩めに下限指定

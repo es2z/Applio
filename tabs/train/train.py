@@ -826,11 +826,17 @@ def train_tab():
                             ),
                             interactive=True,
                         )
+            reset_training = gr.Checkbox(
+                label="重みを引き継いで学習をリセット",
+                info="ON: このフォルダのG/Dの重みを保ち、両方のoptimizer・epoch・step・履歴を初期化。GUIの学習率とmel設定でepoch 1から開始します。旧モデル・履歴・TensorBoardログは logs/_training_history に退避します。filelistの参照先は変更しません。CleanupはOFFにしてください。OFF: 通常の途中再開（学習率は保存値を使用）。",
+                value=False,
+                interactive=True,
+            )
             with gr.Row():
                 learning_rate = gr.Number(
                     label=i18n("Learning Rate"),
                     info=i18n(
-                        "Learning rate for the generator and discriminator. 0.0001 is the default and is what a run starting from a pretrained model wants; lower values are for fine-tuning a model that is already trained. This is read from and written back to logs/<model_name>/config.json, so it shows what the selected model will actually use."
+                        "Learning rate for the generator and discriminator on a new or reset run. Normal resume restores the checkpoint learning rate instead. Saved to logs/<model_name>/config.json."
                     ),
                     value=DEFAULT_TRAIN_SETTINGS["learning_rate"],
                     minimum=0,
@@ -969,9 +975,10 @@ def train_tab():
                     g_lr_boost,
                     g_lr_boost_multiplier,
                     g_lr_boost_epochs,
+                    reset_training,
                 ],
                 outputs=[train_output_info],
-            )
+            ).then(fn=lambda: gr.update(value=False), outputs=[reset_training])
 
             stop_train_button = gr.Button(i18n("Stop Training"), visible=False)
             stop_train_button.click(

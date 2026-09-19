@@ -520,7 +520,11 @@ def run_train_script(
     g_lr_boost: bool = None,
     g_lr_boost_multiplier: float = None,
     g_lr_boost_epochs: int = None,
+    reset_training: bool = False,
 ):
+
+    if reset_training and cleanup:
+        raise ValueError("Disable Cleanup when resetting training from existing weights.")
 
     # These live only in logs/<model>/config.json, so set them there rather than
     # threading them through train.py's positional argv. Passing None leaves them alone.
@@ -556,6 +560,12 @@ def run_train_script(
     else:
         pg, pd = "", ""
 
+    if reset_training:
+        from rvc.train.reset_run import reset_training_run
+
+        archive = reset_training_run(os.path.join(logs_path, model_name))
+        print(f"Training reset to epoch 1 with GUI settings. Previous run: {archive}")
+
     train_script_path = os.path.join("rvc", "train", "train.py")
     command = [
         python,
@@ -585,7 +595,9 @@ def run_train_script(
             ],
         ),
     ]
-    subprocess.run(command)
+    result = subprocess.run(command)
+    if result.returncode:
+        return f"Training failed for {model_name}. See the console for details."
     run_index_script(model_name, index_algorithm)
     return f"Model {model_name} trained successfully."
 
@@ -1998,6 +2010,10 @@ def parse_arguments():
     # Parser for 'train' mode
     train_parser = subparsers.add_parser("train", help="Train an RVC model.")
     train_parser.add_argument(
+        "--reset_training", action="store_true",
+        help="Keep local G/D weights; archive prior outputs and restart epoch/optimizer with configured settings.",
+    )
+    train_parser.add_argument(
         "--model_name", type=str, help="Name of the model to be trained.", required=True
     )
     train_parser.add_argument(
@@ -2516,6 +2532,7 @@ def main():
                 sifigan_filter_resblock=args.sifigan_filter_resblock,
                 sifigan_source_scale_init=args.sifigan_source_scale_init,
                 learning_rate=args.learning_rate,
+                reset_training=args.reset_training,
                 c_mel=args.c_mel,
                 lr_decay=args.lr_decay,
                 g_lr_boost_multiplier=args.g_lr_boost_multiplier,

@@ -303,6 +303,8 @@ def main():
 
         for i in range(n_gpus):
             children[i].join()
+        if any(child.exitcode != 0 for child in children):
+            raise RuntimeError("Training worker failed; see the traceback above.")
 
     def load_from_json(file_path):
         """
