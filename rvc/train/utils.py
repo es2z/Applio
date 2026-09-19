@@ -91,18 +91,27 @@ def load_checkpoint(checkpoint_path, model, optimizer=None, load_opt=1):
     )
 
 
-def load_pretrained(net, checkpoint_path, tag, verbose=True, target_identity=None):
+def load_pretrained(
+    net, checkpoint_path, tag, verbose=True, target_identity=None, target_embedder=None
+):
     """Load a pretrained G or D, inheriting only what means the same thing in this model.
 
-    The rules - legacy weight_g / weight_v names, a different sized embedder, a different
+    The rules - legacy weight_g / weight_v names, a different embedder, a different
     vocoder, a different discriminator layout - live in rvc/train/warm_start.py. Anything
     that does not fit them stops the run rather than being skipped.
 
     target_identity is {"vocoder", "sample_rate"} of the model being trained; without it a
-    decoder is only inherited from the same vocoder.
+    decoder is only inherited from the same vocoder. target_embedder is which embedder
+    produced this run's features; without it enc_p.emb_phone.weight is only rebuilt when
+    the width differs.
     """
     return warm_start(
-        net, checkpoint_path, tag, target_identity=target_identity, verbose=verbose
+        net,
+        checkpoint_path,
+        tag,
+        target_identity=target_identity,
+        target_embedder=target_embedder,
+        verbose=verbose,
     )
 
 

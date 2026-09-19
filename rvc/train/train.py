@@ -50,6 +50,7 @@ from lr_boost import (
 # Zluda hijack
 import rvc.lib.zluda
 from rvc.lib.algorithm import commons
+from rvc.lib.utils import embedder_identity_from_model_info
 from rvc.train.process.extract_model import extract_model
 
 # Parse command line arguments
@@ -466,13 +467,7 @@ def run(
             model_info = json.load(f)
             embedder_name = model_info["embedder_model"]
             spk_dim = model_info["speakers_id"]
-            embedder_identity = {
-                "embedder_model": embedder_name,
-                "embedder_feature_scale": model_info.get("embedder_feature_scale", 1.0),
-                "embedder_output_layer": model_info.get("embedder_output_layer"),
-                "embedder_dim": model_info.get("embedder_dim"),
-                "embedder_input_std_floor": model_info.get("embedder_input_std_floor"),
-            }
+            embedder_identity = embedder_identity_from_model_info(model_info)
     except Exception as e:
         print(f"Could not load model info file: {e}. Using defaults.")
 
@@ -648,6 +643,7 @@ def run(
                 "G",
                 verbose=rank == 0,
                 target_identity=architecture_identity,
+                target_embedder=embedder_identity,
             )
 
         if pretrainD not in ("", "None"):

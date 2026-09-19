@@ -404,6 +404,20 @@ been fitted to the old features, which produces a model that sounds broken and n
 recovers rather than an error. If you hit the refusal, either train under a new model name
 or delete the `G_*.pth` / `D_*.pth` to start again from the pretrain.
 
+**Or carry the weights across, which is what the refusal used to leave you no way to do.**
+Training tab > `重みを引き継いで学習をリセット` (`--reset_training`, `rvc/train/reset_run.py`)
+archives the folder's outputs into `logs/_training_history/<model>/<run id>` and installs
+`G_0.pth` / `D_0.pth`: the same weights, epoch 1, both optimizers and the scaler cleared,
+and the GUI's learning rate / decay / mel settings applied. When the folder has since been
+re-extracted with a different embedder, it also rebuilds `enc_p.emb_phone.weight` from
+scratch at the config's `text_enc_hidden_dim` and re-stamps both files, so the encoder,
+flow, decoder and speaker embedding are all kept and only the one tensor that reads the
+embedder's feature space is thrown away. It prints what it did (`Reset (G): ...`) and
+records it in the archive's `reset.json`. With the same embedder nothing is touched.
+
+The refusal itself is unchanged: **pressing Train without ticking the box still stops**,
+because the weights on disk really are stale until the reset rewrites them.
+
 ### The pretrained loading bug (4288bbea .. the warm start rewrite)
 From 2026-09-05 until `rvc/train/warm_start.py` existed, **every run started from a
 pretrained model - stock or custom - began with a random flow, most of a random decoder,
@@ -832,7 +846,14 @@ contribute. It works from meaning, not from shape equality:
   output width instead, which is `gen_istft_n_fft + 2` and so gives the rate back as
   `n_fft * 400` (120 -> 48000, 100 -> 40000, 80 -> 32000).
 - **Generator, same vocoder:** everything name for name; a shape mismatch stops the run,
-  except `enc_p.emb_phone` when the embedder width differs.
+  except `enc_p.emb_phone.weight` when the pretrain was fitted to a different embedder.
+  A different width (768 <-> 1024) says so in the shapes. **A different embedder at the
+  same width does not** - `kushinada-hubert-large` and `japanese-hubert-large` are both
+  1024 and their feature spaces have nothing to do with one another - so `load_pretrained`
+  is handed the run's `embedder_identity` as `target_embedder` and compares the stamps.
+  A pretrain that carries no stamp, which is every stock one, is inherited as before.
+  The bias is an offset in the encoder's own hidden space, which is inherited intact, so
+  it is inherited with it.
 - **Generator, HiFi-GAN <-> RefineGAN:** `enc_p` / `enc_q` / `flow` / `emb_g` whole, then
   `CROSS_VOCODER_DECODER_PORTS`: the 12 residual blocks
   (`dec.resblocks.{3i+k}` <-> `dec.upsample_conv_blocks.{i}.blocks.{k}.1`, same channels,

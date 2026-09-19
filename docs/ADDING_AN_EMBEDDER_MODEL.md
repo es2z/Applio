@@ -235,6 +235,14 @@ and into the exported `.pth` via `extract_model`. Compared by
 that names no embedder at all predates tracking and never counts as a mismatch, so old
 folders keep working.
 
+The same identity is what lets a folder be moved onto a new embedder rather than only
+refused: Training tab > `重みを引き継いで学習をリセット` (`rvc/train/reset_run.py`) archives
+the run, rebuilds `enc_p.emb_phone.weight` from scratch, re-stamps `G_0.pth` / `D_0.pth`
+and keeps everything else. `load_pretrained` does the same for the custom-pretrain path,
+which is why it takes a `target_embedder`: **a different embedder of the same width leaves
+no trace in any shape**, so before that argument existed a 1024-dim pretrain silently
+handed over a projection fitted to another model's feature space.
+
 ---
 
 ## 7. Things that need no work, and why
@@ -246,7 +254,8 @@ folders keep working.
   fallback for folders extracted before this existed.
 - **Warm starting from a 768 pretrain.** `load_pretrained` (`rvc/train/utils.py`, rules in
   `rvc/train/warm_start.py`) starts `enc_p.emb_phone.weight` from scratch on a shape
-  mismatch and inherits encoder, flow, decoder and speaker embedding; the discriminator
+  mismatch - or on a stamped embedder mismatch at the same width - and inherits encoder,
+  flow, decoder and speaker embedding; the discriminator
   never sees the features and loads whole. Any *other* mismatch - including a pretrained
   tensor that has no place in the model - is a real mistake and exits.
   **Correction:** this section used to say a 1024-dim run was "confirmed working" from

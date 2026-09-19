@@ -59,6 +59,16 @@ def identity(vocoder, sample_rate=48000):
     return {"vocoder": vocoder, "sample_rate": sample_rate}
 
 
+def embedder(name, dim=1024):
+    return {
+        "embedder_model": name,
+        "embedder_feature_scale": 1.0,
+        "embedder_output_layer": None,
+        "embedder_dim": dim,
+        "embedder_input_std_floor": 0.01,
+    }
+
+
 def snapshot(net):
     return {key: value.detach().clone() for key, value in net.state_dict().items()}
 
@@ -105,6 +115,93 @@ class LegacyWeightNormNamesTest(unittest.TestCase):
         loaded = target.state_dict()
         for key in transfer.loaded:
             self.assertTrue(torch.equal(loaded[key], source[key].float()), key)
+
+    def test_a_different_embedder_of_the_same_width_rebuilds_the_projection(self):
+        """kushinada-hubert-large and japanese-hubert-large are both 1024 wide.
+
+        Nothing in the shapes says the pretrained weight was fitted to a feature space
+        that has nothing to do with this run's, so the stamp has to.
+        """
+        source = build_generator("HiFi-GAN", text_enc_hidden_dim=1024)
+        target = build_generator("HiFi-GAN", text_enc_hidden_dim=1024)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "G.pth"
+            save_checkpoint(
+                source,
+                torch.optim.AdamW(source.parameters()),
+                1e-4,
+                1,
+                str(path),
+                torch.amp.GradScaler(enabled=False),
+                embedder_identity=embedder("kushinada-hubert-large"),
+                architecture_identity=identity("HiFi-GAN"),
+            )
+            transfer = load_pretrained(
+                target,
+                path,
+                "G",
+                verbose=False,
+                target_identity=identity("HiFi-GAN"),
+                target_embedder=embedder("japanese-hubert-large"),
+            )
+        self.assertEqual(list(transfer.reinitialised), ["enc_p.emb_phone.weight"])
+        loaded = target.state_dict()
+        self.assertFalse(
+            torch.equal(
+                loaded["enc_p.emb_phone.weight"],
+                source.state_dict()["enc_p.emb_phone.weight"],
+            )
+        )
+        # The bias is an offset in the encoder's own hidden space, which is inherited.
+        for key, value in source.state_dict().items():
+            if key != "enc_p.emb_phone.weight":
+                self.assertTrue(torch.equal(loaded[key], value), key)
+
+    def test_the_same_embedder_inherits_the_projection(self):
+        source = build_generator("HiFi-GAN", text_enc_hidden_dim=1024)
+        target = build_generator("HiFi-GAN", text_enc_hidden_dim=1024)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "G.pth"
+            save_checkpoint(
+                source,
+                torch.optim.AdamW(source.parameters()),
+                1e-4,
+                1,
+                str(path),
+                torch.amp.GradScaler(enabled=False),
+                embedder_identity=embedder("japanese-hubert-large"),
+                architecture_identity=identity("HiFi-GAN"),
+            )
+            for target_embedder in (None, embedder("japanese-hubert-large")):
+                transfer = load_pretrained(
+                    target,
+                    path,
+                    "G",
+                    verbose=False,
+                    target_identity=identity("HiFi-GAN"),
+                    target_embedder=target_embedder,
+                )
+                self.assertEqual(transfer.reinitialised, {})
+        loaded = target.state_dict()
+        for key, value in source.state_dict().items():
+            self.assertTrue(torch.equal(loaded[key], value), key)
+
+    def test_an_unstamped_pretrain_still_inherits_the_projection(self):
+        """Every checkpoint written before the stamp existed, including the stock ones."""
+        source = build_generator("HiFi-GAN", text_enc_hidden_dim=1024)
+        target = build_generator("HiFi-GAN", text_enc_hidden_dim=1024)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "G.pth"
+            save_legacy(source, path, identity("HiFi-GAN"))
+            transfer = load_pretrained(
+                target,
+                path,
+                "G",
+                verbose=False,
+                target_identity=identity("HiFi-GAN"),
+                target_embedder=embedder("japanese-hubert-large"),
+            )
+        self.assertEqual(transfer.reinitialised, {})
 
     def test_the_sample_rate_is_read_off_a_legacy_hifigan(self):
         for sample_rate in (32000, 40000, 48000):

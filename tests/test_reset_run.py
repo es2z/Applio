@@ -10,7 +10,9 @@ import torch
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from torch.utils.tensorboard import SummaryWriter
 
+from rvc.lib.utils import embedder_identity_from_model_info
 from rvc.train.reset_run import _pid_running, reset_training_run
+from rvc.train.utils import assert_resumable
 
 
 class ProcessCheckTests(unittest.TestCase):
@@ -126,6 +128,111 @@ class ResetRunTests(unittest.TestCase):
         with patch("rvc.train.reset_run._pid_running", return_value=True), self.assertRaisesRegex(ValueError, "Stop the existing"):
             reset_training_run(self.root)
         self.assertTrue((self.root / "G_2333333.pth").exists())
+
+
+class ResetAfterAnEmbedderChangeTests(unittest.TestCase):
+    """Re-extracting a folder with another embedder leaves its G_*.pth behind.
+
+    Nothing in the shapes says that G's enc_p.emb_phone.weight was fitted to a feature
+    space this run no longer produces, so a reset that only restarts the schedule hands
+    assert_resumable a checkpoint it is right to refuse. The reset rebuilds that one
+    tensor and re-stamps both files instead.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / "branch"
+        self.root.mkdir()
+        (self.root / "config.json").write_text(json.dumps({
+            "model": {"text_enc_hidden_dim": 1024, "use_spectral_norm": False},
+            "train": {"learning_rate": 0.0001, "betas": [0.8, 0.99], "eps": 1e-9},
+        }))
+        projection = torch.nn.Linear(1024, 192)
+        self.generator = {
+            "enc_p.emb_phone.weight": projection.weight.detach().clone(),
+            "enc_p.emb_phone.bias": projection.bias.detach().clone(),
+            "emb_g.weight": torch.randn(109, 256),
+        }
+        self.discriminator = {"convs.0.bias": torch.randn(32)}
+        optimizer = torch.optim.AdamW(projection.parameters(), lr=0.0001).state_dict()
+        for tag, weights in (("G", self.generator), ("D", self.discriminator)):
+            torch.save({
+                "model": weights, "optimizer": optimizer, "iteration": 840,
+                "learning_rate": 0.0001, "scaler": {"scale": 65536.},
+                "vocoder": "CodenameRingFormer", "sample_rate": 48000,
+                **self.stamp("kushinada-hubert-large"),
+            }, self.root / f"{tag}_2333333.pth")
+
+    @staticmethod
+    def stamp(name, dim=1024):
+        return {
+            "embedder_model": name,
+            "embedder_feature_scale": 1.0,
+            "embedder_output_layer": None,
+            "embedder_dim": dim,
+            "embedder_input_std_floor": 0.01,
+        }
+
+    def write_model_info(self, name, dim=1024):
+        info = {"speakers_id": 1, **self.stamp(name, dim)}
+        (self.root / "model_info.json").write_text(json.dumps(info))
+        return embedder_identity_from_model_info(info)
+
+    def test_the_projection_is_rebuilt_and_both_files_restamped(self):
+        target = self.write_model_info("japanese-hubert-large")
+        archive = reset_training_run(self.root)
+
+        generator = torch.load(self.root / "G_0.pth", weights_only=True)
+        weight = generator["model"]["enc_p.emb_phone.weight"]
+        self.assertEqual(weight.shape, self.generator["enc_p.emb_phone.weight"].shape)
+        self.assertFalse(torch.equal(weight, self.generator["enc_p.emb_phone.weight"]))
+        # Only the weight reads the embedder's feature space.
+        for key in ("enc_p.emb_phone.bias", "emb_g.weight"):
+            self.assertTrue(torch.equal(generator["model"][key], self.generator[key]), key)
+        for tag in ("G", "D"):
+            stamped = torch.load(self.root / f"{tag}_0.pth", weights_only=True)
+            for key, value in target.items():
+                self.assertEqual(stamped[key], value, f"{tag} {key}")
+            self.assertEqual(stamped["vocoder"], "CodenameRingFormer")
+
+        transfer = json.loads((archive / "reset.json").read_text())["embedder_transfer"]
+        self.assertIn("kushinada-hubert-large", transfer)
+        self.assertIn("japanese-hubert-large", transfer)
+        # The point of all of it: the run that follows is no longer refused.
+        assert_resumable(str(self.root), target, {"vocoder": "CodenameRingFormer"})
+
+    def test_the_same_embedder_leaves_every_weight_alone(self):
+        self.write_model_info("kushinada-hubert-large")
+        archive = reset_training_run(self.root)
+        generator = torch.load(self.root / "G_0.pth", weights_only=True)
+        for key, value in self.generator.items():
+            self.assertTrue(torch.equal(generator["model"][key], value), key)
+        self.assertIsNone(
+            json.loads((archive / "reset.json").read_text())["embedder_transfer"]
+        )
+
+    def test_a_narrower_embedder_rebuilds_the_projection_at_the_config_width(self):
+        (self.root / "config.json").write_text(json.dumps({
+            "model": {"text_enc_hidden_dim": 768},
+            "train": {"learning_rate": 0.0001, "betas": [0.8, 0.99], "eps": 1e-9},
+        }))
+        self.write_model_info("contentvec", dim=768)
+        reset_training_run(self.root)
+        generator = torch.load(self.root / "G_0.pth", weights_only=True)
+        self.assertEqual(
+            tuple(generator["model"]["enc_p.emb_phone.weight"].shape), (192, 768)
+        )
+
+    def test_a_folder_that_records_no_embedder_is_left_alone(self):
+        archive = reset_training_run(self.root)
+        generator = torch.load(self.root / "G_0.pth", weights_only=True)
+        for key, value in self.generator.items():
+            self.assertTrue(torch.equal(generator["model"][key], value), key)
+        self.assertEqual(generator["embedder_model"], "kushinada-hubert-large")
+        self.assertIsNone(
+            json.loads((archive / "reset.json").read_text())["embedder_transfer"]
+        )
 
 
 if __name__ == "__main__":

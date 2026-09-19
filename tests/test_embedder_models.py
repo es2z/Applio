@@ -1012,6 +1012,7 @@ class TrainSettingsTest(unittest.TestCase):
             "g_lr_boost",
             "g_lr_boost_multiplier",
             "g_lr_boost_epochs",
+            "reset_training",
         ]
         names = list(inspect.signature(run_train_script).parameters)
         self.assertEqual(names[-len(expected) :], expected)

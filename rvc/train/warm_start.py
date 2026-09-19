@@ -15,8 +15,11 @@ before loading any of them, refuses to finish while a source tensor is unaccount
 and always says what it did.
 
 What is allowed to differ between the pretrained model and this one:
-- enc_p.emb_phone, when the embedder width differs (768 <-> 1024). Nothing else in the
-  generator depends on the embedder.
+- enc_p.emb_phone.weight, when the pretrained model was fitted to a different embedder -
+  a different width (768 <-> 1024), or the same width and a different embedder, which is
+  just as stale and does not announce itself in any shape. Nothing else in the generator
+  depends on the embedder. Its bias is an offset in the encoder's own hidden space, which
+  is inherited intact, so the bias is inherited with it.
 - The decoder, when the vocoder differs. enc_p / enc_q / flow / emb_g are identical
   across vocoders and are inherited whole; decoder parts with the same structure and
   role are ported (see CROSS_VOCODER_DECODER_PORTS) and the rest starts from scratch.
@@ -41,6 +44,7 @@ from rvc.lib.algorithm.discriminators import (
 from rvc.lib.algorithm.generators.refinegan import (
     RESBLOCK_DILATION as REFINEGAN_RESBLOCK_DILATION,
 )
+from rvc.lib.utils import describe_embedder_mismatch
 
 HIFIGAN = "HiFi-GAN"
 MRF_HIFIGAN = "MRF HiFi-GAN"
@@ -48,8 +52,8 @@ REFINEGAN = "RefineGAN"
 SIFIGAN = "SiFi-GAN"
 CODENAME_RINGFORMER = "CodenameRingFormer"
 
-# Warm starting a run whose embedder is wider than the pretrain's only works because
-# exactly one tensor pair depends on that width.
+# Warm starting a run whose embedder differs from the pretrain's only works because
+# exactly one tensor reads the embedder's feature space.
 EMBEDDER_PROJECTION_PREFIX = "enc_p.emb_phone."
 DECODER_PREFIX = "dec."
 
@@ -844,20 +848,46 @@ def _plan_decoder(transfer, source_identity, target_identity, target_module):
             transfer.drop(key, f"no counterpart in this model's {target_vocoder} decoder")
 
 
-def _plan_generator(transfer, checkpoint, target_identity, target_module):
+def _embedder_projection_reason(key, value, source, embedder_reason):
+    """Why this enc_p.emb_phone tensor cannot be inherited, or None.
+
+    A different width says so in the shapes. A different embedder at the same width does
+    not, and is exactly as stale: kushinada-hubert-large and japanese-hubert-large are
+    both 1024 wide and their feature spaces have nothing to do with one another, so a
+    weight fitted to one is a scrambled map of the other. Only the weight matrix reads
+    that space; the bias is an offset in the encoder's own hidden space, which is
+    inherited intact, so it is kept.
+    """
+    if key not in source:
+        return None
+    if _shape(source[key]) != _shape(value):
+        return (
+            "the pretrained model was trained on a different sized embedder "
+            f"({_shape(source[key])} -> {_shape(value)})"
+        )
+    if embedder_reason and value.dim() > 1:
+        return embedder_reason
+    return None
+
+
+def _plan_generator(
+    transfer, checkpoint, target_identity, target_module, target_embedder=None
+):
     source, target = transfer.source, transfer.target
+    embedder_reason = (
+        describe_embedder_mismatch(checkpoint, target_embedder, "the pretrained model")
+        if target_embedder
+        else None
+    )
     for key, value in target.items():
         if key.startswith(DECODER_PREFIX):
             continue
-        if (
-            key.startswith(EMBEDDER_PROJECTION_PREFIX)
-            and key in source
-            and _shape(source[key]) != _shape(value)
-        ):
-            reason = (
-                "the pretrained model was trained on a different sized embedder "
-                f"({_shape(source[key])} -> {_shape(value)})"
-            )
+        reason = (
+            _embedder_projection_reason(key, value, source, embedder_reason)
+            if key.startswith(EMBEDDER_PROJECTION_PREFIX)
+            else None
+        )
+        if reason:
             transfer.reinitialise(key, reason)
             transfer.drop(key, reason)
         else:
@@ -978,7 +1008,14 @@ def _plan_discriminator(transfer, checkpoint, target_module):
                 transfer.drop(key, reason)
 
 
-def warm_start(net, checkpoint_path, tag, target_identity=None, verbose=True):
+def warm_start(
+    net,
+    checkpoint_path,
+    tag,
+    target_identity=None,
+    target_embedder=None,
+    verbose=True,
+):
     """Load a pretrained G or D into `net`, inheriting only what is compatible.
 
     Args:
@@ -987,6 +1024,8 @@ def warm_start(net, checkpoint_path, tag, target_identity=None, verbose=True):
         tag: "G" or "D", for messages.
         target_identity: {"vocoder", "sample_rate"} of the model being trained. Without a
             sample rate a decoder is only ever inherited from the same vocoder.
+        target_embedder: the embedder identity of the features this run trains on. Without
+            it enc_p.emb_phone.weight is only rebuilt when the width differs.
         verbose: Print what was inherited, converted, started from scratch and left out.
 
     Returns the Transfer describing what happened. Exits the process instead when the
@@ -1014,7 +1053,9 @@ def warm_start(net, checkpoint_path, tag, target_identity=None, verbose=True):
     if hasattr(module, "discriminators"):
         _plan_discriminator(transfer, checkpoint, module)
     else:
-        _plan_generator(transfer, checkpoint, target_identity, module)
+        _plan_generator(
+            transfer, checkpoint, target_identity, module, target_embedder
+        )
     transfer.check_complete()
 
     if transfer.errors:

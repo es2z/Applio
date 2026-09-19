@@ -350,6 +350,23 @@ def embedder_identity(model, embedder_name=None):
     }
 
 
+def embedder_identity_from_model_info(model_info):
+    """The same identity, read back from a model folder's model_info.json.
+
+    The defaults are what each key meant before it was written down, so a folder
+    extracted by an older build compares equal to one extracted now with the same
+    embedder. A record naming no embedder at all is left as None and compares equal to
+    everything, which is what describe_embedder_mismatch already does with it.
+    """
+    return {
+        "embedder_model": model_info.get("embedder_model"),
+        "embedder_feature_scale": model_info.get("embedder_feature_scale", 1.0),
+        "embedder_output_layer": model_info.get("embedder_output_layer"),
+        "embedder_dim": model_info.get("embedder_dim"),
+        "embedder_input_std_floor": model_info.get("embedder_input_std_floor"),
+    }
+
+
 def describe_embedder_output_layer(layer):
     return "last" if layer is None else str(layer)
 

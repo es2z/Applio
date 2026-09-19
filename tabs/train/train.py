@@ -828,7 +828,7 @@ def train_tab():
                         )
             reset_training = gr.Checkbox(
                 label="重みを引き継いで学習をリセット",
-                info="ON: このフォルダのG/Dの重みを保ち、両方のoptimizer・epoch・step・履歴を初期化。GUIの学習率とmel設定でepoch 1から開始します。旧モデル・履歴・TensorBoardログは logs/_training_history に退避します。filelistの参照先は変更しません。CleanupはOFFにしてください。OFF: 通常の途中再開（学習率は保存値を使用）。",
+                info="ON: このフォルダのG/Dの重みを保ち、両方のoptimizer・epoch・step・履歴を初期化。GUIの学習率とmel設定でepoch 1から開始します。埋め込みモデルを変えて再抽出した場合は、特徴量空間を読む enc_p.emb_phone.weight だけを初期化して残り（encoder/flow/decoder/話者埋め込み）を引き継ぎます。旧モデル・履歴・TensorBoardログは logs/_training_history に退避します。filelistの参照先は変更しません。CleanupはOFFにしてください。OFF: 通常の途中再開（学習率は保存値を使用）。",
                 value=False,
                 interactive=True,
             )
