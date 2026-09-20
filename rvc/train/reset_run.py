@@ -15,7 +15,8 @@ from rvc.lib.utils import (
     describe_embedder_mismatch,
     embedder_identity_from_model_info,
 )
-from rvc.train.warm_start import EMBEDDER_PROJECTION_PREFIX
+from rvc.train.warm_start import EMBEDDER_PROJECTION_PREFIX, checkpoint_vocoder
+from rvc.train.vocoder_recipe import discriminator_version
 
 
 def _pid_running(pid):
@@ -93,7 +94,97 @@ def _retarget_embedder(checkpoint, target_embedder, text_enc_hidden_dim):
     return message
 
 
-def reset_training_run(experiment_dir):
+def _retarget_vocoder(
+    source, checkpoint, config, target_vocoder, target_embedder, synthesizer_kwargs
+):
+    """Rebuild the generator for another vocoder, through the common warm start.
+
+    Reset installs G_0.pth / D_0.pth and the run that follows *resumes* from them, so
+    load_pretrained is never reached and a vocoder change has to happen here or not at
+    all. What carries across is decided by rvc/train/warm_start.py, exactly as it would
+    be for a pretrained model: the encoders, flow and speaker embedding whole, the decoder
+    parts that mean the same thing in both, and the rest from scratch. Optimizer state
+    never survives a reset anyway.
+
+    Returns what it did, or None when the vocoder is unchanged.
+    """
+    from rvc.lib.algorithm.synthesizers import Synthesizer
+    from rvc.train.extract.preparing_files import (
+        VOCODER_MODEL_KEYS,
+        vocoder_model_config,
+    )
+    from rvc.train.utils import replace_keys_in_dict
+    from rvc.train.warm_start import warm_start
+
+    source_vocoder = checkpoint_vocoder(checkpoint)
+    if not target_vocoder or not source_vocoder or target_vocoder == source_vocoder:
+        return None
+
+    data, train = config["data"], config["train"]
+    sample_rate = data["sample_rate"]
+    # The decoder keys for the target vocoder, the way train.py applies them. config.json
+    # still describes the old one at this point: resolve_vocoder_model_config only runs
+    # once train.py starts, which is after this.
+    settings = vocoder_model_config(target_vocoder, sample_rate)
+    model = dict(config["model"])
+    for key in VOCODER_MODEL_KEYS:
+        if key not in settings:
+            model.pop(key, None)
+    model.update(settings)
+
+    print(
+        f"Reset (G): the folder holds a {source_vocoder} generator and this run is "
+        f"{target_vocoder}; rebuilding it through the common warm start."
+    )
+    net_g = Synthesizer(
+        data["filter_length"] // 2 + 1,
+        train["segment_size"] // data["hop_length"],
+        **model,
+        use_f0=True,
+        sr=sample_rate,
+        vocoder=target_vocoder,
+        **synthesizer_kwargs,
+    )
+    transfer = warm_start(
+        net_g,
+        str(source),
+        "G",
+        target_identity={
+            "vocoder": target_vocoder,
+            "sample_rate": sample_rate,
+            "disc_version": discriminator_version(target_vocoder),
+        },
+        target_embedder=target_embedder,
+    )
+    # Written under the legacy weight_g / weight_v names, which is what save_checkpoint
+    # puts on disk and therefore what every other G_*.pth in a model folder looks like.
+    checkpoint["model"] = replace_keys_in_dict(
+        replace_keys_in_dict(
+            {key: value.detach().clone() for key, value in net_g.state_dict().items()},
+            ".parametrizations.weight.original1",
+            ".weight_v",
+        ),
+        ".parametrizations.weight.original0",
+        ".weight_g",
+    )
+    checkpoint["optimizer"] = torch.optim.AdamW(
+        net_g.parameters(), lr=train["learning_rate"]
+    ).state_dict()
+    checkpoint["vocoder"] = target_vocoder
+    checkpoint["sample_rate"] = sample_rate
+    if target_embedder:
+        checkpoint.update(target_embedder)
+    summary = transfer.summary(str(source))
+    del net_g, transfer
+    return summary
+
+
+def reset_training_run(
+    experiment_dir,
+    vocoder=None,
+    sifigan_filter_resblock=None,
+    sifigan_source_scale_init=None,
+):
     """Archive local outputs and install epoch-zero checkpoints, with rollback.
 
     Dataset paths are never followed. The archive is a separate TensorBoard run
@@ -102,7 +193,9 @@ def reset_training_run(experiment_dir):
     started into that layout with fresh optimizer groups before installation.
     If the folder has since been re-extracted with a different embedder, G's
     enc_p.emb_phone.weight is rebuilt and both files are re-stamped, so the run that
-    follows is not refused by assert_resumable for weights it no longer carries.
+    follows is not refused by assert_resumable for weights it no longer carries. If the
+    run that follows uses a different vocoder, G is rebuilt for it through the same warm
+    start a pretrained model would go through, and D into that vocoder's layout.
     """
     root = Path(experiment_dir).resolve()
     config = json.loads((root / "config.json").read_text(encoding="utf-8"))
@@ -131,6 +224,15 @@ def reset_training_run(experiment_dir):
     discriminator_transfer = None
     target_embedder = _target_embedder(root)
     embedder_transfer = None
+    generator_transfer = None
+    # Only SiFi-GAN reads these, and they are only consulted when the vocoder changes.
+    synthesizer_kwargs = {}
+    if sifigan_filter_resblock is not None:
+        synthesizer_kwargs["sifigan_filter_resblock"] = sifigan_filter_resblock
+    if sifigan_source_scale_init is not None:
+        synthesizer_kwargs["sifigan_source_scale_init"] = float(
+            sifigan_source_scale_init
+        )
     try:
         # Validate and stage both checkpoints before touching any existing output.
         for tag, source in zip(("G", "D"), sources):
@@ -139,12 +241,26 @@ def reset_training_run(experiment_dir):
                 raise ValueError(f"No model weights in {source}")
             epochs.append(checkpoint["iteration"])
             if tag == "G":
-                target_disc_version = checkpoint.get("disc_version")
-                embedder_transfer = _retarget_embedder(
+                generator_transfer = _retarget_vocoder(
+                    source,
                     checkpoint,
+                    config,
+                    vocoder,
                     target_embedder,
-                    config.get("model", {}).get("text_enc_hidden_dim"),
+                    synthesizer_kwargs,
                 )
+                if generator_transfer is None:
+                    target_disc_version = checkpoint.get("disc_version")
+                    embedder_transfer = _retarget_embedder(
+                        checkpoint,
+                        target_embedder,
+                        config.get("model", {}).get("text_enc_hidden_dim"),
+                    )
+                else:
+                    # The warm start already rebuilt enc_p.emb_phone if the embedder
+                    # moved too, so only the discriminator is left to follow.
+                    target_disc_version = discriminator_version(vocoder)
+                    checkpoint["disc_version"] = target_disc_version
             elif target_disc_version is not None:
                 # A new run may combine a G and D from different architectures.
                 # Match D components by meaning, and create optimizer groups for
@@ -196,6 +312,7 @@ def reset_training_run(experiment_dir):
             "source_epochs": dict(zip(("G", "D"), epochs)),
             "discriminator_transfer": discriminator_transfer,
             "embedder_transfer": embedder_transfer,
+            "generator_transfer": generator_transfer,
             "new_epoch": 1,
             "new_global_step": 0,
             "optimizer": "G and D reset",

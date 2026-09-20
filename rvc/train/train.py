@@ -84,23 +84,14 @@ randomized = True
 d_lr_coeff = 1.0
 g_lr_coeff = 1.0
 d_step_per_g_step = 1
-multiscale_mel_loss = False
 bf16_adamw = False
-disc_version = "v2"
 
-# Upstream Applio trains RefineGAN against the v3 discriminator (five periods plus three
-# STFT resolution discriminators) with the multi-scale mel loss. HiFi-GAN keeps v2.
-# SiFi-GAN gets the same treatment: the official implementation trains it against a
-# UnivNet multi-resolution spectral discriminator plus a HiFi-GAN multi-period one, which
-# is what v3 already is, so there is nothing to port on the discriminator side.
-if vocoder in ("RefineGAN", "SiFi-GAN"):
-    disc_version = "v3"
-    multiscale_mel_loss = True
-# The Codename RVC fork trains RingFormer against its own layout - a scale discriminator,
-# eight periods and three STFT resolutions - and against a single-scale mel loss with
-# c_mel 45, so the mel loss is left as HiFi-GAN's.
-elif vocoder == "CodenameRingFormer":
-    disc_version = "codename-ringformer"
+# Shared with rvc/train/reset_run.py, which has to build the same discriminator for the
+# checkpoints it installs ahead of a run.
+from rvc.train.vocoder_recipe import discriminator_version, uses_multiscale_mel_loss
+
+disc_version = discriminator_version(vocoder)
+multiscale_mel_loss = uses_multiscale_mel_loss(vocoder)
 
 current_dir = os.getcwd()
 

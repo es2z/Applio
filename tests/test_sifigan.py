@@ -11,6 +11,7 @@ import io
 import json
 import math
 import os
+import shutil
 import sys
 import contextlib
 import tempfile
@@ -256,7 +257,7 @@ class SiFiGANSynthesizerTest(unittest.TestCase):
                 self.assertEqual(source.shape, waveform.shape)
 
     def test_other_vocoders_report_no_source(self):
-        for vocoder in ("HiFi-GAN", "RefineGAN"):
+        for vocoder in ("HiFi-GAN", "MRF HiFi-GAN", "RefineGAN"):
             with self.subTest(vocoder=vocoder):
                 net = build_synthesizer(vocoder)
                 output = self._run_forward(net)
@@ -291,6 +292,7 @@ class SiFiGANWarmStartTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp()
+        cls.addClassCleanup(shutil.rmtree, cls.tmp, True)
         cls.paths = {}
         for name, vocoder in (
             ("hifigan", HIFIGAN),
@@ -565,6 +567,7 @@ class ExportRoundTripTest(unittest.TestCase):
     def _round_trip(self, dim, variant):
         config = stock(48000)
         directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory, True)
         with open(os.path.join(directory, "model_info.json"), "w") as f:
             json.dump(
                 {

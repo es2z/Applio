@@ -260,7 +260,7 @@ class SynthesizerTest(unittest.TestCase):
     def test_the_other_vocoders_still_return_none(self):
         config = stock(48000)
         batch = fake_batch(config)
-        for vocoder in ("HiFi-GAN", "RefineGAN", "SiFi-GAN"):
+        for vocoder in ("HiFi-GAN", "MRF HiFi-GAN", "RefineGAN", "SiFi-GAN"):
             with self.subTest(vocoder=vocoder):
                 net = build_synthesizer(vocoder)
                 output = net(
@@ -623,7 +623,7 @@ class ConfigResolutionTest(unittest.TestCase):
             )
 
     def test_the_other_vocoders_get_the_stock_decoder(self):
-        for vocoder in ("HiFi-GAN", "RefineGAN", "SiFi-GAN"):
+        for vocoder in ("HiFi-GAN", "MRF HiFi-GAN", "RefineGAN", "SiFi-GAN"):
             settings = vocoder_model_config(vocoder, 48000)
             self.assertEqual(
                 settings["upsample_rates"], stock(48000)["model"]["upsample_rates"]

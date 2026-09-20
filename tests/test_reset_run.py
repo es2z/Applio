@@ -10,9 +10,16 @@ import torch
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from torch.utils.tensorboard import SummaryWriter
 
+from rvc.lib.algorithm.discriminators import MultiPeriodDiscriminator
+from rvc.lib.algorithm.synthesizers import Synthesizer
 from rvc.lib.utils import embedder_identity_from_model_info
 from rvc.train.reset_run import _pid_running, reset_training_run
-from rvc.train.utils import assert_resumable
+from rvc.train.utils import (
+    assert_resumable,
+    describe_architecture_mismatch,
+    save_checkpoint,
+)
+from rvc.train.warm_start import detect_vocoder
 
 
 class ProcessCheckTests(unittest.TestCase):
@@ -232,6 +239,155 @@ class ResetAfterAnEmbedderChangeTests(unittest.TestCase):
         self.assertEqual(generator["embedder_model"], "kushinada-hubert-large")
         self.assertIsNone(
             json.loads((archive / "reset.json").read_text())["embedder_transfer"]
+        )
+
+
+class ResetIntoAnotherVocoderTests(unittest.TestCase):
+    """Reset is the only place a vocoder change can happen for an existing folder.
+
+    train.py resumes from the G_0.pth / D_0.pth that reset installs rather than warm
+    starting, so without this the reset hands assert_resumable a generator whose decoder
+    belongs to the vocoder the folder used to train.
+    """
+
+    SOURCE = "HiFi-GAN"
+    TARGET = "MRF HiFi-GAN"
+
+    @staticmethod
+    def quiet(fn, *args, **kwargs):
+        import contextlib
+        import io as _io
+
+        with contextlib.redirect_stdout(_io.StringIO()):
+            return fn(*args, **kwargs)
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / "branch"
+        self.root.mkdir()
+        with open("rvc/configs/48000.json", encoding="utf-8") as f:
+            stock = json.load(f)
+        stock["model"]["text_enc_hidden_dim"] = 1024
+        (self.root / "config.json").write_text(json.dumps(stock))
+        self.stock = stock
+        self.stamp = {
+            "embedder_model": "kushinada-hubert-large",
+            "embedder_feature_scale": 1.0,
+            "embedder_output_layer": None,
+            "embedder_dim": 1024,
+            "embedder_input_std_floor": 0.01,
+        }
+        (self.root / "model_info.json").write_text(
+            json.dumps({"speakers_id": 1, **self.stamp})
+        )
+
+        net_g = self.quiet(
+            Synthesizer,
+            stock["data"]["filter_length"] // 2 + 1,
+            stock["train"]["segment_size"] // stock["data"]["hop_length"],
+            **stock["model"],
+            use_f0=True,
+            sr=48000,
+            vocoder=self.SOURCE,
+        )
+        net_d = MultiPeriodDiscriminator(
+            stock["model"]["use_spectral_norm"], version="v2"
+        )
+        identity = {
+            "vocoder": self.SOURCE,
+            "sample_rate": 48000,
+            "disc_version": "v2",
+            **self.stamp,
+        }
+        for tag, net in (("G", net_g), ("D", net_d)):
+            self.quiet(
+                save_checkpoint,
+                net,
+                torch.optim.AdamW(net.parameters(), lr=1e-4),
+                1e-4,
+                840,
+                str(self.root / f"{tag}_2333333.pth"),
+                torch.amp.GradScaler(enabled=False),
+                architecture_identity=identity,
+            )
+        self.source_generator = {
+            key: value.detach().clone() for key, value in net_g.state_dict().items()
+        }
+        del net_g, net_d
+
+    def _installed(self, tag):
+        return torch.load(
+            self.root / f"{tag}_0.pth", map_location="cpu", weights_only=True
+        )
+
+    def test_the_generator_is_rebuilt_and_the_next_run_can_resume(self):
+        archive = self.quiet(reset_training_run, self.root, vocoder=self.TARGET)
+        generator = self._installed("G")
+        self.assertEqual(generator["vocoder"], self.TARGET)
+        self.assertEqual(generator["sample_rate"], 48000)
+        self.assertEqual(generator["disc_version"], "v2")
+        self.assertEqual(detect_vocoder(generator["model"]), self.TARGET)
+        self.assertEqual(generator["iteration"], 0)
+        self.assertEqual(generator["optimizer"]["state"], {})
+        # The decoder really is the MRF one, and the parts that mean the same thing in
+        # both came across rather than starting from scratch.
+        self.assertIn("dec.mrfs.0.0.layers.0.conv1.weight_v", generator["model"])
+        self.assertNotIn("dec.resblocks.0.convs1.0.weight_v", generator["model"])
+        for key in ("enc_p.emb_phone.weight", "flow.flows.0.enc.in_layers.0.bias"):
+            self.assertTrue(
+                torch.equal(generator["model"][key], self.source_generator[key]), key
+            )
+        self.assertTrue(
+            torch.equal(
+                generator["model"]["dec.mrfs.0.0.layers.0.conv1.weight_v"],
+                self.source_generator["dec.resblocks.0.convs1.0.parametrizations.weight.original1"],
+            )
+        )
+        # assert_resumable is the thing that refused before.
+        self.assertIsNone(
+            describe_architecture_mismatch(
+                generator,
+                {"vocoder": self.TARGET, "sample_rate": 48000, "disc_version": "v2"},
+            )
+        )
+        self.quiet(
+            assert_resumable,
+            str(self.root),
+            self.stamp,
+            {"vocoder": self.TARGET, "sample_rate": 48000, "disc_version": "v2"},
+        )
+        self.assertIsNotNone(
+            json.loads((archive / "reset.json").read_text())["generator_transfer"]
+        )
+
+    def test_the_discriminator_follows_the_new_vocoder(self):
+        self.quiet(reset_training_run, self.root, vocoder=self.TARGET)
+        discriminator = self._installed("D")
+        self.assertEqual(discriminator["disc_version"], "v2")
+        self.assertEqual(discriminator["iteration"], 0)
+
+    def test_the_same_vocoder_leaves_the_generator_alone(self):
+        archive = self.quiet(reset_training_run, self.root, vocoder=self.SOURCE)
+        generator = self._installed("G")
+        self.assertEqual(generator["vocoder"], self.SOURCE)
+        for key, value in self.source_generator.items():
+            saved = generator["model"].get(
+                key.replace(".parametrizations.weight.original0", ".weight_g").replace(
+                    ".parametrizations.weight.original1", ".weight_v"
+                )
+            )
+            self.assertIsNotNone(saved, key)
+            self.assertTrue(torch.equal(saved, value), key)
+        self.assertIsNone(
+            json.loads((archive / "reset.json").read_text())["generator_transfer"]
+        )
+
+    def test_no_vocoder_given_behaves_as_before(self):
+        archive = self.quiet(reset_training_run, self.root)
+        self.assertEqual(self._installed("G")["vocoder"], self.SOURCE)
+        self.assertIsNone(
+            json.loads((archive / "reset.json").read_text())["generator_transfer"]
         )
 
 

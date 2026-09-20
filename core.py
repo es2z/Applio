@@ -563,7 +563,15 @@ def run_train_script(
     if reset_training:
         from rvc.train.reset_run import reset_training_run
 
-        archive = reset_training_run(os.path.join(logs_path, model_name))
+        # The vocoder decides what the installed G_0/D_0 have to look like: the run that
+        # follows resumes from them rather than warm starting, so a vocoder change has to
+        # be applied here.
+        archive = reset_training_run(
+            os.path.join(logs_path, model_name),
+            vocoder=vocoder,
+            sifigan_filter_resblock=sifigan_filter_resblock,
+            sifigan_source_scale_init=sifigan_source_scale_init,
+        )
         print(f"Training reset to epoch 1 with GUI settings. Previous run: {archive}")
 
     train_script_path = os.path.join("rvc", "train", "train.py")

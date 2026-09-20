@@ -146,6 +146,16 @@ def infer_hifigan_sample_rate(state_dict):
     return _sample_rate_from_upsample_kernels(state_dict, "dec.ups.")
 
 
+def infer_mrf_hifigan_sample_rate(state_dict):
+    """Sample rate of an MRF HiFi-GAN generator that did not record one.
+
+    Its transposed convolutions are the HiFi-GAN ones under another name, and the stock
+    upsample_kernel_sizes differ between the rates, so the widths identify it. Its shapes
+    therefore do depend on the sample rate.
+    """
+    return _sample_rate_from_upsample_kernels(state_dict, "dec.upsamples.")
+
+
 def infer_sifigan_sample_rate(state_dict):
     """Sample rate of a SiFi-GAN generator that did not record one.
 
@@ -341,6 +351,20 @@ def _module_resblock_dilations(decoder):
     else:
         blocks = list(decoder.resblocks)
     return [tuple(conv.dilation[0] for conv in block.convs1) for block in blocks]
+
+
+def _mrf_resblock_dilations(decoder):
+    """An MRF HiFi-GAN decoder's block dilations, in the same order as HiFi-GAN's.
+
+    _module_resblock_dilations cannot read this decoder: it holds its blocks in a nested
+    mrfs[stage][kernel] rather than a flat resblocks, and each block's dilated convolution
+    is layers[d].conv1 rather than convs1[d].
+    """
+    return [
+        tuple(layer.conv1.dilation[0] for layer in block.layers)
+        for stage in decoder.mrfs
+        for block in stage
+    ]
 
 
 def _hifigan_config_dilations(sample_rate, count):
@@ -627,6 +651,172 @@ def _port_sifigan_to_refinegan(source, target, source_sample_rate, target_decode
     return entries, None
 
 
+# An MRF HiFi-GAN decoder *is* this repository's HiFi-GAN NSF decoder with two
+# convolutions weight-normed that are plain there, and with the residual blocks renamed
+# and nested. Built from the same config values they agree module for module:
+#
+#   dec.cond.*                        identical construction, plain both sides
+#   dec.noise_convs.{i}.*             identical construction, same stride_f0s arithmetic
+#   dec.ups.{i}.*  <->  dec.upsamples.{i}.*      the same transposed convolutions
+#   dec.resblocks.{i * K + j}.convs1.{d}  <->  dec.mrfs.{i}.{j}.layers.{d}.conv1
+#   dec.resblocks.{i * K + j}.convs2.{d}  <->  dec.mrfs.{i}.{j}.layers.{d}.conv2
+#
+# MRFBlock is ResBlock: two convolutions per dilation, the dilated one padded
+# (k * d - d) // 2 against get_padding(k, d) and the undilated one k // 2 against
+# get_padding(k, 1) - the same number for every odd kernel size - LeakyReLU 0.1 between
+# them, and a residual per dilation. Only the names and the nesting differ, so this is a
+# rename rather than an approximation, and both decoders order their blocks stage outer,
+# kernel size inner.
+#
+# conv_pre and conv_post are the same layers spelled differently: plain in HiFi-GAN,
+# weight-normed in MRF, so they are converted. HiFi-GAN's conv_post has no bias and MRF's
+# does, so that one tensor starts from scratch.
+#
+# dec.m_source is deliberately not ported. MRF runs eight harmonics where HiFi-GAN runs
+# none, so its harmonic merge is Linear(9, 1) against Linear(1, 1) - a different function,
+# and the shapes say so.
+_MRF_SHARED_WITH_HIFIGAN = ("dec.cond.", "dec.noise_convs.")
+_MRF_HIFIGAN_RENAMES = (
+    # (HiFi-GAN prefix, MRF HiFi-GAN prefix)
+    ("dec.ups.", "dec.upsamples."),
+)
+_MRF_CONV_NAMES = (
+    # (HiFi-GAN ResBlock name, MRF MRFLayer name)
+    ("convs1", "conv1"),
+    ("convs2", "conv2"),
+)
+
+
+def _mrf_block_prefixes(state_dict):
+    """Every MRF block as dec.mrfs.{stage}.{kernel}., stage outer and kernel inner.
+
+    That is the order a HiFi-GAN decoder stores its flat resblocks in, so the two lists
+    line up index for index.
+    """
+    return [
+        f"dec.mrfs.{i}.{j}."
+        for i in _indices(state_dict, "dec.mrfs.")
+        for j in _indices(state_dict, f"dec.mrfs.{i}.")
+    ]
+
+
+def _hifigan_block_leaf(mrf_leaf):
+    """convs1.{d}.X from layers.{d}.conv1.X, or None."""
+    if not mrf_leaf.startswith("layers."):
+        return None
+    index, _, rest = mrf_leaf[len("layers.") :].partition(".")
+    for hifigan_name, mrf_name in _MRF_CONV_NAMES:
+        head = mrf_name + "."
+        if rest.startswith(head):
+            return f"{hifigan_name}.{index}.{rest[len(head) :]}"
+    return None
+
+
+def _mrf_block_leaf(hifigan_leaf):
+    """layers.{d}.conv1.X from convs1.{d}.X, or None."""
+    for hifigan_name, mrf_name in _MRF_CONV_NAMES:
+        head = hifigan_name + "."
+        if hifigan_leaf.startswith(head):
+            index, _, rest = hifigan_leaf[len(head) :].partition(".")
+            return f"layers.{index}.{mrf_name}.{rest}"
+    return None
+
+
+def _mrf_hifigan_counterpart(key, blocks, to_mrf):
+    """The other decoder's name for this tensor, or None if it has no counterpart."""
+    for shared in _MRF_SHARED_WITH_HIFIGAN:
+        if key.startswith(shared):
+            return key
+    for hifigan_prefix, mrf_prefix in _MRF_HIFIGAN_RENAMES:
+        target_prefix, source_prefix = (
+            (mrf_prefix, hifigan_prefix) if to_mrf else (hifigan_prefix, mrf_prefix)
+        )
+        if key.startswith(target_prefix):
+            return source_prefix + key[len(target_prefix) :]
+    for target_prefix, source_prefix in blocks:
+        if key.startswith(target_prefix):
+            leaf = key[len(target_prefix) :]
+            leaf = _hifigan_block_leaf(leaf) if to_mrf else _mrf_block_leaf(leaf)
+            return None if leaf is None else source_prefix + leaf
+    return None
+
+
+def _mrf_hifigan_entries(source, target, to_mrf):
+    """Name-for-name entries between a HiFi-GAN and an MRF HiFi-GAN decoder.
+
+    conv_pre and conv_post are left to the callers, which convert them.
+    """
+    source_blocks = (
+        _hifigan_resblock_prefixes(source) if to_mrf else _mrf_block_prefixes(source)
+    )
+    target_blocks = (
+        _mrf_block_prefixes(target) if to_mrf else _hifigan_resblock_prefixes(target)
+    )
+    if not source_blocks or len(source_blocks) != len(target_blocks):
+        return None, (
+            f"the decoders hold {len(source_blocks)} vs {len(target_blocks)} residual "
+            "blocks"
+        )
+    blocks = list(zip(target_blocks, source_blocks))
+    entries = []
+    for key in target:
+        if not key.startswith(DECODER_PREFIX):
+            continue
+        counterpart = _mrf_hifigan_counterpart(key, blocks, to_mrf)
+        if counterpart is not None:
+            entries.append((key, (counterpart,), _same))
+    return entries, None
+
+
+def _port_hifigan_to_mrf_hifigan(source, target, source_sample_rate, target_decoder):
+    if _hifigan_config_dilations(
+        source_sample_rate, len(_hifigan_resblock_prefixes(source))
+    ) != _mrf_resblock_dilations(target_decoder):
+        return None, "the residual block dilations differ"
+    entries, reason = _mrf_hifigan_entries(source, target, to_mrf=True)
+    if entries is None:
+        return None, reason
+    for name in ("conv_pre", "conv_post"):
+        entries += [
+            (
+                f"dec.{name}.parametrizations.weight.original0",
+                (f"dec.{name}.weight",),
+                _weight_norm_magnitude,
+            ),
+            (
+                f"dec.{name}.parametrizations.weight.original1",
+                (f"dec.{name}.weight",),
+                _same,
+            ),
+        ]
+    # dec.conv_post.bias is deliberately absent: HiFi-GAN's conv_post has bias=False.
+    entries.append(("dec.conv_pre.bias", ("dec.conv_pre.bias",), _same))
+    return _fitting_entries(entries, source, target), None
+
+
+def _port_mrf_hifigan_to_hifigan(source, target, source_sample_rate, target_decoder):
+    if _hifigan_config_dilations(
+        source_sample_rate, len(_hifigan_resblock_prefixes(target))
+    ) != _module_resblock_dilations(target_decoder):
+        return None, "the residual block dilations differ"
+    entries, reason = _mrf_hifigan_entries(source, target, to_mrf=False)
+    if entries is None:
+        return None, reason
+    for name in ("conv_pre", "conv_post"):
+        entries.append(
+            (
+                f"dec.{name}.weight",
+                (
+                    f"dec.{name}.parametrizations.weight.original0",
+                    f"dec.{name}.parametrizations.weight.original1",
+                ),
+                _weight_norm_compose,
+            )
+        )
+    entries.append(("dec.conv_pre.bias", ("dec.conv_pre.bias",), _same))
+    return _fitting_entries(entries, source, target), None
+
+
 # Whether a HiFi-GAN decoder's residual blocks are offered to a CodenameRingFormer one.
 #
 # They are the same shape - stages of 256 and 128 channels, kernel sizes 3/7/11, dilations
@@ -734,6 +924,13 @@ def _port_codename_ringformer_to_hifigan(
 #
 # RefineGAN <-> SiFi-GAN: the same range as HiFi-GAN <-> RefineGAN, for the same reasons.
 #
+# HiFi-GAN <-> MRF HiFi-GAN: everything except the harmonic merge, because an MRF decoder
+# is the HiFi-GAN decoder with two convolutions weight-normed and the residual blocks
+# renamed - see the comment above _MRF_SHARED_WITH_HIFIGAN. No RefineGAN or SiFi-GAN pair
+# is registered for it, for the same reason as CodenameRingFormer: HiFi-GAN is the only
+# vocoder with a pretrained model at every sample rate, so that is the direction worth
+# having, and going through it loses nothing.
+#
 # These are a good starting point rather than an identical function: HiFi-GAN's blocks
 # use a LeakyReLU slope of 0.1 where RefineGAN's use 0.2, and in RefineGAN they sit
 # behind a freshly initialised input_conv.
@@ -746,6 +943,8 @@ CROSS_VOCODER_DECODER_PORTS = {
     (SIFIGAN, REFINEGAN): _port_sifigan_to_refinegan,
     (HIFIGAN, CODENAME_RINGFORMER): _port_hifigan_to_codename_ringformer,
     (CODENAME_RINGFORMER, HIFIGAN): _port_codename_ringformer_to_hifigan,
+    (HIFIGAN, MRF_HIFIGAN): _port_hifigan_to_mrf_hifigan,
+    (MRF_HIFIGAN, HIFIGAN): _port_mrf_hifigan_to_hifigan,
 }
 
 
@@ -771,6 +970,7 @@ def _plan_decoder(transfer, source_identity, target_identity, target_module):
             return
         if source_rate is None and target_vocoder not in (
             HIFIGAN,
+            MRF_HIFIGAN,
             SIFIGAN,
             CODENAME_RINGFORMER,
             None,
@@ -896,11 +1096,14 @@ def _plan_generator(
     source_vocoder = detect_vocoder(source) or checkpoint.get("vocoder")
     source_rate = checkpoint.get("sample_rate")
     if source_rate is None:
-        # Both of these decoders encode the sample rate in their transposed convolution
-        # kernel widths, so it can be recovered from a checkpoint written before the
-        # metadata stamp existed. A RefineGAN decoder's shapes carry no such trace.
+        # These decoders encode the sample rate in their weights - three of them in the
+        # kernel widths of their transposed convolutions, CodenameRingFormer in conv_post
+        # - so it can be recovered from a checkpoint written before the metadata stamp
+        # existed. A RefineGAN decoder's shapes carry no such trace.
         if source_vocoder == HIFIGAN:
             source_rate = infer_hifigan_sample_rate(source)
+        elif source_vocoder == MRF_HIFIGAN:
+            source_rate = infer_mrf_hifigan_sample_rate(source)
         elif source_vocoder == SIFIGAN:
             source_rate = infer_sifigan_sample_rate(source)
         elif source_vocoder == CODENAME_RINGFORMER:

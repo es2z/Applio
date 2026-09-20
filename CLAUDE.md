@@ -84,9 +84,11 @@ This project does not include a formal test suite. Testing is done through the G
 **4. Neural Network Models** (`rvc/lib/algorithm/`)
 - `synthesizers.py` - Main Synthesizer class wrapping generators
 - `generators/` - Multiple vocoder implementations:
-  - `hifigan.py` - Original HiFi-GAN
-  - `hifigan_mrf.py` - Multi-receptive field variant
+  - `hifigan.py` / `hifigan_nsf.py` - HiFi-GAN, the default
+  - `hifigan_mrf.py` - MRF HiFi-GAN (fork-specific, see below)
   - `refinegan.py` - RefineGAN vocoder
+  - `sifigan.py` - SiFi-GAN (fork-specific, see below)
+  - `codename_ringformer.py` - CodenameRingFormer (fork-specific, see below)
 - `encoders.py`, `attentions.py`, `residuals.py` - Network components
 
 **5. F0 (Pitch) Predictors** (`rvc/lib/predictors/`)
@@ -170,7 +172,8 @@ Applio-3.5.0/
 ### Model Loading
 - Models are loaded with `torch.load(..., weights_only=True)` for security
 - The VoiceConverter caches loaded models - only reloads if path changes
-- Multiple vocoder types supported: HiFi-GAN (default), MRF HiFi-GAN, RefineGAN
+- Multiple vocoder types supported: HiFi-GAN (default), MRF HiFi-GAN, RefineGAN,
+  SiFi-GAN, CodenameRingFormer
 
 ### Real-time Mode Configuration
 - Real-time settings stored in `assets/config.json` under `realtime` key
@@ -393,7 +396,7 @@ before writing any code.
 - Realtime cost is indistinguishable from `japanese-hubert-large` - same architecture.
   Measured back to back on an RTX 4090 over a 1.5 s window, fp32: 12.6 ms against 13.1 ms.
 
-### Changing the embedder on an existing model folder
+### Changing the embedder or the vocoder on an existing model folder
 Changing the embedder, its feature scale, its output layer or the input std floor
 invalidates every `.npy`, the index **and** `enc_p.emb_phone` together.
 `resolve_feature_reuse` re-extracts the features and deletes the index, and
@@ -414,6 +417,18 @@ scratch at the config's `text_enc_hidden_dim` and re-stamps both files, so the e
 flow, decoder and speaker embedding are all kept and only the one tensor that reads the
 embedder's feature space is thrown away. It prints what it did (`Reset (G): ...`) and
 records it in the archive's `reset.json`. With the same embedder nothing is touched.
+
+**The same applies to a vocoder change**, and it has to happen here or not at all: train.py
+*resumes* from the `G_0.pth` / `D_0.pth` a reset installs, so `load_pretrained` is never
+reached. `_retarget_vocoder` (`rvc/train/reset_run.py`) rebuilds the generator for the
+vocoder the GUI is about to train with, through **the same `warm_start` a pretrained model
+goes through** - no vocoder-specific loader - and the discriminator follows into that
+vocoder's layout. Which layout that is comes from `rvc/train/vocoder_recipe.py`, the one
+place both `train.py` and the reset read it from. Going HiFi-GAN -> MRF HiFi-GAN this
+carries 560 of 563 tensors; going somewhere further away carries less and says so. The
+installed G is re-stamped with the new `vocoder` / `sample_rate` / `disc_version`, which is
+what stops `assert_resumable` refusing the run that follows. With the same vocoder nothing
+is touched.
 
 The refusal itself is unchanged: **pressing Train without ticking the box still stops**,
 because the weights on disk really are stale until the reset rewrites them.
@@ -829,6 +844,88 @@ is a memory optimisation over identical maths with nothing to save at 36 and 144
 Parameters, and so the state_dict, are the same either way. The regression test takes a
 gradient in fp16 on CUDA rather than only a forward.
 
+### MRF HiFi-GAN at 32k / 40k / 48k
+A fifth vocoder, and the closest one to HiFi-GAN. The generator
+(`rvc/lib/algorithm/generators/hifigan_mrf.py`) has been in the tree since upstream
+Applio and `Synthesizer` has always dispatched on `"MRF HiFi-GAN"`; what was missing was
+the Training tab entry and a place in the warm start table, so choosing it started the
+whole decoder from scratch. The vocoder string keeps upstream's spelling - **a space, not
+a hyphen** - so a `.pth` written by upstream Applio or the Codename fork loads here.
+
+It is the HiFi-GAN NSF decoder with two changes: the residual blocks are spelled as
+multi-receptive-field blocks, and the excitation is a **nine-way harmonic merge**
+(`harmonic_num=8`) instead of a single sine. Everything else - `enc_p` / `enc_q` / `flow` /
+`emb_g`, the F0 pipeline, the speaker conditioning, the transposed convolutions, the
+per-stage `noise_convs` - is the HiFi-GAN one.
+
+- **The training recipe is HiFi-GAN's, deliberately.** `disc_version` stays `v2`, the mel
+  loss stays single-scale at `c_mel = 45`, `c_kl = 1.0`, and no extra loss term is built.
+  The Codename fork trains its MRF the same way. So an MRF run and a HiFi-GAN run are
+  directly comparable, which is the point of having it.
+- **It needs no per-vocoder config.** Its upsampling chain is the stock one, so it is
+  absent from `VOCODER_CONFIG_DIRS` and `logs/<model>/config.json` keeps the stock decoder
+  values at every rate. Verified at 32k, 40k and 48k: `forward` returns exactly
+  `segment_size`, f0 is replicated by `prod(upsample_rates) == hop_length` before the sine
+  generator, and every stage's `noise_convs` output matches that stage's upsampled width.
+- Decoder size at 48k: **15,671,052** parameters against HiFi-GAN's **15,670,530**. The
+  522 are 512 weight-norm magnitudes on `conv_pre`, one on `conv_post`, `conv_post`'s bias,
+  and the eight extra harmonic-merge weights. The two decoders are the same network.
+- 768 and 1024 wide embedders both work through the existing `enc_p.emb_phone` mechanism;
+  nothing about this vocoder touches the width.
+- **Do not call the decoder's own `remove_weight_norm()`.** It raises, here and in every
+  other generator in this repository, because they apply
+  `parametrizations.weight_norm` but import the legacy remover. Nothing calls it: realtime
+  folds the parametrizations away with `strip_parametrizations`, which walks
+  `named_modules()` and works on this decoder like any other.
+
+#### Warm starting it from HiFi-GAN, and the one tensor that cannot come across
+The port is registered both ways in `CROSS_VOCODER_DECODER_PORTS` and carries everything
+but the harmonic merge. `dec.cond` and `dec.noise_convs` pair by name, `dec.ups` <->
+`dec.upsamples` is a rename, `conv_pre` and `conv_post` are the same layers converted
+between plain and weight-normed, and the residual blocks are a rename and a re-nesting:
+
+```
+dec.resblocks.{stage * K + kernel}.convs1.{d}  <->  dec.mrfs.{stage}.{kernel}.layers.{d}.conv1
+dec.resblocks.{stage * K + kernel}.convs2.{d}  <->  dec.mrfs.{stage}.{kernel}.layers.{d}.conv2
+```
+
+`MRFBlock` **is** `ResBlock`: two convolutions per dilation, the dilated one padded
+`(k * d - d) // 2` against `get_padding(k, d)` and the undilated one `k // 2` against
+`get_padding(k, 1)` - the same number for every odd kernel size - LeakyReLU 0.1 between
+them and a residual per dilation. So this is a rename, not an approximation, and no
+reshaping, truncating, padding or slicing is involved anywhere in the port.
+
+Measured at 48k: **HiFi-GAN -> MRF inherits 560 of 563 tensors**, leaving
+`dec.m_source.l_linear.weight` / `.bias` and `dec.conv_post.bias` fresh (11 parameters);
+the reverse inherits 558 of 560. The **discriminator is inherited whole** - both take v2,
+so all 165 tensors load - and no discriminator work was needed at all.
+
+**What that buys, measured.** Mel L1 against the ground truth on 16 real 48 kHz training
+clips **before any optimizer step**, posterior-encoder path, every configuration built
+from the same RNG state, warm started from a 1024-dim HiFi-GAN `G_2333333.pth`:
+
+| configuration | mel L1 |
+|---|---|
+| HiFi-GAN from scratch (control) | 1.936 |
+| **HiFi-GAN <- that checkpoint (control)** | **0.325** |
+| MRF HiFi-GAN from scratch | 1.979 |
+| **MRF HiFi-GAN <- that checkpoint** | **1.081** |
+
+So the warm start is worth 45%, and the remaining gap against the HiFi-GAN control is
+**entirely the harmonic merge**. Giving the MRF decoder the HiFi-GAN excitation exactly -
+the trained fundamental weight in column 0 and the eight harmonics zeroed - takes it from
+1.081 to **0.368**, next to the control's 0.325. That is a diagnostic, not a shipped
+behaviour: zero-padding a `Linear(1, 1)` into a `Linear(9, 1)` is forcing a weight across
+a shape it does not fit, which is exactly what this warm start framework refuses to do.
+
+And it is **not a magnitude problem**, which is the SiFi-GAN failure this looks like at
+first glance. On a real f0 contour the excitation's rms is 0.0435 from the trained
+HiFi-GAN merge and 0.0408 from the fresh nine-way one - within 6%. The inherited
+`noise_convs` and residual blocks are simply being fed a *different signal*: a random mix
+of nine harmonics where they were fitted to one. Eleven parameters have to move for the
+rest of the decoder to be worth what it was, so **use the Initial Generator LR Boost**.
+How fast they move in real training is unmeasured.
+
 ### Warm starting across embedders and vocoders
 `rvc/train/warm_start.py` is the single place that decides what a pretrained G / D may
 contribute. It works from meaning, not from shape equality:
@@ -837,9 +934,11 @@ contribute. It works from meaning, not from shape equality:
   `sample_rate` and `disc_version` into every `G_*.pth` / `D_*.pth` next to the embedder
   identity. A legacy HiFi-GAN's sample rate is recognised from its transposed-conv kernel
   sizes, which differ between the stock configs, and so is a legacy SiFi-GAN's (from
-  `dec.fn.upsamples`, the same transposed convolutions); a legacy RefineGAN's cannot be
-  (its shapes do not depend on the sample rate). **A SiFi-GAN decoder's shapes do depend
-  on it**, so it is excluded from the "shapes do not depend on the sample rate" assumption
+  `dec.fn.upsamples`) and a legacy MRF HiFi-GAN's (from `dec.upsamples`) - the same
+  transposed convolutions under other names; a legacy RefineGAN's cannot be
+  (its shapes do not depend on the sample rate). **A SiFi-GAN or MRF HiFi-GAN decoder's
+  shapes do depend
+  on it**, so both are excluded from the "shapes do not depend on the sample rate" assumption
   in `_plan_decoder` - claiming otherwise would inherit a whole decoder across rates. So
   does a CodenameRingFormer's, but not through its transposed convolutions, which are
   `[8, 8]` at every rate: `infer_codename_ringformer_sample_rate` reads `conv_post`'s
@@ -854,6 +953,13 @@ contribute. It works from meaning, not from shape equality:
   A pretrain that carries no stamp, which is every stock one, is inherited as before.
   The bias is an offset in the encoder's own hidden space, which is inherited intact, so
   it is inherited with it.
+- **Generator, HiFi-GAN <-> MRF HiFi-GAN:** everything but the harmonic merge, because
+  the two decoders are the same network under different names - see the MRF HiFi-GAN
+  section above for the mapping and for what the one missing tensor costs. Measured at
+  48k: 560 of 563 tensors into MRF, 558 of 560 back, and the v2 discriminator whole.
+  No RefineGAN, SiFi-GAN or CodenameRingFormer pair is registered for it, for the same
+  reason as CodenameRingFormer: HiFi-GAN is the only vocoder with a pretrained model at
+  every sample rate, and going through it loses nothing.
 - **Generator, HiFi-GAN <-> RefineGAN:** `enc_p` / `enc_q` / `flow` / `emb_g` whole, then
   `CROSS_VOCODER_DECODER_PORTS`: the 12 residual blocks
   (`dec.resblocks.{3i+k}` <-> `dec.upsample_conv_blocks.{i}.blocks.{k}.1`, same channels,
