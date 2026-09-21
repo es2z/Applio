@@ -4,6 +4,14 @@ from rvc.lib.algorithm.generators.hifigan_mrf import HiFiGANMRFGenerator
 from rvc.lib.algorithm.generators.hifigan_nsf import HiFiGANNSFGenerator
 from rvc.lib.algorithm.generators.hifigan import HiFiGANGenerator
 from rvc.lib.algorithm.generators.refinegan import RefineGANGenerator
+from rvc.lib.algorithm.generators.sifigan import (
+    DEFAULT_SOURCE_SCALE_INIT,
+    SiFiGANGenerator,
+)
+from rvc.lib.algorithm.generators.codename_ringformer import (
+    CodenameRingFormerGenerator,
+    default_istft_settings,
+)
 from rvc.lib.algorithm.commons import slice_segments, rand_slice_segments
 from rvc.lib.algorithm.residuals import ResidualCouplingBlock
 from rvc.lib.algorithm.encoders import TextEncoder, PosteriorEncoder
@@ -62,12 +70,27 @@ class Synthesizer(torch.nn.Module):
         vocoder: str = "HiFi-GAN",
         randomized: bool = True,
         checkpointing: bool = False,
+        sifigan_filter_resblock: str = "rvc",
+        sifigan_source_scale_init: float = DEFAULT_SOURCE_SCALE_INIT,
+        gen_istft_n_fft: Optional[int] = None,
+        gen_istft_hop_size: Optional[int] = None,
         **kwargs,
     ):
         super().__init__()
         self.segment_size = segment_size
         self.use_f0 = use_f0
         self.randomized = randomized
+        # Decoders that return more than the waveform. SiFi-GAN adds the source
+        # excitation; CodenameRingFormer adds the magnitude and phase spectra it ran the
+        # iSTFT on. forward()'s sixth element carries whichever of those it is and is None
+        # for every other vocoder, so the training loop branches on the vocoder it asked
+        # for rather than on the decoder's type.
+        self.dec_extra = None
+        if use_f0:
+            if vocoder == "SiFi-GAN":
+                self.dec_extra = "source"
+            elif vocoder == "CodenameRingFormer":
+                self.dec_extra = "spec_phase"
 
         self.enc_p = TextEncoder(
             inter_channels,
@@ -102,6 +125,40 @@ class Synthesizer(torch.nn.Module):
                     upsample_rates=upsample_rates,
                     start_channels=16,
                     num_mels=inter_channels,
+                    gin_channels=gin_channels,
+                    upsample_initial_channel=upsample_initial_channel,
+                    checkpointing=checkpointing,
+                )
+            elif vocoder == "SiFi-GAN":
+                self.dec = SiFiGANGenerator(
+                    inter_channels,
+                    resblock_kernel_sizes,
+                    resblock_dilation_sizes,
+                    upsample_rates,
+                    upsample_initial_channel,
+                    upsample_kernel_sizes,
+                    gin_channels=gin_channels,
+                    sr=sr,
+                    checkpointing=checkpointing,
+                    filter_resblock=sifigan_filter_resblock,
+                    source_scale_init=sifigan_source_scale_init,
+                )
+            elif vocoder == "CodenameRingFormer":
+                # The two iSTFT settings come from logs/<model>/config.json, which
+                # rvc/train/extract/preparing_files.py fills in for this vocoder. The
+                # fallback covers a checkpoint saved before they were recorded.
+                default_n_fft, default_hop = default_istft_settings(sr)
+                self.dec = CodenameRingFormerGenerator(
+                    inter_channels,
+                    resblock_kernel_sizes,
+                    resblock_dilation_sizes,
+                    upsample_rates,
+                    upsample_initial_channel,
+                    upsample_kernel_sizes,
+                    gin_channels=gin_channels,
+                    sr=sr,
+                    gen_istft_n_fft=gen_istft_n_fft or default_n_fft,
+                    gen_istft_hop_size=gen_istft_hop_size or default_hop,
                     checkpointing=checkpointing,
                 )
             else:
@@ -122,6 +179,14 @@ class Synthesizer(torch.nn.Module):
                 self.dec = None
             elif vocoder == "RefineGAN":
                 print("RefineGAN does not support training without pitch guidance.")
+                self.dec = None
+            elif vocoder == "SiFi-GAN":
+                print("SiFi-GAN does not support training without pitch guidance.")
+                self.dec = None
+            elif vocoder == "CodenameRingFormer":
+                print(
+                    "CodenameRingFormer does not support training without pitch guidance."
+                )
                 self.dec = None
             else:
                 self.dec = HiFiGANGenerator(
@@ -165,6 +230,16 @@ class Synthesizer(torch.nn.Module):
         self.remove_weight_norm()
         return self
 
+    def _split_decoder_output(self, output):
+        """(waveform, whatever else this vocoder's decoder returns, or None)."""
+        if self.dec_extra == "source":
+            waveform, source = output
+            return waveform, source
+        if self.dec_extra == "spec_phase":
+            waveform, magnitude, phase = output
+            return waveform, (magnitude, phase)
+        return output, None
+
     def forward(
         self,
         phone: torch.Tensor,
@@ -191,16 +266,32 @@ class Synthesizer(torch.nn.Module):
                     o = self.dec(z_slice, pitchf, g=g)
                 else:
                     o = self.dec(z_slice, g=g)
-                return o, ids_slice, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
+                o, extra = self._split_decoder_output(o)
+                return (
+                    o,
+                    ids_slice,
+                    x_mask,
+                    y_mask,
+                    (z, z_p, m_p, logs_p, m_q, logs_q),
+                    extra,
+                )
             # future use for finetuning using the entire dataset each pass
             else:
                 if self.use_f0:
                     o = self.dec(z, pitchf, g=g)
                 else:
                     o = self.dec(z, g=g)
-                return o, None, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
+                o, extra = self._split_decoder_output(o)
+                return (
+                    o,
+                    None,
+                    x_mask,
+                    y_mask,
+                    (z, z_p, m_p, logs_p, m_q, logs_q),
+                    extra,
+                )
         else:
-            return None, None, x_mask, None, (None, None, m_p, logs_p, None, None)
+            return None, None, x_mask, None, (None, None, m_p, logs_p, None, None), None
 
     @torch.jit.export
     def infer(
@@ -239,5 +330,9 @@ class Synthesizer(torch.nn.Module):
             if self.use_f0
             else self.dec(z * x_mask, g=g)
         )
+        # SiFi-GAN also returns the source excitation and CodenameRingFormer the spectra
+        # it inverted, neither of which inference uses.
+        if self.dec_extra is not None:
+            o = o[0]
 
         return o, x_mask, (z, z_p, m_p, logs_p)

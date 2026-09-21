@@ -13,7 +13,13 @@ from torch import Tensor
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 
-from rvc.lib.predictors.f0 import CREPE, FCPE, RMVPE, SWIFT
+from rvc.lib.predictors.crepe_models import (
+    CREPE_METHOD_TO_MODEL,
+    MANGIO_CREPE_METHOD_TO_MODEL,
+    resolve_crepe_model,
+)
+from rvc.lib.predictors.f0 import CREPE, FCPE, MANGIO_CREPE, RMVPE, SWIFT
+from rvc.lib.utils import embedder_forward
 
 import logging
 
@@ -220,17 +226,29 @@ class Pipeline:
             proposed_pitch: whether to apply proposed pitch adjustment
             proposed_pitch_threshold: target frequency, 155.0 for male, 255.0 for female
         """
-        if f0_method == "crepe":
+        if f0_method in CREPE_METHOD_TO_MODEL:
             model = CREPE(
                 device=self.device, sample_rate=self.sample_rate, hop_size=self.window
             )
-            f0 = model.get_f0(x, self.f0_min, self.f0_max, p_len, "full")
+            f0 = model.get_f0(
+                x,
+                self.f0_min,
+                self.f0_max,
+                p_len,
+                resolve_crepe_model(f0_method),
+            )
             del model
-        elif f0_method == "crepe-tiny":
-            model = CREPE(
+        elif f0_method in MANGIO_CREPE_METHOD_TO_MODEL:
+            model = MANGIO_CREPE(
                 device=self.device, sample_rate=self.sample_rate, hop_size=self.window
             )
-            f0 = model.get_f0(x, self.f0_min, self.f0_max, p_len, "tiny")
+            f0 = model.get_f0(
+                x,
+                self.f0_min,
+                self.f0_max,
+                p_len,
+                resolve_crepe_model(f0_method),
+            )
             del model
         elif f0_method == "rmvpe":
             model = RMVPE(
@@ -336,7 +354,7 @@ class Pipeline:
             assert feats.dim() == 1, feats.dim()
             feats = feats.view(1, -1).to(self.device)
             # extract features
-            feats = model(feats)["last_hidden_state"]
+            feats = embedder_forward(model, feats)
             feats = (
                 model.final_proj(feats[0]).unsqueeze(0) if version == "v1" else feats
             )
@@ -384,6 +402,13 @@ class Pipeline:
         return audio1
 
     def _retrieve_speaker_embeddings(self, feats, index, big_npy, index_rate):
+        if index.d != feats.shape[-1]:
+            print(
+                f"Skipping the index: it holds {index.d} wide vectors but the embedder "
+                f"produced {feats.shape[-1]} wide ones. Rebuild the index with the same "
+                "embedder the model was trained on."
+            )
+            return feats
         npy = feats[0].cpu().numpy()
         score, ix = index.search(npy, k=8)
         weight = np.square(1 / score)

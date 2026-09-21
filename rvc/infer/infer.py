@@ -27,7 +27,13 @@ now_dir = os.getcwd()
 sys.path.append(now_dir)
 
 from rvc.infer.pipeline import Pipeline as VC
-from rvc.lib.utils import load_audio_infer, load_embedding
+from rvc.lib.utils import (
+    checkpoint_gen_istft,
+    checkpoint_text_enc_hidden_dim,
+    load_audio_infer,
+    load_embedding,
+    warn_on_feature_scale_mismatch,
+)
 from rvc.lib.tools.split_audio import process_audio, merge_audio
 from rvc.lib.algorithm.synthesizers import Synthesizer
 from rvc.configs.config import Config
@@ -65,13 +71,20 @@ class VoiceConverter:
         """
         Loads the HuBERT model for speaker embedding extraction.
 
+        The output layer comes from the checkpoint rather than the caller, so inference
+        always reads the same layer the features were extracted from during training.
+
         Args:
             embedder_model (str): Path to the pre-trained HuBERT model.
             embedder_model_custom (str): Path to the custom HuBERT model.
         """
-        self.hubert_model = load_embedding(embedder_model, embedder_model_custom)
+        output_layer = (self.cpt or {}).get("embedder_output_layer")
+        self.hubert_model = load_embedding(
+            embedder_model, embedder_model_custom, output_layer
+        )
         self.hubert_model = self.hubert_model.to(self.config.device).float()
         self.hubert_model.eval()
+        warn_on_feature_scale_mismatch(self.hubert_model, self.cpt)
 
     @staticmethod
     def remove_audio_noise(data, sr, reduction_strength=0.7):
@@ -263,9 +276,16 @@ class VoiceConverter:
             if audio_max > 1:
                 audio /= audio_max
 
-            if not self.hubert_model or embedder_model != self.last_embedder_model:
+            # The custom path and the checkpoint's output layer are part of the
+            # embedder's identity too, so a change in either has to force a reload.
+            embedder_key = (
+                embedder_model,
+                embedder_model_custom,
+                (self.cpt or {}).get("embedder_output_layer"),
+            )
+            if not self.hubert_model or embedder_key != self.last_embedder_model:
                 self.load_hubert(embedder_model, embedder_model_custom)
-                self.last_embedder_model = embedder_model
+                self.last_embedder_model = embedder_key
 
             file_index = (
                 index_path.strip()
@@ -474,28 +494,25 @@ class VoiceConverter:
             self.use_f0 = self.cpt.get("f0", 1)
 
             self.version = self.cpt.get("version", "v1")
-
-            # Load text_enc_hidden_dim with fallback chain
-            if "text_enc_hidden_dim" in self.cpt:
-                # Priority 1: Use saved dimension from checkpoint
-                self.text_enc_hidden_dim = self.cpt["text_enc_hidden_dim"]
-                print(f"Loaded text_enc_hidden_dim={self.text_enc_hidden_dim} from checkpoint")
-            elif "embedder_model" in self.cpt:
-                # Priority 2: Infer from embedder model name
-                from rvc.lib.utils import get_embedder_dim
-                self.text_enc_hidden_dim = get_embedder_dim(self.cpt["embedder_model"])
-                print(f"Inferred text_enc_hidden_dim={self.text_enc_hidden_dim} from embedder '{self.cpt['embedder_model']}'")
-            else:
-                # Priority 3: Fall back to version-based (legacy support)
-                self.text_enc_hidden_dim = 768 if self.version == "v2" else 256
-                print(f"Using version-based text_enc_hidden_dim={self.text_enc_hidden_dim} (legacy)")
-
+            self.text_enc_hidden_dim = checkpoint_text_enc_hidden_dim(self.cpt)
             self.vocoder = self.cpt.get("vocoder", "HiFi-GAN")
+            # Only SiFi-GAN reads this; it decides the shape of the filter network's
+            # residual blocks, so the model cannot be rebuilt without it.
+            self.sifigan_filter_resblock = self.cpt.get(
+                "sifigan_filter_resblock", "rvc"
+            )
+            # Only CodenameRingFormer reads these, and (None, None) for anything else
+            # leaves Synthesizer's defaults in place. They decide the width of conv_post
+            # and noise_convs, so that decoder cannot be rebuilt without them.
+            gen_istft_n_fft, gen_istft_hop_size = checkpoint_gen_istft(self.cpt)
             self.net_g = Synthesizer(
                 *self.cpt["config"],
                 use_f0=self.use_f0,
                 text_enc_hidden_dim=self.text_enc_hidden_dim,
                 vocoder=self.vocoder,
+                sifigan_filter_resblock=self.sifigan_filter_resblock,
+                gen_istft_n_fft=gen_istft_n_fft,
+                gen_istft_hop_size=gen_istft_hop_size,
             )
             del self.net_g.enc_q
             self.net_g.load_state_dict(self.cpt["weight"], strict=False)

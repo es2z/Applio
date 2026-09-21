@@ -107,7 +107,7 @@ create_venv() {
 
     log_message "Installing dependencies..."
     if [ -f "requirements.txt" ]; then
-        uv pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu128 --index-strategy unsafe-best-match
+        uv pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu132 --index-strategy unsafe-best-match
     else
         log_message "requirements.txt not found. Please ensure it exists."
         exit 1

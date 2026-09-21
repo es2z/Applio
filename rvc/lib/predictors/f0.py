@@ -1,5 +1,9 @@
 import os
+import sys
 import torch
+
+now_dir = os.getcwd()
+sys.path.append(now_dir)
 
 from rvc.lib.predictors.RMVPE import RMVPE0Predictor
 from torchfcpe import spawn_bundled_infer_model
@@ -8,6 +12,8 @@ from swift_f0 import SwiftF0
 import numpy as np
 import onnxruntime as ort
 from rvc.lib.predictors import onnxcrepe
+from rvc.lib.predictors.crepe_decoder import resolve_decoder
+from tabs.settings.sections.torch_compile import get_torch_compile_settings
 
 
 class RMVPE:
@@ -52,6 +58,9 @@ class CREPE:
 
         batch_size = 512
 
+        # Get torch.compile settings
+        compile_enabled, compile_mode = get_torch_compile_settings()
+
         f0, pd = torchcrepe.predict(
             x.float().to(self.device).unsqueeze(dim=0),
             self.sample_rate,
@@ -63,7 +72,8 @@ class CREPE:
             device=self.device,
             return_periodicity=True,
             decoder=torchcrepe.decode.weighted_argmax,
-            compile_model=self.use_compile,
+            compile_model=compile_enabled,
+            compile_mode=compile_mode,
         )
         # Apply median filter to both f0 and periodicity (matching reference implementation)
         f0 = torchcrepe.filter.median(f0, 3)
@@ -75,22 +85,12 @@ class CREPE:
 
 
 class MANGIO_CREPE:
-    def __init__(self, device, sample_rate=16000, hop_size=160):
+    def __init__(self, device, sample_rate=16000, hop_size=160, decoder=None):
         self.device = device
         self.sample_rate = sample_rate
         self.hop_size = hop_size
-        # Enable compile_model for PyTorch 2.0+ with CUDA and Triton installed
-        try:
-            import triton
-            triton_available = True
-        except ImportError:
-            triton_available = False
-        self.use_compile = (
-            triton_available and
-            hasattr(torch, 'compile') and
-            torch.cuda.is_available() and
-            str(device).startswith('cuda')
-        )
+        # A decoder name from crepe_decoder.DECODERS, or None for the saved setting.
+        self.decoder = decoder
 
     def get_f0(self, x, f0_min=50, f0_max=1100, p_len=None, model="full"):
         if p_len is None:
@@ -112,6 +112,9 @@ class MANGIO_CREPE:
             audio = torch.mean(audio, dim=0, keepdim=True).detach()
         audio = audio.detach()
 
+        # Get torch.compile settings
+        compile_enabled, compile_mode = get_torch_compile_settings()
+
         # Predict using torchcrepe with periodicity (Applio improvement)
         pitch, pd = torchcrepe.predict(
             audio,
@@ -124,7 +127,11 @@ class MANGIO_CREPE:
             device=self.device,
             pad=True,
             return_periodicity=True,
-            compile_model=self.use_compile,
+            # viterbi, torchcrepe's default, is not repeatable on CUDA; see
+            # rvc/lib/predictors/crepe_decoder.py.
+            decoder=resolve_decoder(self.decoder),
+            compile_model=compile_enabled,
+            compile_mode=compile_mode,
         )
 
         # Apply periodicity filter (Applio improvement for noise reduction)

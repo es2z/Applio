@@ -14,8 +14,7 @@ This is a fork that reflects my personal preferences and customizations.
 ### リアルタイムタブ
 - テンプレート機能を追加､接続デバイスや設定モデル､各種Valueなどを保存可能
 - input/outputデバイスに WDM-KSを設定可能に､これはWASAPI-WDM-KSなどの異なったAPI間でも使用可能
-- f0推定アルゴリズムにcrepe-tiny/small/medium/full及びmangio-crepe-tiny/small/medium/fullを追加  
-- Embedder Modelにjapanese-hubert-largeを追加
+- f0推定アルゴリズムにcrepe-tiny/small/medium/large/full/full-speech及びmangio-crepe-tiny/small/medium/large/full/full-speechを追加
 
 <h1 align="center">
   <a href="https://applio.org" target="_blank"><img src="https://github.com/IAHispano/Applio/assets/133521603/78e975d8-b07f-47ba-ab23-5a31592f322a" alt="Applio"></a>

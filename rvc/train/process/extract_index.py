@@ -98,8 +98,9 @@ try:
             text_enc_hidden_dim = actual_dim
 
         # index_added
-        print(f"Creating FAISS index with {text_enc_hidden_dim} dimensions")
-        index_added = faiss.index_factory(text_enc_hidden_dim, f"IVF{n_ivf},Flat")
+        # The width comes from the features themselves, so the index follows whatever
+        # embedder was used: 768 for the HuBERT Base family, 1024 for the Large one.
+        index_added = faiss.index_factory(big_npy.shape[1], f"IVF{n_ivf},Flat")
         index_ivf_added = faiss.extract_index_ivf(index_added)
         index_ivf_added.nprobe = 1
         index_added.train(big_npy)

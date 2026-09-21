@@ -26,4 +26,8 @@ logs
 rvc/models
 /*env*/
 templates
+.torch_compile_cache
+/*torch_compile_cache/
+/kushinada-hubert-large/
 assets/config.json.backup
+benchmarks/

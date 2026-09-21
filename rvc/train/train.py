@@ -31,17 +31,26 @@ from mel_processing import (
 )
 from utils import (
     HParams,
+    assert_resumable,
     latest_checkpoint_path,
     load_checkpoint,
+    load_pretrained,
     load_wav_to_torch,
     plot_spectrogram_to_numpy,
     save_checkpoint,
     summarize,
 )
+from lr_boost import (
+    generator_lr_boost_factor,
+    read_generator_lr_boost,
+    restore_learning_rates,
+    scale_learning_rates,
+)
 
 # Zluda hijack
 import rvc.lib.zluda
 from rvc.lib.algorithm import commons
+from rvc.lib.utils import embedder_identity_from_model_info
 from rvc.train.process.extract_model import extract_model
 
 # Parse command line arguments
@@ -61,13 +70,28 @@ overtraining_threshold = int(sys.argv[13])
 cleanup = strtobool(sys.argv[14])
 vocoder = sys.argv[15]
 checkpointing = strtobool(sys.argv[16])
+# Appended after checkpointing so none of the existing positions shift. Only meaningful
+# for SiFi-GAN; a caller that passes the old 16 arguments gets the default.
+sifigan_filter_resblock = sys.argv[17] if len(sys.argv) > 17 else "rvc"
+# Appended after the filter variant for the same reason. This only changes how
+# dec.source_scales is initialised, not any shape, so it is deliberately absent from
+# architecture_identity: the trained values live in the checkpoint and a resume or an
+# inference load overwrites whatever the constructor put there. None means "not given",
+# which leaves Synthesizer's own default in place.
+sifigan_source_scale_init = float(sys.argv[18]) if len(sys.argv) > 18 else None
 # experimental settings
 randomized = True
 d_lr_coeff = 1.0
 g_lr_coeff = 1.0
 d_step_per_g_step = 1
-multiscale_mel_loss = False
 bf16_adamw = False
+
+# Shared with rvc/train/reset_run.py, which has to build the same discriminator for the
+# checkpoints it installs ahead of a run.
+from rvc.train.vocoder_recipe import discriminator_version, uses_multiscale_mel_loss
+
+disc_version = discriminator_version(vocoder)
+multiscale_mel_loss = uses_multiscale_mel_loss(vocoder)
 
 current_dir = os.getcwd()
 
@@ -105,10 +129,47 @@ except FileNotFoundError:
 
 config.data.training_files = os.path.join(experiment_dir, "filelist.txt")
 
+# CodenameRingFormer's decoder upsamples in the STFT frame domain rather than the waveform
+# domain, so its upsample rates, kernels and the two iSTFT settings all differ from the
+# stock config and the stock ones would build the wrong decoder. Applied to the HParams in
+# every process, including the spawned workers; main() is what writes them back to
+# config.json, once, in the parent.
+from rvc.train.extract.preparing_files import (
+    resolve_vocoder_model_config,
+    vocoder_model_config,
+)
+
+for _key, _value in vocoder_model_config(vocoder, config.data.sample_rate).items():
+    config.model[_key] = _value
+
+# Stamped onto every resume checkpoint next to embedder_identity, so a resume cannot
+# continue into a different vocoder and a warm start from these files knows what it is
+# inheriting from.
+architecture_identity = {
+    "vocoder": vocoder,
+    "sample_rate": config.data.sample_rate,
+    "disc_version": disc_version,
+}
+if vocoder == "SiFi-GAN":
+    # The filter network's residual blocks have different shapes in the two variants, so
+    # a resume must not continue into the other one. Only stamped for SiFi-GAN so that
+    # the other vocoders' checkpoints are unchanged.
+    architecture_identity["sifigan_filter_resblock"] = sifigan_filter_resblock
+
+try:
+    g_lr_boost_multiplier, g_lr_boost_epochs = read_generator_lr_boost(config.train)
+except ValueError as error:
+    print(f"Invalid Initial Generator LR Boost settings in {config_save_path}: {error}")
+    sys.exit(1)
+
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = True
 
 global_step = 0
+# Which embedder produced the features this run is training on. Stamped onto every
+# resume checkpoint so a later run cannot silently continue from weights that were
+# fitted to different features.
+embedder_identity = {}
 last_loss_gen_all = 0
 overtrain_save_epoch = 0
 loss_gen_history = []
@@ -128,6 +189,10 @@ avg_losses = {
     "mel_loss_50": deque(maxlen=50),
     "gen_loss_50": deque(maxlen=50),
 }
+if vocoder == "CodenameRingFormer":
+    # Its spectral loss is a real part of the generator's objective, so it is logged like
+    # the rest rather than only folded into the total.
+    avg_losses["sd_loss_50"] = deque(maxlen=50)
 
 import logging
 
@@ -163,6 +228,9 @@ def main():
 
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(randint(20000, 55555))
+    # Only the parent runs main(), so config.json is written once rather than raced over
+    # by every rank. The values themselves were applied to the HParams at module scope.
+    resolve_vocoder_model_config(experiment_dir, config.data.sample_rate, vocoder)
     # Check sample rate
     wavs = glob.glob(
         os.path.join(os.path.join(experiment_dir, "sliced_audios"), "*.wav")
@@ -227,6 +295,8 @@ def main():
 
         for i in range(n_gpus):
             children[i].join()
+        if any(child.exitcode != 0 for child in children):
+            raise RuntimeError("Training worker failed; see the traceback above.")
 
     def load_from_json(file_path):
         """
@@ -379,6 +449,7 @@ def run(
         os._exit(2333333)
 
     # defaults
+    global embedder_identity
     embedder_name = "contentvec"
     spk_dim = config.model.spk_embed_dim  # 109 default speakers
 
@@ -387,6 +458,7 @@ def run(
             model_info = json.load(f)
             embedder_name = model_info["embedder_model"]
             spk_dim = model_info["speakers_id"]
+            embedder_identity = embedder_identity_from_model_info(model_info)
     except Exception as e:
         print(f"Could not load model info file: {e}. Using defaults.")
 
@@ -430,8 +502,11 @@ def run(
     from rvc.lib.algorithm.discriminators import MultiPeriodDiscriminator
     from rvc.lib.algorithm.synthesizers import Synthesizer
 
-    # Prepare model config excluding text_enc_hidden_dim to avoid duplicate argument
-    model_config = {k: v for k, v in config.model.items() if k != 'text_enc_hidden_dim'}
+    sifigan_source_scale = (
+        {}
+        if sifigan_source_scale_init is None
+        else {"sifigan_source_scale_init": sifigan_source_scale_init}
+    )
 
     net_g = Synthesizer(
         config.data.filter_length // 2 + 1,
@@ -442,7 +517,8 @@ def run(
         vocoder=vocoder,
         checkpointing=checkpointing,
         randomized=randomized,
-        text_enc_hidden_dim=text_enc_hidden_dim,
+        sifigan_filter_resblock=sifigan_filter_resblock,
+        **sifigan_source_scale,
     )
 
     # Select discriminator version based on vocoder
@@ -451,7 +527,9 @@ def run(
         disc_version = "v3"
 
     net_d = MultiPeriodDiscriminator(
-        config.model.use_spectral_norm, checkpointing=checkpointing, version=disc_version
+        config.model.use_spectral_norm,
+        checkpointing=checkpointing,
+        version=disc_version,
     )
 
     if torch.cuda.is_available():
@@ -489,6 +567,50 @@ def run(
         fn_mel_loss = torch.nn.L1Loss()
         print("Using Single-Scale Mel loss function")
 
+    # SiFi-GAN only. Without a loss on the source network's excitation that network is
+    # unsupervised and the source-filter decomposition never forms, which is the whole
+    # point of the vocoder. Never built for HiFi-GAN or RefineGAN, so their training
+    # loops are unchanged.
+    fn_reg_loss = None
+    if vocoder == "SiFi-GAN":
+        c_reg = float(getattr(config.train, "c_reg", 1.0))
+        if c_reg > 0:
+            from rvc.train.source_loss import ResidualLoss
+
+            fn_reg_loss = ResidualLoss(
+                sample_rate=config.data.sample_rate,
+                hop_size=config.data.hop_length,
+            )
+            if torch.cuda.is_available():
+                fn_reg_loss = fn_reg_loss.cuda(device_id)
+            else:
+                fn_reg_loss = fn_reg_loss.to(device)
+            print(f"Using SiFi-GAN source regularization loss (c_reg={c_reg})")
+        else:
+            print("SiFi-GAN source regularization loss is off (c_reg=0)")
+
+    # CodenameRingFormer only. Its decoder predicts a spectrum and inverts it, so the
+    # magnitude it predicted and the phase of what came back out are both supervised
+    # directly, at the decoder's own iSTFT resolution. Never built for any other vocoder,
+    # so their training loops are unchanged.
+    fn_spectral_loss = None
+    if vocoder == "CodenameRingFormer":
+        c_sd = float(getattr(config.train, "c_sd", 0.7))
+        if c_sd > 0:
+            from rvc.train.spectral_loss import SpectralDistanceLoss
+
+            fn_spectral_loss = SpectralDistanceLoss(
+                n_fft=config.model.gen_istft_n_fft,
+                hop_size=config.model.gen_istft_hop_size,
+            )
+            if torch.cuda.is_available():
+                fn_spectral_loss = fn_spectral_loss.cuda(device_id)
+            else:
+                fn_spectral_loss = fn_spectral_loss.to(device)
+            print(f"Using CodenameRingFormer spectral loss (c_sd={c_sd})")
+        else:
+            print("CodenameRingFormer spectral loss is off (c_sd=0)")
+
     # Wrap models with DDP for multi-gpu processing
     if n_gpus > 1 and device.type == "cuda":
         net_g = DDP(net_g, device_ids=[device_id])
@@ -498,87 +620,54 @@ def run(
         print("Using BFloat16 for training.")
     elif rank == 0 and train_dtype == torch.float16:
         print("Using Float16 for training.")
+    if rank == 0 and g_lr_boost_epochs > 0:
+        print(
+            f"Initial Generator LR Boost: generator learning rate x{g_lr_boost_multiplier:g} "
+            f"through epoch {g_lr_boost_epochs}"
+        )
 
     # Load checkpoint if available
     scaler_dict = {}
-    try:
-        print("Starting training...")
-        _, _, _, epoch_str, scaler_dict = load_checkpoint(
-            latest_checkpoint_path(experiment_dir, "D_*.pth"), net_d, optim_d
-        )
-        _, _, _, epoch_str, _ = load_checkpoint(
-            latest_checkpoint_path(experiment_dir, "G_*.pth"), net_g, optim_g
-        )
+    assert_resumable(experiment_dir, embedder_identity, architecture_identity)
+    print("Starting training...")
+    resume_g = latest_checkpoint_path(experiment_dir, "G_*.pth")
+    resume_d = latest_checkpoint_path(experiment_dir, "D_*.pth")
+    if resume_g and resume_d:
+        # A checkpoint that is there but does not load is an error. It used to be caught
+        # and treated as "nothing to resume", which quietly restarted from the pretrained
+        # model and then overwrote the checkpoint.
+        _, _, _, epoch_str, scaler_dict = load_checkpoint(resume_d, net_d, optim_d)
+        _, _, _, epoch_str, _ = load_checkpoint(resume_g, net_g, optim_g)
         epoch_str += 1
         global_step = (epoch_str - 1) * len(train_loader)
-
-    except Exception as e:
+    else:
+        if resume_g or resume_d:
+            print(
+                f"Found {os.path.basename(resume_g or resume_d)} without a matching "
+                f"{'D' if resume_g else 'G'}_*.pth, so not resuming from it."
+            )
         epoch_str = 1
         global_step = 0
 
+        # Weights only: a warm start never takes optimizer or scaler state.
         if pretrainG not in ("", "None"):
-            if rank == 0:
-                print(f"Loaded pretrained (G) '{pretrainG}'")
-
-            ckpt = torch.load(pretrainG, map_location="cpu", weights_only=True)[
-                "model"
-            ]
-
-            # Get current model state dict to check dimensions
-            current_model = net_g.module if hasattr(net_g, "module") else net_g
-            current_state = current_model.state_dict()
-
-            # Filter out keys with dimension mismatches
-            filtered_ckpt = {}
-            skipped_keys = []
-            for key, value in ckpt.items():
-                if key in current_state:
-                    if value.shape == current_state[key].shape:
-                        filtered_ckpt[key] = value
-                    else:
-                        skipped_keys.append(f"{key} (pretrained: {value.shape}, current: {current_state[key].shape})")
-                else:
-                    filtered_ckpt[key] = value
-
-            # Load filtered checkpoint
-            if hasattr(net_g, "module"):
-                result = net_g.module.load_state_dict(filtered_ckpt, strict=False)
-            else:
-                result = net_g.load_state_dict(filtered_ckpt, strict=False)
-
-            # Log information
-            if skipped_keys and rank == 0:
-                print(f"Skipped loading layers due to dimension mismatch (will be randomly initialized):")
-                for key in skipped_keys:
-                    print(f"  - {key}")
-                if any('emb_phone' in key for key in skipped_keys):
-                    print(f"Note: This is expected when using {text_enc_hidden_dim}-dim embedders with 768-dim pretrained models.")
-
-            if result.missing_keys and rank == 0:
-                print(f"Missing keys (randomly initialized): {result.missing_keys}")
-            if result.unexpected_keys and rank == 0:
-                print(f"Unexpected keys (ignored): {result.unexpected_keys}")
-
-            del ckpt, filtered_ckpt
+            load_pretrained(
+                net_g,
+                pretrainG,
+                "G",
+                verbose=rank == 0,
+                target_identity=architecture_identity,
+                target_embedder=embedder_identity,
+            )
 
         if pretrainD not in ("", "None"):
-            if rank == 0:
-                print(f"Loaded pretrained (D) '{pretrainD}'")
-            try:
-                ckpt = torch.load(pretrainD, map_location="cpu", weights_only=True)[
-                    "model"
-                ]
-                if hasattr(net_d, "module"):
-                    net_d.module.load_state_dict(ckpt)
-                else:
-                    net_d.load_state_dict(ckpt)
-                del ckpt
-            except Exception as e:
-                print(
-                    "The parameters of the pretrain model such as the sample rate or architecture do not match the selected model."
-                )
-                print(e)
-                sys.exit(1)
+            load_pretrained(
+                net_d,
+                pretrainD,
+                "D",
+                verbose=rank == 0,
+                target_identity=architecture_identity,
+            )
 
     # Initialize schedulers
     scheduler_g = torch.optim.lr_scheduler.ExponentialLR(
@@ -644,6 +733,8 @@ def run(
             device_id,
             reference,
             fn_mel_loss,
+            fn_reg_loss,
+            fn_spectral_loss,
             scaler,
         )
 
@@ -666,6 +757,8 @@ def train_and_evaluate(
     device_id,
     reference,
     fn_mel_loss,
+    fn_reg_loss,
+    fn_spectral_loss,
     scaler,
 ):
     """
@@ -718,6 +811,19 @@ def train_and_evaluate(
         data_iterator = enumerate(train_loader)
 
     epoch_recorder = EpochRecorder()
+
+    # Initial Generator LR Boost (rvc/train/lr_boost.py): generator only, and taken back
+    # off below before anything logs or saves the learning rate.
+    g_lr_factor = generator_lr_boost_factor(
+        epoch, g_lr_boost_multiplier, g_lr_boost_epochs
+    )
+    boosted_g_lrs = scale_learning_rates(optim_g, g_lr_factor)
+    if boosted_g_lrs is not None and rank == 0:
+        print(
+            f"Initial Generator LR Boost: epoch {epoch} of {g_lr_boost_epochs}, generator "
+            f"learning rate x{g_lr_factor:g} = {optim_g.param_groups[0]['lr']:.3e}"
+        )
+
     with tqdm(total=len(train_loader), leave=False) as pbar:
         for batch_idx, info in data_iterator:
             if device.type == "cuda" and not cache_data_in_gpu:
@@ -745,9 +851,17 @@ def train_and_evaluate(
                 model_output = net_g(
                     phone, phone_lengths, pitch, pitchf, spec, spec_lengths, sid
                 )
-                y_hat, ids_slice, x_mask, z_mask, (z, z_p, m_p, logs_p, m_q, logs_q) = (
-                    model_output
-                )
+                (
+                    y_hat,
+                    ids_slice,
+                    x_mask,
+                    z_mask,
+                    (z, z_p, m_p, logs_p, m_q, logs_q),
+                    dec_extra,
+                ) = model_output
+                # Whatever this vocoder's decoder returns besides the waveform: SiFi-GAN's
+                # source excitation, CodenameRingFormer's (magnitude, phase), or None.
+                y_source = dec_extra if vocoder == "SiFi-GAN" else None
                 # slice of the original waveform to match a generate slice
                 if randomized:
                     wave = commons.slice_segments(
@@ -808,6 +922,29 @@ def train_and_evaluate(
             loss_fm = feature_loss(fmap_r, fmap_g)
             loss_gen, _ = generator_loss(y_d_hat_g)
             loss_gen_all = loss_gen + loss_fm + loss_mel + loss_kl
+            if fn_reg_loss is not None and y_source is not None:
+                # The F0 of this segment, sliced exactly as the Synthesizer sliced it
+                # internally so the excitation, the target waveform and the pitch line up.
+                segment_frames = config.train.segment_size // config.data.hop_length
+                pitchf_slice = (
+                    commons.slice_segments(pitchf, ids_slice, segment_frames, 2)
+                    if ids_slice is not None
+                    else pitchf
+                )
+                loss_reg = fn_reg_loss(
+                    y_source.float(), wave.float(), pitchf_slice.float()
+                ) * float(getattr(config.train, "c_reg", 1.0))
+                loss_gen_all = loss_gen_all + loss_reg
+
+            loss_sd = None
+            if fn_spectral_loss is not None and dec_extra is not None:
+                # dec_extra is (magnitude, phase); the phase term works from the waveforms
+                # rather than the predicted phase, as upstream does.
+                magnitude, _ = dec_extra
+                loss_sd = fn_spectral_loss(wave, y_hat, magnitude) * float(
+                    getattr(config.train, "c_sd", 0.7)
+                )
+                loss_gen_all = loss_gen_all + loss_sd
 
             if loss_gen_all < lowest_value["value"]:
                 lowest_value = {
@@ -838,6 +975,8 @@ def train_and_evaluate(
             avg_losses["kl_loss_50"].append(loss_kl.detach())
             avg_losses["mel_loss_50"].append(loss_mel.detach())
             avg_losses["gen_loss_50"].append(loss_gen_all.detach())
+            if loss_sd is not None:
+                avg_losses["sd_loss_50"].append(loss_sd.detach())
 
             if rank == 0 and global_step % 50 == 0:
                 # logging rolling averages
@@ -865,6 +1004,10 @@ def train_and_evaluate(
                         torch.stack(list(avg_losses["gen_loss_50"]))
                     ),
                 }
+                if avg_losses.get("sd_loss_50"):
+                    scalar_dict["loss_avg_50/g/sd"] = torch.mean(
+                        torch.stack(list(avg_losses["sd_loss_50"]))
+                    )
                 summarize(
                     writer=writer,
                     global_step=global_step,
@@ -874,6 +1017,7 @@ def train_and_evaluate(
             pbar.update(1)
         # end of batch train
     # end of tqdm
+    restore_learning_rates(optim_g, boosted_g_lrs)
     with torch.no_grad():
         torch.cuda.empty_cache()
 
@@ -910,7 +1054,8 @@ def train_and_evaluate(
             config.data.mel_fmax,
         )
 
-        lr = optim_g.param_groups[0]["lr"]
+        # The generator's effective learning rate this epoch, boost included.
+        lr = optim_g.param_groups[0]["lr"] * g_lr_factor
 
         scalar_dict = {
             "loss/g/total": loss_gen_all,
@@ -923,6 +1068,8 @@ def train_and_evaluate(
             "loss/g/mel": loss_mel,
             "loss/g/kl": loss_kl,
         }
+        if loss_sd is not None:
+            scalar_dict["loss/g/sd"] = loss_sd
 
         image_dict = {
             "slice/mel_org": plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
@@ -1064,6 +1211,8 @@ def train_and_evaluate(
                 epoch,
                 os.path.join(experiment_dir, "G_" + checkpoint_suffix),
                 scaler,
+                embedder_identity,
+                architecture_identity,
             )
             save_checkpoint(
                 net_d,
@@ -1072,6 +1221,8 @@ def train_and_evaluate(
                 epoch,
                 os.path.join(experiment_dir, "D_" + checkpoint_suffix),
                 scaler,
+                embedder_identity,
+                architecture_identity,
             )
             if custom_save_every_weights:
                 model_add.append(

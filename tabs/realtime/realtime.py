@@ -1,3 +1,4 @@
+from tabs.components import mangio_crepe_decoder
 import gradio as gr
 import sounddevice as sd
 import os
@@ -11,10 +12,16 @@ import torch
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 
+from rvc.realtime.rng import (
+    RANDOM as RANDOM_SEED,
+    load_seed as load_realtime_seed,
+    save_seed as save_realtime_seed,
+)
 from rvc.realtime.callbacks import AudioCallbacks
 from rvc.realtime.audio import list_audio_device
 from rvc.realtime.core import AUDIO_SAMPLE_RATE
 from rvc.configs.config_utils import load_config, save_config, update_nested_config
+from rvc.lib.predictors.crepe_models import CREPE_UI_METHODS
 
 from assets.i18n.i18n import I18nAuto
 from tabs.realtime.template import RealtimeTemplateManager
@@ -398,6 +405,7 @@ def start_realtime(
     proposed_pitch_threshold: float,
     embedder_model: str,
     embedder_model_custom: str = None,
+    embedder_precision: str = "fp32",
 ):
     global running, callbacks, audio_manager
     running = True
@@ -424,7 +432,7 @@ def start_realtime(
         )
         return
 
-    yield "Starting Realtime...", interactive_false, interactive_true
+    yield i18n("Preparing realtime inference. Initial compilation may take time when TorchCompile is enabled."), interactive_false, interactive_false
 
     read_chunk_size = int(chunk_size * AUDIO_SAMPLE_RATE / 1000 / 128)
 
@@ -445,49 +453,65 @@ def start_realtime(
         yield "Incorrectly formatted audio device. Stopping.", interactive_true, interactive_false
         return
 
-    callbacks = AudioCallbacks(
-        pass_through=PASS_THROUGH,
-        read_chunk_size=read_chunk_size,
-        cross_fade_overlap_size=cross_fade_overlap_size,
-        extra_convert_size=extra_convert_size,
-        model_path=pth_path,
-        index_path=str(index_path),
-        f0_method=f0_method,
-        embedder_model=embedder_model,
-        embedder_model_custom=embedder_model_custom,
-        silent_threshold=silent_threshold,
-        f0_up_key=pitch,
-        index_rate=index_rate,
-        protect=protect,
-        volume_envelope=volume_envelope,
-        f0_autotune=f0_autotune,
-        f0_autotune_strength=f0_autotune_strength,
-        proposed_pitch=proposed_pitch,
-        proposed_pitch_threshold=proposed_pitch_threshold,
-        input_audio_gain=input_audio_gain,
-        output_audio_gain=output_audio_gain,
-        monitor_audio_gain=monitor_audio_gain,
-        monitor=use_monitor_device,
-        vad_enabled=vad_enabled,
-        vad_sensitivity=3,
-        vad_frame_ms=30,
-        sid=sid,
-        hybrid_blend_ratio=hybrid_blend_ratio,
-    )
+    try:
+        callbacks = AudioCallbacks(
+            pass_through=PASS_THROUGH,
+            read_chunk_size=read_chunk_size,
+            cross_fade_overlap_size=cross_fade_overlap_size,
+            extra_convert_size=extra_convert_size,
+            model_path=pth_path,
+            index_path=str(index_path),
+            f0_method=f0_method,
+            embedder_model=embedder_model,
+            embedder_model_custom=embedder_model_custom,
+            embedder_precision=embedder_precision,
+            silent_threshold=silent_threshold,
+            f0_up_key=pitch,
+            index_rate=index_rate,
+            protect=protect,
+            volume_envelope=volume_envelope,
+            f0_autotune=f0_autotune,
+            f0_autotune_strength=f0_autotune_strength,
+            proposed_pitch=proposed_pitch,
+            proposed_pitch_threshold=proposed_pitch_threshold,
+            input_audio_gain=input_audio_gain,
+            output_audio_gain=output_audio_gain,
+            monitor_audio_gain=monitor_audio_gain,
+            monitor=use_monitor_device,
+            vad_enabled=vad_enabled,
+            vad_sensitivity=3,
+            vad_frame_ms=30,
+            sid=sid,
+            hybrid_blend_ratio=hybrid_blend_ratio,
+        )
 
-    audio_manager = callbacks.audio
-    audio_manager.start(
-        input_device_id=input_device_id,
-        output_device_id=output_device_id,
-        output_monitor_id=output_monitor_id,
-        exclusive_mode=exclusive_mode,
-        asio_input_channel=input_asio_channels,
-        asio_output_channel=output_asio_channels,
-        asio_output_monitor_channel=monitor_asio_channels,
-        read_chunk_size=read_chunk_size,
-    )
+        audio_manager = callbacks.audio
+        audio_manager.start(
+            input_device_id=input_device_id,
+            output_device_id=output_device_id,
+            output_monitor_id=output_monitor_id,
+            exclusive_mode=exclusive_mode,
+            asio_input_channel=input_asio_channels,
+            asio_output_channel=output_asio_channels,
+            asio_output_monitor_channel=monitor_asio_channels,
+            read_chunk_size=read_chunk_size,
+        )
+    except Exception as exc:
+        stop_realtime()
+        yield i18n("Failed to start realtime inference: {error}").format(error=exc), interactive_true, interactive_false
+        return
 
-    yield "Realtime is ready!", interactive_false, interactive_true
+    compile_session = callbacks.vc.vc_model.pipeline.compile_session
+    seed_status = (
+        "\nRNG seed: {}".format(callbacks.seed)
+        if callbacks.seed is not None
+        else ""
+    )
+    yield (
+        "Realtime is ready!" + seed_status + compile_session.status(),
+        interactive_false,
+        interactive_true,
+    )
 
     while running and callbacks is not None and audio_manager is not None:
         time.sleep(0.1)
@@ -509,7 +533,11 @@ def start_realtime(
             yield "Reconnecting...", interactive_false, interactive_true
         elif hasattr(audio_manager, "latency"):
             # Normal operation - show latency
-            yield f"Latency: {audio_manager.latency:.2f} ms", interactive_false, interactive_true
+            yield (
+                f"Latency: {audio_manager.latency:.2f} ms" + seed_status + compile_session.status(),
+                interactive_false,
+                interactive_true,
+            )
 
     return gr.update(), gr.update(), gr.update()
 
@@ -535,6 +563,8 @@ def stop_realtime():
                     pass
 
         # Clean up references
+        if callbacks is not None:
+            callbacks.vc.vc_model.pipeline.compile_session.close()
         audio_manager = callbacks = None
 
         return gr.update(value="Stopping..."), interactive_true, interactive_false
@@ -886,16 +916,7 @@ def realtime_tab():
                             "rmvpe",
                             "fcpe",
                             "swift",
-                            "crepe-tiny",
-                            "crepe-small",
-                            "crepe-medium",
-                            "crepe-large",
-                            "crepe-full",
-                            "mangio-crepe-tiny",
-                            "mangio-crepe-small",
-                            "mangio-crepe-medium",
-                            "mangio-crepe-large",
-                            "mangio-crepe-full",
+                            *CREPE_UI_METHODS,
                         ],
                         value="swift",
                         label=i18n("Pitch extraction algorithm"),
@@ -904,6 +925,7 @@ def realtime_tab():
                         ),
                         interactive=True,
                     )
+                    mangio_crepe_decoder(f0_method)
                     hybrid_blend_ratio = gr.Slider(
                         minimum=0.0,
                         maximum=1.0,
@@ -920,15 +942,27 @@ def realtime_tab():
                         choices=[
                             "contentvec",
                             "spin",
+                            "spin-v2",
                             "chinese-hubert-base",
                             "japanese-hubert-base",
+                            "japanese-hubert-base-k2",
                             "japanese-hubert-large",
+                            "kushinada-hubert-large",
                             "korean-hubert-base",
                             "custom",
                         ],
                         value="contentvec",
                         label=i18n("Embedder Model"),
                         info=i18n("Model used for learning speaker embedding."),
+                        interactive=True,
+                    )
+                    embedder_precision = gr.Radio(
+                        choices=["fp32", "bf16", "fp16"],
+                        value="fp32",
+                        label=i18n("Embedder Precision"),
+                        info=i18n(
+                            "Numeric precision for the embedder during realtime conversion. Leave this on fp32 unless the embedder is actually your bottleneck. Measured on an RTX 4090 over a 1.5 s window, japanese-hubert-large costs 10.4 ms against japanese-hubert-base's 5.7 ms, while mangio-crepe-full alone costs 40.6 ms, and bf16 came out slightly slower than fp32 because at this size the embedder is launch bound rather than compute bound. Reduced precision is here for slower cards; prefer bf16 over fp16, since deep pre-norm transformers can overflow in fp16."
+                        ),
                         interactive=True,
                     )
                     with gr.Column(visible=False) as embedder_custom:
@@ -997,14 +1031,28 @@ def realtime_tab():
                 )
                 silent_threshold = gr.Slider(
                     minimum=-90,
-                    maximum=-60,
+                    maximum=-20,
                     value=-90,
                     step=1,
                     label=i18n("Silence Threshold (dB)"),
                     info=i18n(
-                        "Volume level below which audio is treated as silence and not processed. Helps to save CPU resources and reduce background noise."
+                        "Volume level below which audio is treated as silence and not converted. -90 only catches digital silence; raise it towards your room noise floor (often around -50) to stop the model turning room tone into a voice. Output is only muted once the whole conversion window is silent, so tails are not cut."
                     ),
                     interactive=True,
+                )
+                realtime_seed = gr.Number(
+                    value=load_realtime_seed() if load_realtime_seed() is not None else RANDOM_SEED,
+                    precision=0,
+                    label=i18n("RNG Seed"),
+                    info=i18n(
+                        "The generator draws fresh noise every chunk, so the voice differs slightly every session. Fixing the seed makes it repeatable, which is also what makes an A/B of any other setting meaningful. -1 keeps it random. Saved globally, not per template."
+                    ),
+                    interactive=True,
+                )
+                realtime_seed.change(
+                    fn=save_realtime_seed,
+                    inputs=[realtime_seed],
+                    outputs=[], show_progress=False,
                 )
 
         def enforce_terms(terms_accepted, *args):
@@ -1133,6 +1181,7 @@ def realtime_tab():
                 proposed_pitch_threshold,
                 embedder_model,
                 embedder_model_custom,
+                embedder_precision,
             ],
             outputs=[latency_info, start_button, stop_button],
         )
@@ -1215,12 +1264,12 @@ def realtime_tab():
             """Load and apply template settings"""
             if not template_name:
                 gr.Warning("Please select a template first.")
-                return [gr.update()] * 31
+                return [gr.update()] * 32
 
             template_data = template_manager.load_template(template_name)
             if not template_data:
                 gr.Warning(f"Template '{template_name}' not found.")
-                return [gr.update()] * 31
+                return [gr.update()] * 32
 
             # Check if devices exist in current device list
             audio_tab = template_data.get("audioTab", {})
@@ -1258,7 +1307,7 @@ def realtime_tab():
             """Apply template without confirmation"""
             if not template_name:
                 gr.Warning("Please select a template first.")
-                return [gr.update()] * 31
+                return [gr.update()] * 32
 
             return apply_template_settings(template_name)
 
@@ -1285,7 +1334,8 @@ def realtime_tab():
             use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
             mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
             speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
-            emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
+            emb_model, emb_custom, emb_precision,
+            chnk_size, cross_fade, extra_conv, silent_thresh
         ):
             """Handle save button in modal"""
             if not operation_state:
@@ -1320,7 +1370,8 @@ def realtime_tab():
                     use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
                     mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
                     speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
-                    emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
+                    emb_model, emb_custom, emb_precision,
+                    chnk_size, cross_fade, extra_conv, silent_thresh
                 )
                 template_manager.save_template(new_name, settings)
                 gr.Info(f"Template '{new_name}' saved successfully.")
@@ -1345,7 +1396,8 @@ def realtime_tab():
                     use_mon, mon_device, mon_gain, mon_asio, excl_mode, vad_en,
                     mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
                     speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
-                    emb_model, emb_custom, chnk_size, cross_fade, extra_conv, silent_thresh
+                    emb_model, emb_custom, emb_precision,
+                    chnk_size, cross_fade, extra_conv, silent_thresh
                 )
                 template_manager.save_template(new_name, settings)
                 gr.Info(f"Template '{new_name}' created successfully.")
@@ -1423,6 +1475,7 @@ def realtime_tab():
                 hybrid_blend_ratio,
                 embedder_model,
                 embedder_model_custom,
+                embedder_precision,
                 chunk_size,
                 cross_fade_overlap_size,
                 extra_convert_size,
@@ -1480,6 +1533,7 @@ def realtime_tab():
                 hybrid_blend_ratio,
                 embedder_model,
                 embedder_model_custom,
+                embedder_precision,
                 chunk_size,
                 cross_fade_overlap_size,
                 extra_convert_size,

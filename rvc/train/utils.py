@@ -1,10 +1,18 @@
 import os
+import sys
 import glob
 import torch
 import numpy as np
 import soundfile as sf
 from collections import OrderedDict
 import matplotlib.pyplot as plt
+
+from rvc.lib.utils import describe_embedder_mismatch
+from rvc.train.warm_start import (
+    EMBEDDER_PROJECTION_PREFIX,
+    checkpoint_vocoder,
+    warm_start,
+)
 
 MATPLOTLIB_FLAG = False
 
@@ -83,8 +91,119 @@ def load_checkpoint(checkpoint_path, model, optimizer=None, load_opt=1):
     )
 
 
+def load_pretrained(
+    net, checkpoint_path, tag, verbose=True, target_identity=None, target_embedder=None
+):
+    """Load a pretrained G or D, inheriting only what means the same thing in this model.
+
+    The rules - legacy weight_g / weight_v names, a different embedder, a different
+    vocoder, a different discriminator layout - live in rvc/train/warm_start.py. Anything
+    that does not fit them stops the run rather than being skipped.
+
+    target_identity is {"vocoder", "sample_rate"} of the model being trained; without it a
+    decoder is only inherited from the same vocoder. target_embedder is which embedder
+    produced this run's features; without it enc_p.emb_phone.weight is only rebuilt when
+    the width differs.
+    """
+    return warm_start(
+        net,
+        checkpoint_path,
+        tag,
+        target_identity=target_identity,
+        target_embedder=target_embedder,
+        verbose=verbose,
+    )
+
+
+def describe_architecture_mismatch(checkpoint, current, subject="it"):
+    """Return why a resume checkpoint belongs to a different architecture, or None.
+
+    The vocoder is read off the weights, so it is known for every checkpoint ever saved.
+    Sample rate and discriminator version are only compared when the checkpoint recorded
+    them; before they were recorded a different sample rate already failed to load.
+    """
+    if not current:
+        return None
+    reasons = []
+    was_vocoder, now_vocoder = checkpoint_vocoder(checkpoint), current.get("vocoder")
+    if was_vocoder and now_vocoder and was_vocoder != now_vocoder:
+        reasons.append(f"vocoder '{was_vocoder}' -> '{now_vocoder}'")
+    for key, label in (
+        ("sample_rate", "sample rate"),
+        ("disc_version", "discriminator version"),
+        ("sifigan_filter_resblock", "SiFi-GAN filter block variant"),
+    ):
+        was, now = checkpoint.get(key), current.get(key)
+        if was is not None and now is not None and was != now:
+            reasons.append(f"{label} {was} -> {now}")
+    if not reasons:
+        return None
+    return f"{subject} was trained with a different architecture ({'; '.join(reasons)})"
+
+
+def assert_resumable(experiment_dir, embedder_identity, architecture_identity=None):
+    """Stop before resuming from a checkpoint this run cannot continue.
+
+    Changing the embedder re-extracts every feature and drops the index, but the
+    G_*.pth / D_*.pth in the folder survive and training would silently continue from
+    them. Their enc_p.emb_phone, and the Adam moments behind it, were fitted to the old
+    features; feeding it the new ones does not raise, it just produces a model that never
+    recovers. Changing the vocoder is the same story for the decoder and discriminator.
+    So say so and stop instead.
+    """
+    if not embedder_identity and not architecture_identity:
+        return
+    checkpoint_path = latest_checkpoint_path(experiment_dir, "G_*.pth")
+    if not checkpoint_path or not os.path.isfile(checkpoint_path):
+        return
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    except Exception as error:
+        print(f"Could not inspect {checkpoint_path} ({error}); continuing.")
+        return
+
+    name = os.path.basename(checkpoint_path)
+    embedder_reason = (
+        describe_embedder_mismatch(checkpoint, embedder_identity, name)
+        if embedder_identity
+        else None
+    )
+    architecture_reason = describe_architecture_mismatch(
+        checkpoint, architecture_identity, name
+    )
+    del checkpoint
+    if embedder_reason is None and architecture_reason is None:
+        return
+
+    if embedder_reason is not None:
+        print(
+            f"Refusing to resume: {embedder_reason}.\n"
+            "Its enc_p.emb_phone was fitted to the previous features, and resuming onto "
+            "the new ones would train from a broken starting point rather than fail."
+        )
+    if architecture_reason is not None:
+        print(
+            f"Refusing to resume: {architecture_reason}.\n"
+            "Its generator, discriminator and the optimizer state behind them belong to "
+            "the other architecture. To start this one from those weights, train under a "
+            "new model name with them as the custom pretrained G and D."
+        )
+    print(
+        f"Either train under a new model name, or delete the G_*.pth and D_*.pth in "
+        f"{experiment_dir} to start again from the pretrained model."
+    )
+    sys.exit(1)
+
+
 def save_checkpoint(
-    model, optimizer, learning_rate, iteration, checkpoint_path, scaler
+    model,
+    optimizer,
+    learning_rate,
+    iteration,
+    checkpoint_path,
+    scaler,
+    embedder_identity=None,
+    architecture_identity=None,
 ):
     """
     Save the model and optimizer state to a checkpoint file.
@@ -95,6 +214,12 @@ def save_checkpoint(
         learning_rate (float): The current learning rate.
         iteration (int): The current iteration.
         checkpoint_path (str): The path to save the checkpoint to.
+        embedder_identity (dict): Which embedder, scale and layer the features this was
+            trained on came from, so a later resume can refuse to continue from a
+            checkpoint whose enc_p.emb_phone was fitted to different features.
+        architecture_identity (dict): vocoder, sample_rate and disc_version, so a resume
+            can refuse a different architecture and a warm start from this file knows
+            what it is inheriting from.
     """
     state_dict = (
         model.module.state_dict() if hasattr(model, "module") else model.state_dict()
@@ -106,6 +231,10 @@ def save_checkpoint(
         "learning_rate": learning_rate,
         "scaler": scaler.state_dict(),
     }
+    if embedder_identity:
+        checkpoint_data.update(embedder_identity)
+    if architecture_identity:
+        checkpoint_data.update(architecture_identity)
 
     # Create a backwards-compatible checkpoint
     torch.save(

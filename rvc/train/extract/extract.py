@@ -16,9 +16,25 @@ sys.path.append(os.path.join(now_dir))
 # Zluda hijack
 import rvc.lib.zluda
 
-from rvc.lib.utils import load_audio_16k, load_embedding
+from rvc.lib.utils import (
+    EMBEDDER_FEATURE_SCALE,
+    EMBEDDER_INPUT_STD_FLOOR,
+    describe_embedder_mismatch,
+    embedder_forward,
+    load_audio_16k,
+    load_embedding,
+)
+from rvc.train.extract.compile_extract import compile_f0_predictor, compiled_extractor
 from rvc.train.extract.preparing_files import generate_config, generate_filelist
+from rvc.lib.predictors.crepe_models import (
+    CREPE_METHOD_TO_MODEL,
+    MANGIO_CREPE_METHOD_TO_MODEL,
+    resolve_crepe_model,
+)
 from rvc.lib.predictors.f0 import CREPE, FCPE, RMVPE, MANGIO_CREPE
+from rvc.lib.predictors.crepe_decoder import DEFAULT_DECODER
+
+TRAINING_MANGIO_CREPE_DECODER = DEFAULT_DECODER  # viterbi
 from rvc.configs.config import Config
 
 # Load config
@@ -36,13 +52,19 @@ class FeatureInput:
         self.f0_mel_min = 1127 * np.log(1 + self.f0_min / 700)
         self.f0_mel_max = 1127 * np.log(1 + self.f0_max / 700)
         self.device = device
-        if f0_method in ("crepe", "crepe-tiny"):
+        if f0_method in CREPE_METHOD_TO_MODEL:
             self.model = CREPE(
                 device=self.device, sample_rate=self.sample_rate, hop_size=self.hop_size
             )
-        elif f0_method == "mangio-crepe":
+        elif f0_method in MANGIO_CREPE_METHOD_TO_MODEL:
+            # Training always decodes with viterbi, whatever the inference / realtime
+            # decoder setting says, so the pitch a model is trained on never depends on
+            # a setting made for another tab.
             self.model = MANGIO_CREPE(
-                device=self.device, sample_rate=self.sample_rate, hop_size=self.hop_size
+                device=self.device,
+                sample_rate=self.sample_rate,
+                hop_size=self.hop_size,
+                decoder=TRAINING_MANGIO_CREPE_DECODER,
             )
         elif f0_method == "rmvpe":
             self.model = RMVPE(
@@ -53,14 +75,27 @@ class FeatureInput:
                 device=self.device, sample_rate=self.sample_rate, hop_size=self.hop_size
             )
         self.f0_method = f0_method
+        # rmvpe/fcpe gain ~1.3-1.5x from compilation; crepe compiles itself through
+        # get_torch_compile_settings, and swift runs on CPU.
+        compile_f0_predictor(getattr(self, "model", None), f0_method, self.device)
 
     def compute_f0(self, x, p_len=None):
-        if self.f0_method == "crepe":
-            f0 = self.model.get_f0(x, self.f0_min, self.f0_max, p_len, "full")
-        elif self.f0_method == "crepe-tiny":
-            f0 = self.model.get_f0(x, self.f0_min, self.f0_max, p_len, "tiny")
-        elif self.f0_method == "mangio-crepe":
-            f0 = self.model.get_f0(x, self.f0_min, self.f0_max, p_len)
+        if self.f0_method in CREPE_METHOD_TO_MODEL:
+            f0 = self.model.get_f0(
+                x,
+                self.f0_min,
+                self.f0_max,
+                p_len,
+                resolve_crepe_model(self.f0_method),
+            )
+        elif self.f0_method in MANGIO_CREPE_METHOD_TO_MODEL:
+            f0 = self.model.get_f0(
+                x,
+                self.f0_min,
+                self.f0_max,
+                p_len,
+                resolve_crepe_model(self.f0_method),
+            )
         elif self.f0_method == "rmvpe":
             f0 = self.model.get_f0(x, filter_radius=0.03)
         elif self.f0_method == "fcpe":
@@ -126,30 +161,41 @@ def run_pitch_extraction(files, devices, f0_method, threads):
 
 
 def process_file_embedding(
-    files, embedder_model, embedder_model_custom, device_num, device, n_threads
+    files,
+    embedder_model,
+    embedder_model_custom,
+    device_num,
+    device,
+    n_threads,
+    overwrite=False,
+    output_layer=None,
 ):
-    model = load_embedding(embedder_model, embedder_model_custom).to(device).float()
+    model = (
+        load_embedding(embedder_model, embedder_model_custom, output_layer)
+        .to(device)
+        .float()
+    )
     model.eval()
     n_threads = max(1, n_threads)
+    # One compiled callable shared by every thread in this process; falls back to
+    # eager on its own if compilation is off or fails.
+    forward = compiled_extractor(
+        "Embedder", lambda feats: embedder_forward(model, feats), device
+    )
 
     def worker(file_info):
         wav_file_path, _, _, out_file_path = file_info
-        try:
-            if os.path.exists(out_file_path):
-                return
-            feats = torch.from_numpy(load_audio_16k(wav_file_path)).to(device).float()
-            feats = feats.view(1, -1)
-            with torch.no_grad():
-                result = model(feats)["last_hidden_state"]
-            feats_out = result.squeeze(0).float().cpu().numpy()
-            if not np.isnan(feats_out).any():
-                np.save(out_file_path, feats_out, allow_pickle=False)
-            else:
-                print(f"{wav_file_path} produced NaN values; skipping.")
-        except Exception as e:
-            print(f"Error processing {wav_file_path}: {e}")
-            import traceback
-            traceback.print_exc()
+        if not overwrite and os.path.exists(out_file_path):
+            return
+        feats = torch.from_numpy(load_audio_16k(wav_file_path)).to(device).float()
+        feats = feats.view(1, -1)
+        with torch.no_grad():
+            result = forward(feats)
+        feats_out = result.squeeze(0).float().cpu().numpy()
+        if not np.isnan(feats_out).any():
+            np.save(out_file_path, feats_out, allow_pickle=False)
+        else:
+            print(f"{wav_file_path} produced NaN values; skipping.")
 
     with tqdm.tqdm(total=len(files), leave=True, position=device_num) as pbar:
         with concurrent.futures.ThreadPoolExecutor(max_workers=n_threads) as executor:
@@ -158,8 +204,40 @@ def process_file_embedding(
                 pbar.update(1)
 
 
+def resolve_feature_reuse(
+    data, chosen_embedder_model, feature_scale, output_layer=None, input_std_floor=None
+):
+    """Decide whether the features already in the folder may be reused.
+
+    Features and the index are embedder specific, so they can only be reused when the
+    embedder that produced them is known to be the same one, all the way down to the
+    settings that change the numbers without changing the name. A folder that recorded
+    nothing is treated as unknown and left alone, the same conservative fallback
+    preparing_files.py uses.
+
+    Returns (rebuild, reason).
+    """
+    reason = describe_embedder_mismatch(
+        data,
+        {
+            "embedder_model": chosen_embedder_model,
+            "embedder_feature_scale": feature_scale,
+            "embedder_output_layer": output_layer,
+            "embedder_input_std_floor": input_std_floor,
+        },
+        "this folder",
+    )
+    return reason is not None, reason
+
+
 def run_embedding_extraction(
-    files, devices, embedder_model, embedder_model_custom, threads
+    files,
+    devices,
+    embedder_model,
+    embedder_model_custom,
+    threads,
+    overwrite=False,
+    output_layer=None,
 ):
     devices_str = ", ".join(devices)
     print(
@@ -176,12 +254,66 @@ def run_embedding_extraction(
                 i,
                 devices[i],
                 threads // len(devices),
+                overwrite,
+                output_layer,
             )
             for i in range(len(devices))
         ]
         concurrent.futures.wait(tasks)
 
     print(f"Embedding extraction completed in {time.time() - start_time:.2f} seconds.")
+
+
+def extract_mute_feature(
+    exp_dir, embedder_model, embedder_model_custom, device, output_layer, overwrite
+):
+    """Write this run's own silent-frame feature next to its extracted features.
+
+    The filelist pads every speaker with a few silent samples, and that padding has to be
+    as wide as everything else in the batch. The shipped logs/mute features are 768 wide,
+    so producing this one per run is what lets a 1024 wide embedder work at all, and it
+    keeps every future embedder correct without another shared logs/mute_* folder.
+
+    It lives beside extracted/ rather than inside it, because extract_index.py indexes
+    everything in extracted/ and silence does not belong in the retrieval index.
+
+    Returns (feature width, input std floor) for the loaded embedder, or (None, None)
+    when there is no mute audio to work from.
+    """
+    mute_wav = os.path.join(now_dir, "logs", "mute", "sliced_audios_16k", "mute.wav")
+    if not os.path.exists(mute_wav):
+        print(f"No mute audio at {mute_wav}; skipping the mute feature.")
+        return None, None
+
+    out_path = os.path.join(exp_dir, "mute.npy")
+    model = (
+        load_embedding(embedder_model, embedder_model_custom, output_layer)
+        .to(device)
+        .float()
+    )
+    model.eval()
+    if overwrite or not os.path.exists(out_path):
+        feats = torch.from_numpy(load_audio_16k(mute_wav)).to(device).float().view(1, -1)
+        with torch.no_grad():
+            result = embedder_forward(model, feats)
+        np.save(out_path, result.squeeze(0).float().cpu().numpy(), allow_pickle=False)
+        print(f"Wrote the mute feature for this embedder to {out_path}")
+    return model.embed_dim, (
+        EMBEDDER_INPUT_STD_FLOOR if model.input_do_normalize else None
+    )
+
+
+def measure_feature_dim(exp_dir, fallback=None):
+    """Read the width of the features actually on disk.
+
+    The extracted .npy files are the ground truth for what training will be fed, so the
+    generator is sized from them rather than from a static config value.
+    """
+    feature_dir = os.path.join(exp_dir, "extracted")
+    for name in sorted(os.listdir(feature_dir)):
+        if name.endswith(".npy"):
+            return int(np.load(os.path.join(feature_dir, name), mmap_mode="r").shape[1])
+    return fallback
 
 
 if __name__ == "__main__":
@@ -193,6 +325,9 @@ if __name__ == "__main__":
     embedder_model = sys.argv[6]
     embedder_model_custom = sys.argv[7] if len(sys.argv) > 7 else None
     include_mutes = int(sys.argv[8]) if len(sys.argv) > 8 else 2
+    # 0 means the last layer, which is what every embedder used before this was settable.
+    embedder_output_layer = int(sys.argv[9]) if len(sys.argv) > 9 else 0
+    output_layer = embedder_output_layer or None
 
     wav_path = os.path.join(exp_dir, "sliced_audios_16k")
     os.makedirs(os.path.join(exp_dir, "f0"), exist_ok=True)
@@ -202,21 +337,29 @@ if __name__ == "__main__":
     chosen_embedder_model = (
         embedder_model_custom if embedder_model == "custom" else embedder_model
     )
+    feature_scale = EMBEDDER_FEATURE_SCALE.get(embedder_model, 1.0)
     file_path = os.path.join(exp_dir, "model_info.json")
     if os.path.exists(file_path):
         with open(file_path, "r") as f:
             data = json.load(f)
     else:
         data = {}
-    data["embedder_model"] = chosen_embedder_model
+    # The embedder has to be loaded once to know whether it normalises its input, and
+    # that happens below; the previously recorded value is the best guess until then.
+    rebuild_features, rebuild_reason = resolve_feature_reuse(
+        data,
+        chosen_embedder_model,
+        feature_scale,
+        output_layer,
+        data.get("embedder_input_std_floor"),
+    )
 
-    # Save text_enc_hidden_dim based on embedder model
-    from rvc.lib.utils import get_embedder_dim
-    text_enc_dim = get_embedder_dim(embedder_model)
-    data["text_enc_hidden_dim"] = text_enc_dim
-
-    with open(file_path, "w") as f:
-        json.dump(data, f, indent=4)
+    if rebuild_features:
+        print(f"{rebuild_reason}: re-extracting every feature.")
+        index_path = os.path.join(exp_dir, f"{os.path.basename(exp_dir)}.index")
+        if os.path.exists(index_path):
+            os.remove(index_path)
+            print(f"Removed the outdated index file {index_path}")
 
     files = []
     for file in glob.glob(os.path.join(wav_path, "*.wav")):
@@ -234,8 +377,34 @@ if __name__ == "__main__":
     run_pitch_extraction(files, devices, f0_method, num_processes)
 
     run_embedding_extraction(
-        files, devices, embedder_model, embedder_model_custom, num_processes
+        files,
+        devices,
+        embedder_model,
+        embedder_model_custom,
+        num_processes,
+        rebuild_features,
+        output_layer,
     )
 
-    generate_config(sample_rate, exp_dir)
+    model_dim, input_std_floor = extract_mute_feature(
+        exp_dir,
+        embedder_model,
+        embedder_model_custom,
+        devices[0],
+        output_layer,
+        rebuild_features,
+    )
+    feature_dim = measure_feature_dim(exp_dir, model_dim)
+
+    # Written after extraction, so a run that died halfway does not leave the folder
+    # claiming features it never produced.
+    data["embedder_model"] = chosen_embedder_model
+    data["embedder_feature_scale"] = feature_scale
+    data["embedder_output_layer"] = output_layer
+    data["embedder_dim"] = feature_dim
+    data["embedder_input_std_floor"] = input_std_floor
+    with open(file_path, "w") as f:
+        json.dump(data, f, indent=4)
+
+    generate_config(sample_rate, exp_dir, feature_dim)
     generate_filelist(exp_dir, sample_rate, include_mutes)

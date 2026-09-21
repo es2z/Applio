@@ -39,6 +39,25 @@ from tabs.voice_blender.voice_blender import voice_blender_tab
 from tabs.plugins.plugins import plugins_tab
 from tabs.settings.settings import settings_tab
 from tabs.realtime.realtime import realtime_tab
+from rvc.realtime.compile_session import (
+    load_settings as load_realtime_compile_settings,
+    save_settings as save_realtime_compile_settings,
+)
+from rvc.train.extract.compile_extract import (
+    load_enabled as load_training_compile_extraction,
+    save_enabled as save_training_compile_extraction,
+)
+from tabs.settings.sections.torch_compile import (
+    load_torch_compile_enabled,
+    load_torch_compile_mode,
+    load_torch_compile_disable_triton,
+    save_torch_compile_enabled,
+    save_torch_compile_mode,
+    save_torch_compile_disable_triton,
+    is_torch_compile_available,
+    is_triton_available,
+    TORCH_COMPILE_MODES,
+)
 
 # Run prerequisites
 from core import run_prerequisites_script
@@ -90,6 +109,98 @@ with gr.Blocks(
             "[Support](https://discord.gg/urxFjYmYYh) — [GitHub](https://github.com/IAHispano/Applio)"
         )
     )
+
+    # TorchCompile Settings (collapsible, initially collapsed)
+    torch_compile_available = is_torch_compile_available()
+    triton_available = is_triton_available()
+    torch_compile_initial_enabled = load_torch_compile_enabled()
+    with gr.Accordion(i18n("TorchCompile Settings"), open=False):
+        if not torch_compile_available:
+            if not torch.cuda.is_available():
+                gr.Markdown(
+                    i18n(
+                        "Note: CUDA is not available. TorchCompile requires CUDA."
+                    )
+                )
+        with gr.Row():
+            torch_compile_checkbox = gr.Checkbox(
+                label=i18n("Enable TorchCompile") + " (CREPE)",
+                info=i18n("Enable torch.compile for CREPE inference."),
+                value=torch_compile_initial_enabled,
+                interactive=True,
+            )
+            torch_compile_mode_dropdown = gr.Dropdown(
+                label=i18n("TorchCompile Mode"),
+                info=i18n(
+                    "Select the torch.compile optimization mode. 'default' is standard, 'reduce-overhead' is optimized for repeated inference, 'max-autotune' provides maximum optimization but slower initial compile."
+                ),
+                choices=TORCH_COMPILE_MODES,
+                value=load_torch_compile_mode(),
+                interactive=True,
+            )
+            torch_compile_disable_triton_checkbox = gr.Checkbox(
+                label=i18n("Disable Triton") + " (CREPE)",
+                info=i18n(
+                    "Force disable triton optimization even when installed. Useful when running alongside games to reduce GPU resource contention."
+                ),
+                value=load_torch_compile_disable_triton(),
+                interactive=triton_available,
+                visible=torch_compile_initial_enabled and triton_available,
+            )
+
+        def on_torch_compile_change(enabled):
+            save_torch_compile_enabled(enabled)
+            return gr.update(visible=enabled and triton_available)
+
+        torch_compile_checkbox.change(
+            fn=on_torch_compile_change,
+            inputs=[torch_compile_checkbox],
+            outputs=[torch_compile_disable_triton_checkbox],
+        )
+        torch_compile_mode_dropdown.change(
+            fn=save_torch_compile_mode,
+            inputs=[torch_compile_mode_dropdown],
+            outputs=[],
+        )
+        torch_compile_disable_triton_checkbox.change(
+            fn=save_torch_compile_disable_triton,
+            inputs=[torch_compile_disable_triton_checkbox],
+            outputs=[],
+        )
+
+        realtime_compile_settings = load_realtime_compile_settings()
+        with gr.Row():
+            compile_embedder = gr.Checkbox(
+                label=i18n("Enable TorchCompile for Embedder (Realtime)"),
+                value=realtime_compile_settings.embedder,
+            )
+            compile_rvc = gr.Checkbox(
+                label=i18n("Enable TorchCompile for RVC (Realtime)"),
+                value=realtime_compile_settings.rvc,
+            )
+        with gr.Row():
+            compile_extraction = gr.Checkbox(
+                label=i18n("Enable TorchCompile for Extraction (Training)"),
+                info=i18n(
+                    "Compile the embedder and the RMVPE/FCPE pitch models during training feature extraction. Per file this is x1.3-1.5, but compilation itself costs about 35 s per run, so it only pays off past roughly 4000 clips (about 4 hours of dataset). Leave it off for smaller datasets. The training step itself is never compiled: it measured x1.03."
+                ),
+                value=load_training_compile_extraction(),
+            )
+        gr.Markdown(i18n(
+            "TorchCompile Mode applies to CREPE, Embedder and RVC. Embedder and RVC changes take effect on the next realtime start. Initial compilation may take time. Failed paths fall back to normal inference, with the reason shown in the status."
+        ))
+        compile_extraction.change(
+            fn=save_training_compile_extraction,
+            inputs=[compile_extraction],
+            outputs=[], show_progress=False,
+        )
+        for component in (compile_embedder, compile_rvc):
+            component.change(
+                fn=save_realtime_compile_settings,
+                inputs=[compile_embedder, compile_rvc],
+                outputs=[], show_progress=False,
+            )
+
     with gr.Tab(i18n("Inference")):
         inference_tab()
 

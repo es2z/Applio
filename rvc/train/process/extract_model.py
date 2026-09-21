@@ -41,11 +41,17 @@ def extract_model(
         model_dir = os.path.dirname(model_path)
         os.makedirs(model_dir, exist_ok=True)
 
+        embedder_feature_scale = 1.0
+        embedder_output_layer = None
+        embedder_input_std_floor = None
         if os.path.exists(os.path.join(model_dir, "model_info.json")):
             with open(os.path.join(model_dir, "model_info.json"), "r") as f:
                 data = json.load(f)
                 dataset_length = data.get("total_dataset_duration", None)
                 embedder_model = data.get("embedder_model", None)
+                embedder_feature_scale = data.get("embedder_feature_scale", 1.0)
+                embedder_output_layer = data.get("embedder_output_layer")
+                embedder_input_std_floor = data.get("embedder_input_std_floor")
                 speakers_id = data.get("speakers_id", 1)
                 text_enc_hidden_dim = data.get("text_enc_hidden_dim", 768)
         else:
@@ -97,9 +103,33 @@ def extract_model(
         opt["model_name"] = name
         opt["author"] = model_author
         opt["embedder_model"] = embedder_model
+        opt["embedder_feature_scale"] = embedder_feature_scale
+        opt["embedder_output_layer"] = embedder_output_layer
+        opt["embedder_input_std_floor"] = embedder_input_std_floor
+        # opt["config"] is a positional argument list for Synthesizer, so the feature
+        # width goes in as its own key. Inference reads it off enc_p.emb_phone anyway;
+        # this is for anything that wants the number without loading the weights.
+        opt["text_enc_hidden_dim"] = hps.model.text_enc_hidden_dim
         opt["speakers_id"] = speakers_id
         opt["vocoder"] = vocoder
-        opt["text_enc_hidden_dim"] = text_enc_hidden_dim
+        if vocoder == "CodenameRingFormer":
+            # opt["config"] is a fixed positional list, so these go in as their own keys.
+            # conv_post's width gives the FFT size back, but nothing in the weights records
+            # the hop, and the decoder cannot be rebuilt without it.
+            opt["gen_istft_n_fft"] = getattr(hps.model, "gen_istft_n_fft", None)
+            opt["gen_istft_hop_size"] = getattr(hps.model, "gen_istft_hop_size", None)
+        if vocoder == "SiFi-GAN":
+            # Read off the weights rather than threaded through as another argument, the
+            # same way detect_vocoder works: the "official" filter blocks drop the second
+            # undilated convolution, so they have no convs2.
+            opt["sifigan_filter_resblock"] = (
+                "rvc"
+                if any(
+                    key.startswith("dec.fn.blocks.") and ".convs2." in key
+                    for key in ckpt
+                )
+                else "official"
+            )
 
         torch.save(
             replace_keys_in_dict(

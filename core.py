@@ -18,6 +18,7 @@ from rvc.train.process.model_information import model_information
 from rvc.lib.tools.analyzer import analyze_audio
 from rvc.lib.tools.launch_tensorboard import launch_tensorboard_pipeline
 from rvc.lib.tools.model_download import model_download_pipeline
+from rvc.lib.predictors.crepe_models import CREPE_CLI_METHODS
 
 python = sys.executable
 
@@ -459,6 +460,7 @@ def run_extract_script(
     embedder_model: str,
     embedder_model_custom: str = None,
     include_mutes: int = 2,
+    embedder_output_layer: int = 0,
 ):
 
     model_path = os.path.join(logs_path, model_name)
@@ -478,6 +480,7 @@ def run_extract_script(
                 embedder_model,
                 embedder_model_custom,
                 include_mutes,
+                embedder_output_layer,
             ],
         ),
     ]
@@ -508,8 +511,40 @@ def run_train_script(
     d_pretrained_path: str = None,
     vocoder: str = "HiFi-GAN",
     checkpointing: bool = False,
-    refinegan_variant: str = "RFGv3_CV (ContentVec)",
+    sifigan_filter_resblock: str = "rvc",
+    # Mirrors DEFAULT_SOURCE_SCALE_INIT in rvc/lib/algorithm/generators/sifigan.py.
+    sifigan_source_scale_init: float = 0.03,
+    learning_rate: float = None,
+    c_mel: float = None,
+    lr_decay: float = None,
+    g_lr_boost: bool = None,
+    g_lr_boost_multiplier: float = None,
+    g_lr_boost_epochs: int = None,
+    reset_training: bool = False,
 ):
+
+    if reset_training and cleanup:
+        raise ValueError("Disable Cleanup when resetting training from existing weights.")
+
+    # These live only in logs/<model>/config.json, so set them there rather than
+    # threading them through train.py's positional argv. Passing None leaves them alone.
+    from rvc.train.extract.preparing_files import (
+        apply_generator_lr_boost_settings,
+        apply_train_settings,
+    )
+
+    apply_train_settings(
+        os.path.join(logs_path, model_name),
+        learning_rate=learning_rate,
+        c_mel=c_mel,
+        lr_decay=lr_decay,
+    )
+    apply_generator_lr_boost_settings(
+        os.path.join(logs_path, model_name),
+        enabled=g_lr_boost,
+        multiplier=g_lr_boost_multiplier,
+        epochs=g_lr_boost_epochs,
+    )
 
     if pretrained == True:
         from rvc.lib.tools.pretrained_selector import pretrained_selector
@@ -524,6 +559,20 @@ def run_train_script(
             pg, pd = g_pretrained_path, d_pretrained_path
     else:
         pg, pd = "", ""
+
+    if reset_training:
+        from rvc.train.reset_run import reset_training_run
+
+        # The vocoder decides what the installed G_0/D_0 have to look like: the run that
+        # follows resumes from them rather than warm starting, so a vocoder change has to
+        # be applied here.
+        archive = reset_training_run(
+            os.path.join(logs_path, model_name),
+            vocoder=vocoder,
+            sifigan_filter_resblock=sifigan_filter_resblock,
+            sifigan_source_scale_init=sifigan_source_scale_init,
+        )
+        print(f"Training reset to epoch 1 with GUI settings. Previous run: {archive}")
 
     train_script_path = os.path.join("rvc", "train", "train.py")
     command = [
@@ -548,10 +597,15 @@ def run_train_script(
                 cleanup,
                 vocoder,
                 checkpointing,
+                # Appended last so the existing positions never shift.
+                sifigan_filter_resblock,
+                sifigan_source_scale_init,
             ],
         ),
     ]
-    subprocess.run(command)
+    result = subprocess.run(command)
+    if result.returncode:
+        return f"Training failed for {model_name}. See the console for details."
     run_index_script(model_name, index_algorithm)
     return f"Model {model_name} trained successfully."
 
@@ -674,8 +728,7 @@ def parse_arguments():
         type=str,
         help=f0_method_description,
         choices=[
-            "crepe",
-            "crepe-tiny",
+            *CREPE_CLI_METHODS,
             "rmvpe",
             "fcpe",
             "swift",
@@ -783,6 +836,9 @@ def parse_arguments():
             "spin-v2",
             "chinese-hubert-base",
             "japanese-hubert-base",
+            "japanese-hubert-base-k2",
+            "japanese-hubert-large",
+            "kushinada-hubert-large",
             "korean-hubert-base",
             "custom",
         ],
@@ -1198,8 +1254,7 @@ def parse_arguments():
         type=str,
         help=f0_method_description,
         choices=[
-            "crepe",
-            "crepe-tiny",
+            *CREPE_CLI_METHODS,
             "rmvpe",
             "fcpe",
             "swift",
@@ -1296,6 +1351,9 @@ def parse_arguments():
             "spin-v2",
             "chinese-hubert-base",
             "japanese-hubert-base",
+            "japanese-hubert-base-k2",
+            "japanese-hubert-large",
+            "kushinada-hubert-large",
             "korean-hubert-base",
             "custom",
         ],
@@ -1684,8 +1742,7 @@ def parse_arguments():
         type=str,
         help=f0_method_description,
         choices=[
-            "crepe",
-            "crepe-tiny",
+            *CREPE_CLI_METHODS,
             "rmvpe",
             "fcpe",
             "swift",
@@ -1782,6 +1839,9 @@ def parse_arguments():
             "spin-v2",
             "chinese-hubert-base",
             "japanese-hubert-base",
+            "japanese-hubert-base-k2",
+            "japanese-hubert-large",
+            "kushinada-hubert-large",
             "korean-hubert-base",
             "custom",
         ],
@@ -1886,9 +1946,7 @@ def parse_arguments():
         type=str,
         help="Pitch extraction method to use.",
         choices=[
-            "crepe",
-            "crepe-tiny",
-            "mangio-crepe",
+            *CREPE_CLI_METHODS,
             "rmvpe",
             "fcpe",
         ],
@@ -1924,6 +1982,9 @@ def parse_arguments():
             "spin-v2",
             "chinese-hubert-base",
             "japanese-hubert-base",
+            "japanese-hubert-base-k2",
+            "japanese-hubert-large",
+            "kushinada-hubert-large",
             "korean-hubert-base",
             "custom",
         ],
@@ -1943,18 +2004,113 @@ def parse_arguments():
         default=2,
         required=True,
     )
+    extract_parser.add_argument(
+        "--embedder_output_layer",
+        type=int,
+        help=(
+            "Which embedder layer to take the features from. 0 means the last layer, "
+            "which is what every embedder used before this was settable. Only worth "
+            "changing for a deep embedder such as japanese-hubert-large, where phonetic "
+            "content peaks below the top layer. Inference reads this back out of the "
+            "trained model, so it never has to be set twice."
+        ),
+        default=0,
+    )
 
     # Parser for 'train' mode
     train_parser = subparsers.add_parser("train", help="Train an RVC model.")
     train_parser.add_argument(
+        "--reset_training", action="store_true",
+        help="Keep local G/D weights; archive prior outputs and restart epoch/optimizer with configured settings.",
+    )
+    train_parser.add_argument(
         "--model_name", type=str, help="Name of the model to be trained.", required=True
+    )
+    train_parser.add_argument(
+        "--learning_rate",
+        type=float,
+        help=(
+            "Generator/discriminator learning rate. Defaults to whatever is already in "
+            "logs/<model_name>/config.json, which starts from rvc/configs/<sample_rate>.json "
+            "(1e-4). Lower values are for fine-tuning an already trained model; a run "
+            "starting from a pretrained model wants the default."
+        ),
+        default=None,
+    )
+    train_parser.add_argument(
+        "--c_mel",
+        type=float,
+        help=(
+            "Weight of the mel reconstruction loss. Defaults to whatever is already in "
+            "logs/<model_name>/config.json (45)."
+        ),
+        default=None,
+    )
+    train_parser.add_argument(
+        "--lr_decay",
+        type=float,
+        help=(
+            "Per-epoch learning rate multiplier for both the generator and the "
+            "discriminator, above 0 and at most 1. Defaults to whatever is already in "
+            "logs/<model_name>/config.json (0.999875)."
+        ),
+        default=None,
+    )
+    train_parser.add_argument(
+        "--g_lr_boost_multiplier",
+        type=float,
+        help=(
+            "Initial Generator LR Boost: multiply only the generator's learning rate by "
+            "this during the first --g_lr_boost_epochs epochs. Defaults to whatever is "
+            "already in logs/<model_name>/config.json (3.0)."
+        ),
+        default=None,
+    )
+    train_parser.add_argument(
+        "--g_lr_boost_epochs",
+        type=int,
+        help=(
+            "Initial Generator LR Boost: how many epochs, counted from the start of the "
+            "run and kept across resumes. 0 turns it off. Defaults to whatever is already "
+            "in logs/<model_name>/config.json (off)."
+        ),
+        default=None,
     )
     train_parser.add_argument(
         "--vocoder",
         type=str,
         help="Vocoder name",
-        choices=["HiFi-GAN", "MRF HiFi-GAN", "RefineGAN"],
+        choices=[
+            "HiFi-GAN",
+            "MRF HiFi-GAN",
+            "RefineGAN",
+            "SiFi-GAN",
+            "CodenameRingFormer",
+        ],
         default="HiFi-GAN",
+    )
+    train_parser.add_argument(
+        "--sifigan_filter_resblock",
+        type=str,
+        help=(
+            "SiFi-GAN only: the filter network's residual blocks. 'rvc' matches this "
+            "repository's HiFi-GAN decoder, so a HiFi-GAN or RefineGAN pretrain can be "
+            "inherited almost whole. 'official' follows the SiFi-GAN paper and cannot."
+        ),
+        choices=["rvc", "official"],
+        default="rvc",
+    )
+    train_parser.add_argument(
+        "--sifigan_source_scale_init",
+        type=float,
+        help=(
+            "SiFi-GAN only: initial value of the learnable per-stage gain on the source "
+            "network's contribution to the filter network. The paper is equivalent to "
+            "1.0, but that warm starts 51% worse than scratch from a HiFi-GAN model "
+            "while 0.03 warm starts 48% better. The gain is learnable and settles on "
+            "its own within a few hundred epochs, so this only affects early training."
+        ),
+        default=0.03,
     )
     train_parser.add_argument(
         "--checkpointing",
@@ -2367,6 +2523,7 @@ def main():
                 embedder_model=args.embedder_model,
                 embedder_model_custom=args.embedder_model_custom,
                 include_mutes=args.include_mutes,
+                embedder_output_layer=args.embedder_output_layer,
             )
         elif args.mode == "train":
             run_train_script(
@@ -2389,6 +2546,14 @@ def main():
                 d_pretrained_path=args.d_pretrained_path,
                 vocoder=args.vocoder,
                 checkpointing=args.checkpointing,
+                sifigan_filter_resblock=args.sifigan_filter_resblock,
+                sifigan_source_scale_init=args.sifigan_source_scale_init,
+                learning_rate=args.learning_rate,
+                reset_training=args.reset_training,
+                c_mel=args.c_mel,
+                lr_decay=args.lr_decay,
+                g_lr_boost_multiplier=args.g_lr_boost_multiplier,
+                g_lr_boost_epochs=args.g_lr_boost_epochs,
             )
         elif args.mode == "index":
             run_index_script(

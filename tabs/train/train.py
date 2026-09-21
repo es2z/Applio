@@ -6,6 +6,12 @@ from multiprocessing import cpu_count
 import gradio as gr
 
 from assets.i18n.i18n import I18nAuto
+from rvc.train.extract.preparing_files import (
+    read_generator_lr_boost_settings,
+    read_train_settings,
+)
+from rvc.train.lr_boost import DEFAULT_G_LR_BOOST_EPOCHS, DEFAULT_G_LR_BOOST_MULTIPLIER
+
 from core import (
     run_extract_script,
     run_index_script,
@@ -14,6 +20,7 @@ from core import (
     run_train_script,
 )
 from rvc.configs.config import get_gpu_info, get_number_of_gpus, max_vram_gpu
+from rvc.lib.predictors.crepe_models import CREPE_UI_METHODS
 from rvc.lib.utils import format_title
 from tabs.settings.sections.restart import stop_train
 
@@ -307,6 +314,30 @@ def auto_enable_checkpointing():
 
 
 # Train Tab
+
+DEFAULT_TRAIN_SETTINGS = read_train_settings("", 40000)
+
+
+def load_train_settings(model_name, sample_rate):
+    """Show what the selected run will actually train with.
+
+    Reading the run's own config.json rather than a fixed default is what lets the field
+    be written back on start without silently overwriting a hand edit.
+    """
+    model_path = os.path.join(now_dir, "logs", str(model_name or ""))
+    settings = read_train_settings(model_path, int(sample_rate))
+    settings = settings or DEFAULT_TRAIN_SETTINGS
+    boost = read_generator_lr_boost_settings(model_path)
+    return (
+        gr.update(value=settings["learning_rate"]),
+        gr.update(value=settings["c_mel"]),
+        gr.update(value=settings["lr_decay"]),
+        gr.update(value=boost["enabled"]),
+        gr.update(visible=boost["enabled"]),
+        gr.update(value=boost["multiplier"]),
+        gr.update(value=boost["epochs"]),
+    )
+
 def train_tab():
     # Model settings section
     with gr.Accordion(i18n("Model Settings")):
@@ -341,20 +372,38 @@ def train_tab():
                 vocoder = gr.Radio(
                     label=i18n("Vocoder"),
                     info=i18n(
-                        "Choose the vocoder for audio synthesis:\n- **HiFi-GAN**: Default option, compatible with all clients.\n- **MRF HiFi-GAN**: Higher fidelity, Applio-only.\n- **RefineGAN**: Superior audio quality, Applio-only."
+                        "Choose the vocoder for audio synthesis:\n- **HiFi-GAN**: Default option, compatible with all clients.\n- **MRF HiFi-GAN**: Applio-only. The HiFi-GAN decoder with multi-receptive-field blocks and an eight-harmonic excitation in place of the single sine, trained against exactly the same discriminator and the same losses as HiFi-GAN, so the two are directly comparable. Warm start it from a **HiFi-GAN** model (the stock pretrained one will do): every tensor but the harmonic merge carries over. Measured on 16 clips before any optimizer step, mel L1 is 1.08 warm started against 1.98 from scratch, while the same pretrain into HiFi-GAN itself reaches 0.33 - all of that remaining gap is the harmonic merge, eleven parameters that cannot come across because HiFi-GAN mixes one harmonic and this mixes nine. Use the Initial Generator LR Boost.\n- **RefineGAN**: Applio-only, trained against an extra multi-resolution discriminator with a multi-scale mel loss. Without a RefineGAN pretrained model for the sample rate it warm starts from the HiFi-GAN one (or from a custom HiFi-GAN G/D): the encoders, flow and residual blocks are inherited and the rest of the decoder starts from scratch, so consider the Initial Generator LR Boost.\n- **SiFi-GAN**: Applio-only source-filter vocoder whose convolutions follow the pitch, trained against the same multi-resolution discriminator plus a loss that supervises its excitation signal. Its filter network is the HiFi-GAN decoder, so warm start it from a **HiFi-GAN** model (the stock pretrained one will do): measured over 50 epochs that is about 22% better on the mel loss than training from scratch. A RefineGAN model is not a useful starting point for it even at the same sample rate and embedder width, because only its residual blocks carry over. Only the source network starts from scratch either way, so consider the Initial Generator LR Boost.\n- **CodenameRingFormer**: from the Codename RVC fork. A Conformer decoder that predicts a magnitude and a phase spectrum and inverts them with an iSTFT instead of upsampling all the way to samples, trained against its own discriminator (a scale discriminator, eight periods and three STFT resolutions) and an extra magnitude and phase loss. Only conv_pre and the speaker conditioning mean the same thing in a HiFi-GAN decoder, so most of this one starts from scratch whatever you warm start from: consider the Initial Generator LR Boost."
                     ),
-                    choices=["HiFi-GAN", "MRF HiFi-GAN", "RefineGAN"],
+                    choices=[
+                        "HiFi-GAN",
+                        "MRF HiFi-GAN",
+                        "RefineGAN",
+                        "SiFi-GAN",
+                        "CodenameRingFormer",
+                    ],
                     value="HiFi-GAN",
                     interactive=True,
                     visible=True,
                 )
-                refinegan_variant = gr.Dropdown(
-                    label=i18n("RefineGAN Variant"),
+                sifigan_filter_resblock = gr.Radio(
+                    label=i18n("SiFi-GAN Filter Blocks"),
                     info=i18n(
-                        "Select the RefineGAN pretrained model variant (32kHz only):\n- **RFGv3_CV (ContentVec)**: Latest version, trained with ContentVec embedder.\n- **RFGv3_SPv2 (SPIN v2)**: Older version, trained with SPIN v2 embedder."
+                        "SiFi-GAN only: how the filter network's residual blocks are built.\n- **rvc**: Identical to this fork's HiFi-GAN decoder, so a HiFi-GAN or RefineGAN pretrained model is inherited almost whole and only the source network starts from scratch. Recommended.\n- **official**: Follows the SiFi-GAN paper (one convolution per dilation, kernel sizes 3/5/7). Faithful to the paper, but its filter blocks have no counterpart in an existing model and start from scratch too."
                     ),
-                    choices=["RFGv3_CV (ContentVec)", "RFGv3_SPv2 (SPIN v2)"],
-                    value="RFGv3_CV (ContentVec)",
+                    choices=["rvc", "official"],
+                    value="rvc",
+                    interactive=True,
+                    visible=False,
+                )
+                sifigan_source_scale_init = gr.Number(
+                    label=i18n("SiFi-GAN Source Gain"),
+                    info=i18n(
+                        "SiFi-GAN only: the initial value of the learnable per-stage gain on the source network's contribution to the filter network. The paper is equivalent to 1.0, but at that value a warm start from a HiFi-GAN model measures 51% worse than training from scratch, because the filter blocks being inherited were trained on a much smaller additive term; 0.03 measures 48% better. The gain is learnable and settles on its own, so this only affects the first few hundred epochs: in a 48k run started at 0.03 it reached about [0.10, 0.066, 0.000, 0.014] per stage by epoch 400 and was flat afterwards, the third stage having switched itself off entirely. Leave it at 0.03 unless you are training from scratch, where the value barely matters."
+                    ),
+                    value=0.03,
+                    minimum=0.0,
+                    maximum=1.0,
+                    step=0.01,
                     interactive=True,
                     visible=False,
                 )
@@ -533,7 +582,11 @@ def train_tab():
                 info=i18n(
                     "Pitch extraction algorithm to use for the audio conversion. The default algorithm is rmvpe, which is recommended for most cases."
                 ),
-                choices=["crepe", "crepe-tiny", "mangio-crepe", "rmvpe", "fcpe"],
+                choices=[
+                    *CREPE_UI_METHODS,
+                    "rmvpe",
+                    "fcpe",
+                ],
                 value="rmvpe",
                 interactive=True,
             )
@@ -547,13 +600,27 @@ def train_tab():
                     "spin-v2",
                     "chinese-hubert-base",
                     "japanese-hubert-base",
+                    "japanese-hubert-base-k2",
                     "japanese-hubert-large",
+                    "kushinada-hubert-large",
                     "korean-hubert-base",
                     "custom",
                 ],
                 value="contentvec",
                 interactive=True,
             )
+        embedder_output_layer = gr.Slider(
+            0,
+            24,
+            0,
+            step=1,
+            label=i18n("Embedder Output Layer"),
+            info=i18n(
+                "Which layer of the embedder to take features from. 0 means the last layer and matches every model trained so far. Only worth changing for a deep embedder such as japanese-hubert-large, where phonetic content peaks below the top layer while speaker identity is strongest near the bottom. Inference reads this back out of the trained model, so it never has to be set twice."
+            ),
+            value=0,
+            interactive=True,
+        )
         include_mutes = gr.Slider(
             0,
             10,
@@ -609,6 +676,7 @@ def train_tab():
                 embedder_model,
                 embedder_model_custom,
                 include_mutes,
+                embedder_output_layer,
             ],
             outputs=[extract_output_info],
         )
@@ -759,6 +827,74 @@ def train_tab():
                             ),
                             interactive=True,
                         )
+            reset_training = gr.Checkbox(
+                label="重みを引き継いで学習をリセット",
+                info="ON: このフォルダのG/Dの重みを保ち、両方のoptimizer・epoch・step・履歴を初期化。GUIの学習率とmel設定でepoch 1から開始します。埋め込みモデルを変えて再抽出した場合は、特徴量空間を読む enc_p.emb_phone.weight だけを初期化して残り（encoder/flow/decoder/話者埋め込み）を引き継ぎます。ボコーダーを変えた場合は、事前学習モデルと同じ共通のwarm start機構でGを新しいボコーダー用に組み直し（HiFi-GAN↔MRF HiFi-GANなら調波マージ以外すべて引き継ぎ）、Dもそのボコーダーの判別器構成へ移行します。旧モデル・履歴・TensorBoardログは logs/_training_history に退避します。filelistの参照先は変更しません。CleanupはOFFにしてください。OFF: 通常の途中再開（学習率は保存値を使用）。",
+                value=False,
+                interactive=True,
+            )
+            with gr.Row():
+                learning_rate = gr.Number(
+                    label=i18n("Learning Rate"),
+                    info=i18n(
+                        "Learning rate for the generator and discriminator on a new or reset run. Normal resume restores the checkpoint learning rate instead. Saved to logs/<model_name>/config.json."
+                    ),
+                    value=DEFAULT_TRAIN_SETTINGS["learning_rate"],
+                    minimum=0,
+                    step=0.000001,
+                    interactive=True,
+                )
+                c_mel = gr.Number(
+                    label=i18n("Mel Loss Weight"),
+                    info=i18n(
+                        "Weight of the mel reconstruction loss (c_mel). 45 is the default. Raising it pushes the model harder towards matching the reference spectrogram."
+                    ),
+                    value=DEFAULT_TRAIN_SETTINGS["c_mel"],
+                    minimum=0,
+                    step=1,
+                    interactive=True,
+                )
+                lr_decay = gr.Number(
+                    label=i18n("Learning Rate Decay"),
+                    info=i18n(
+                        "What the learning rate of both the generator and the discriminator is multiplied by after every epoch. 0.999875 is the default and leaves 88% of the learning rate after 1000 epochs; 1 keeps it constant, and 0.9995 leaves 61% after 1000 epochs. Read from and written back to logs/<model_name>/config.json. When resuming, a changed value takes over from the second resumed epoch."
+                    ),
+                    value=DEFAULT_TRAIN_SETTINGS["lr_decay"],
+                    minimum=0,
+                    maximum=1,
+                    step=0.000025,
+                    interactive=True,
+                )
+            g_lr_boost = gr.Checkbox(
+                label=i18n("Initial Generator LR Boost"),
+                info=i18n(
+                    "Multiply only the generator's learning rate for the first epochs of the run; the discriminator keeps the normal rate. Useful when part of the generator starts from scratch, such as RefineGAN warm started from a HiFi-GAN model. The epochs count from the start of the run, so resuming neither restarts nor skips the boost. Saved in logs/<model_name>/config.json."
+                ),
+                value=False,
+                interactive=True,
+            )
+            with gr.Row(visible=False) as g_lr_boost_settings:
+                g_lr_boost_multiplier = gr.Number(
+                    label=i18n("Generator LR Multiplier"),
+                    info=i18n(
+                        "What the generator's normal learning rate is multiplied by while the boost lasts."
+                    ),
+                    value=DEFAULT_G_LR_BOOST_MULTIPLIER,
+                    minimum=0,
+                    step=0.5,
+                    interactive=True,
+                )
+                g_lr_boost_epochs = gr.Number(
+                    label=i18n("Boost Epochs"),
+                    info=i18n(
+                        "The boost applies from epoch 1 through this epoch, then the generator returns to its normal learning rate."
+                    ),
+                    value=DEFAULT_G_LR_BOOST_EPOCHS,
+                    minimum=1,
+                    precision=0,
+                    step=1,
+                    interactive=True,
+                )
             index_algorithm = gr.Radio(
                 label=i18n("Index Algorithm"),
                 info=i18n(
@@ -767,6 +903,21 @@ def train_tab():
                 choices=["Auto", "Faiss", "KMeans"],
                 value="Auto",
                 interactive=True,
+            )
+
+        for component in (model_name, sampling_rate):
+            component.change(
+                fn=load_train_settings,
+                inputs=[model_name, sampling_rate],
+                outputs=[
+                    learning_rate,
+                    c_mel,
+                    lr_decay,
+                    g_lr_boost,
+                    g_lr_boost_settings,
+                    g_lr_boost_multiplier,
+                    g_lr_boost_epochs,
+                ],
             )
 
         def enforce_terms(terms_accepted, *args):
@@ -833,10 +984,18 @@ def train_tab():
                     d_pretrained_path,
                     vocoder,
                     checkpointing,
-                    refinegan_variant,
+                    sifigan_filter_resblock,
+                    sifigan_source_scale_init,
+                    learning_rate,
+                    c_mel,
+                    lr_decay,
+                    g_lr_boost,
+                    g_lr_boost_multiplier,
+                    g_lr_boost_epochs,
+                    reset_training,
                 ],
                 outputs=[train_output_info],
-            )
+            ).then(fn=lambda: gr.update(value=False), outputs=[reset_training])
 
             stop_train_button = gr.Button(i18n("Stop Training"), visible=False)
             stop_train_button.click(
@@ -987,6 +1146,19 @@ def train_tab():
                 inputs=[architecture],
                 outputs=[sampling_rate, vocoder],
             )
+
+            def toggle_sifigan_settings(vocoder_choice):
+                visible = vocoder_choice == "SiFi-GAN"
+                return (
+                    {"visible": visible, "__type__": "update"},
+                    {"visible": visible, "__type__": "update"},
+                )
+
+            vocoder.change(
+                fn=toggle_sifigan_settings,
+                inputs=[vocoder],
+                outputs=[sifigan_filter_resblock, sifigan_source_scale_init],
+            )
             refresh.click(
                 fn=refresh_models_and_datasets,
                 inputs=[],
@@ -1045,10 +1217,10 @@ def train_tab():
                 inputs=[overtraining_detector],
                 outputs=[overtraining_settings],
             )
-            vocoder.change(
-                fn=toggle_refinegan_variant,
-                inputs=[vocoder],
-                outputs=[refinegan_variant],
+            g_lr_boost.change(
+                fn=toggle_visible,
+                inputs=[g_lr_boost],
+                outputs=[g_lr_boost_settings],
             )
             train_button.click(
                 fn=enable_stop_train_button,

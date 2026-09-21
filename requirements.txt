@@ -1,4 +1,6 @@
 # Core dependencies
+# webrtcvad imports pkg_resources, removed in setuptools 82.
+setuptools<82
 pip>=23.3; sys_platform == 'darwin'
 wheel; sys_platform == 'darwin'
 PyYAML; sys_platform == 'darwin'
@@ -23,15 +25,28 @@ omegaconf>=2.0.6; sys_platform == 'darwin'
 numba; sys_platform == 'linux'
 numba==0.61.0; sys_platform == 'darwin' or sys_platform == 'win32'
 torch==2.7.1; sys_platform == 'darwin'
-torch==2.7.1+cu128; sys_platform == 'linux' or sys_platform == 'win32'
+# Previous Windows/Linux build (kept for rollback)
+# torch==2.7.1+cu128; sys_platform == 'linux' or sys_platform == 'win32'
+torch==2.13.0+cu132; sys_platform == 'linux' or sys_platform == 'win32'
+# Windows torch.compile requires Triton separately; 3.7 supports PyTorch 2.13.
+triton-windows>=3.7,<3.8; sys_platform == 'win32'
 torchaudio==2.7.1; sys_platform == 'darwin'
-torchaudio==2.7.1+cu128; sys_platform == 'linux' or sys_platform == 'win32'
+# torchaudio==2.7.1+cu128; sys_platform == 'linux' or sys_platform == 'win32'
+# TorchAudio 2.11 is the final release and supports future PyTorch versions.
+torchaudio==2.11.0; sys_platform == 'linux' or sys_platform == 'win32'
 torchvision==0.22.1; sys_platform == 'darwin'
-torchvision==0.22.1+cu128; sys_platform == 'linux' or sys_platform == 'win32'
-torchcrepe @ https://github.com/es2z/torchcrepe_plus/releases/download/release1_(Improved_version_of_ver0.0.24)/torchcrepe-0.0.25-py3-none-any.whl
+# torchvision==0.22.1+cu128; sys_platform == 'linux' or sys_platform == 'win32'
+torchvision==0.28.0+cu132; sys_platform == 'linux' or sys_platform == 'win32'
+torchcrepe @ git+https://github.com/es2z/torchcrepe_plus.git
 torchfcpe
 swift_f0
 einops
+# CodenameRingFormer's Conformer blocks use lucidrains' RingAttention. Pure python, and
+# with torch.distributed uninitialised it degrades to ordinary causal attention.
+# Pinned: ConformerBlock relies on its use_cuda_kernel / force_regular_attn arguments and
+# on what the code paths behind them do; tests/test_codename_ringformer.py passes on this
+# release.
+ring-attention-pytorch==0.5.20
 transformers==4.44.2
 
 # Visualization and UI

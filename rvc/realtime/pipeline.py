@@ -12,11 +12,30 @@ now_dir = os.getcwd()
 sys.path.append(now_dir)
 
 from rvc.realtime.utils.torch import circular_write
+from rvc.realtime.compile_session import CompileSession, load_settings
 from rvc.configs.config import Config
 from rvc.infer.pipeline import Autotune, AudioProcessor
 from rvc.lib.algorithm.synthesizers import Synthesizer
-from rvc.lib.predictors.f0 import FCPE, RMVPE, SWIFT, CREPE, MANGIO_CREPE
-from rvc.lib.utils import load_embedding, HubertModelWithFinalProj
+from rvc.lib.predictors.crepe_models import (
+    CREPE_METHOD_TO_MODEL,
+    MANGIO_CREPE_METHOD_TO_MODEL,
+    resolve_crepe_model,
+)
+from rvc.lib.predictors.f0 import (
+    CREPE,
+    FCPE,
+    MANGIO_CREPE,
+    RMVPE,
+    SWIFT,
+)
+from rvc.lib.utils import (
+    checkpoint_gen_istft,
+    checkpoint_text_enc_hidden_dim,
+    embedder_forward,
+    load_embedding,
+    warn_on_feature_scale_mismatch,
+    HubertModelWithFinalProj,
+)
 
 
 class RealtimeVoiceConverter:
@@ -61,26 +80,26 @@ class RealtimeVoiceConverter:
             self.use_f0 = self.cpt.get("f0", 1)
 
             self.version = self.cpt.get("version", "v1")
-
-            # Load text_enc_hidden_dim with fallback chain
-            if "text_enc_hidden_dim" in self.cpt:
-                self.text_enc_hidden_dim = self.cpt["text_enc_hidden_dim"]
-                print(f"[Realtime] Loaded text_enc_hidden_dim={self.text_enc_hidden_dim} from checkpoint")
-            elif "embedder_model" in self.cpt:
-                from rvc.lib.utils import get_embedder_dim
-                self.text_enc_hidden_dim = get_embedder_dim(self.cpt["embedder_model"])
-                print(f"[Realtime] Inferred text_enc_hidden_dim={self.text_enc_hidden_dim} from embedder '{self.cpt['embedder_model']}'")
-            else:
-                self.text_enc_hidden_dim = 768 if self.version == "v2" else 256
-                print(f"[Realtime] Using version-based text_enc_hidden_dim={self.text_enc_hidden_dim} (legacy)")
-
+            self.text_enc_hidden_dim = checkpoint_text_enc_hidden_dim(self.cpt)
             self.vocoder = self.cpt.get("vocoder", "HiFi-GAN")
+            # Only SiFi-GAN reads this; it decides the shape of the filter network's
+            # residual blocks, so the model cannot be rebuilt without it.
+            self.sifigan_filter_resblock = self.cpt.get(
+                "sifigan_filter_resblock", "rvc"
+            )
+            # Only CodenameRingFormer reads these, and (None, None) for anything else
+            # leaves Synthesizer's defaults in place. They decide the width of conv_post
+            # and noise_convs, so that decoder cannot be rebuilt without them.
+            gen_istft_n_fft, gen_istft_hop_size = checkpoint_gen_istft(self.cpt)
             print(f"[Realtime] Loading model with vocoder: {self.vocoder}")
             self.net_g = Synthesizer(
                 *self.cpt["config"],
                 use_f0=self.use_f0,
                 text_enc_hidden_dim=self.text_enc_hidden_dim,
                 vocoder=self.vocoder,
+                sifigan_filter_resblock=self.sifigan_filter_resblock,
+                gen_istft_n_fft=gen_istft_n_fft,
+                gen_istft_hop_size=gen_istft_hop_size,
             )
 
             self.net_g.load_state_dict(self.cpt["weight"], strict=False)
@@ -96,10 +115,14 @@ class RealtimeVoiceConverter:
         sid: Tensor,
         pitch: Tensor,
         pitchf: Tensor,
+        infer_audio=None,
     ):
-        output = self.net_g.infer(feats, p_len, pitch, pitchf, sid)[0][0, 0]
+        output = (infer_audio or self.infer_audio)(feats, p_len, pitch, pitchf, sid)
 
         return torch.clip(output, -1.0, 1.0, out=output)
+
+    def infer_audio(self, feats, p_len, pitch, pitchf, sid):
+        return self.net_g.infer(feats, p_len, pitch, pitchf, sid)[0][0, 0]
 
 
 class Realtime_Pipeline:
@@ -134,6 +157,12 @@ class Realtime_Pipeline:
         self.resamplers = {}
         self.f0_model = None
         self.f0_model_secondary = None
+        self.compile_session = CompileSession(
+            load_settings(),
+            lambda feats: embedder_forward(hubert_model, feats),
+            self.vc.infer_audio,
+            self.device,
+        )
 
     def get_f0(
         self,
@@ -184,16 +213,16 @@ class Realtime_Pipeline:
                 x.shape[0] // self.window,
                 confidence_threshold=0.887,
             )
-        elif self.f0_method.startswith("crepe-"):
-            # Extract model size from method name (e.g., "crepe-tiny" -> "tiny")
-            model_size = self.f0_method.replace("crepe-", "")
+        elif self.f0_method in CREPE_METHOD_TO_MODEL:
+            model_size = resolve_crepe_model(self.f0_method)
 
-            # Use torchcrepe for tiny and full
             if self.f0_model is None:
                 self.f0_model = CREPE(
                     device=self.device,
                     sample_rate=self.sample_rate,
-                    hop_size=self.window,
+                    # hop_size=self.window,
+                    # hop_size=164,
+                    hop_size=160,
                 )
             f0 = self.f0_model.get_f0(
                 x,
@@ -202,9 +231,8 @@ class Realtime_Pipeline:
                 x.shape[0] // self.window,
                 model=model_size,
             )
-        elif self.f0_method.startswith("mangio-crepe-"):
-            # Extract model size from method name (e.g., "mangio-crepe-tiny" -> "tiny")
-            model_size = self.f0_method.replace("mangio-crepe-", "")
+        elif self.f0_method in MANGIO_CREPE_METHOD_TO_MODEL:
+            model_size = resolve_crepe_model(self.f0_method)
 
             if self.f0_model is None:
                 self.f0_model = MANGIO_CREPE(
@@ -319,7 +347,7 @@ class Realtime_Pipeline:
         )
 
         # extract features
-        feats = self.hubert_model(feats)["last_hidden_state"]
+        feats = self.compile_session.embedder(feats).float()
         feats = (
             self.hubert_model.final_proj(feats[0]).unsqueeze(0)
             if self.version == "v1"
@@ -362,7 +390,10 @@ class Realtime_Pipeline:
             pitch, pitchf = None, None
 
         p_len = torch.tensor([p_len], device=self.device, dtype=torch.int64)
-        out_audio = self.vc.inference(feats, p_len, self.sid, pitch, pitchf).float()
+        out_audio = self.vc.inference(
+            feats, p_len, self.sid, pitch, pitchf,
+            infer_audio=self.compile_session.rvc,
+        ).float()
         if volume_envelope != 1:
             out_audio = AudioProcessor.change_rms(
                 audio, self.sample_rate, out_audio, self.tgt_sr, volume_envelope
@@ -386,6 +417,13 @@ class Realtime_Pipeline:
     def _retrieve_speaker_embeddings(
         self, skip_head, feats, index, big_npy, index_rate
     ):
+        if index.d != feats.shape[-1]:
+            print(
+                f"Skipping the index: it holds {index.d} wide vectors but the embedder "
+                f"produced {feats.shape[-1]} wide ones. Rebuild the index with the same "
+                "embedder the model was trained on."
+            )
+            return feats
         skip_offset = skip_head // 2
         npy = feats[0][skip_offset:].cpu().numpy()
         score, ix = index.search(npy, k=8)
@@ -413,6 +451,13 @@ def load_faiss_index(file_index):
     return index, big_npy
 
 
+EMBEDDER_PRECISIONS = {
+    "fp32": torch.float32,
+    "bf16": torch.bfloat16,
+    "fp16": torch.float16,
+}
+
+
 def create_pipeline(
     model_path: str = None,
     index_path: str = None,
@@ -422,6 +467,7 @@ def create_pipeline(
     # device: str = "cuda",
     sid: int = 0,
     hybrid_blend_ratio: float = 0.5,
+    embedder_precision: str = "fp32",
 ):
     """
     Initialize real-time voice conversion pipeline.
@@ -437,9 +483,17 @@ def create_pipeline(
         .replace("trained", "added")
     )
 
-    hubert_model = load_embedding(embedder_model, embedder_model_custom)
-    hubert_model = hubert_model.to(vc.config.device).float()
+    # The output layer travels with the model, so realtime reads the same layer the
+    # features were extracted from without the user having to set it twice.
+    hubert_model = load_embedding(
+        embedder_model,
+        embedder_model_custom,
+        (vc.cpt or {}).get("embedder_output_layer"),
+    )
+    dtype = EMBEDDER_PRECISIONS.get(embedder_precision, torch.float32)
+    hubert_model = hubert_model.to(device=vc.config.device, dtype=dtype)
     hubert_model.eval()
+    warn_on_feature_scale_mismatch(hubert_model, vc.cpt)
 
     pipeline = Realtime_Pipeline(
         vc,
