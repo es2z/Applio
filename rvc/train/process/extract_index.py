@@ -1,6 +1,5 @@
 import os
 import sys
-import json
 from multiprocessing import cpu_count
 
 import faiss
@@ -14,20 +13,6 @@ index_algorithm = str(sys.argv[2])
 try:
     feature_dir = os.path.join(exp_dir, f"extracted")
     model_name = os.path.basename(exp_dir)
-
-    # Load text_enc_hidden_dim from model_info.json
-    model_info_path = os.path.join(exp_dir, "model_info.json")
-    text_enc_hidden_dim = 768  # default
-    if os.path.exists(model_info_path):
-        try:
-            with open(model_info_path, "r") as f:
-                model_info = json.load(f)
-                text_enc_hidden_dim = model_info.get("text_enc_hidden_dim", 768)
-                print(f"Using text_enc_hidden_dim={text_enc_hidden_dim} from model_info.json")
-        except Exception as e:
-            print(f"Could not load text_enc_hidden_dim from model_info.json: {e}. Using default 768.")
-    else:
-        print(f"model_info.json not found. Using default text_enc_hidden_dim=768")
 
     if not os.path.exists(feature_dir):
         print(
@@ -89,13 +74,6 @@ try:
             )
 
         n_ivf = min(int(16 * np.sqrt(big_npy.shape[0])), big_npy.shape[0] // 39)
-
-        # Verify dimension matches
-        actual_dim = big_npy.shape[1]
-        if actual_dim != text_enc_hidden_dim:
-            print(f"WARNING: Dimension mismatch! Expected {text_enc_hidden_dim} from model_info.json, but features have {actual_dim} dimensions.")
-            print(f"Using actual feature dimension: {actual_dim}")
-            text_enc_hidden_dim = actual_dim
 
         # index_added
         # The width comes from the features themselves, so the index follows whatever

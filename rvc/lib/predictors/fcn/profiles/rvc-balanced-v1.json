@@ -1,0 +1,12 @@
+{
+  "method": "fcn-993-rvc",
+  "version": 1,
+  "enter_threshold": 0.5,
+  "exit_threshold": 0.4,
+  "median_frames": 5,
+  "coarse_min": 50.0,
+  "coarse_max": 1680.0,
+  "calibrated": false,
+  "compile_model": false,
+  "compile_mode": "default"
+}

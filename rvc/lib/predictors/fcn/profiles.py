@@ -1,9 +1,11 @@
-"""Versioned, explicit FCN profiles. No invented RVC calibration default."""
+"""Versioned FCN defaults and explicit per-run/checkpoint overrides."""
 
 import hashlib
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+RVC_DEFAULT_PATH = Path(__file__).with_name("profiles") / "rvc-balanced-v1.json"
 
 
 @dataclass(frozen=True)
@@ -42,7 +44,7 @@ class FCNProfile:
         else:
             if self.enter_threshold is None or self.exit_threshold is None:
                 raise ValueError(
-                    "FCN-993-RVC requires explicit thresholds; no calibrated default profile is available"
+                    "An explicit FCN-993-RVC profile needs enter_threshold and exit_threshold. Leave the profile blank to use Balanced v1."
                 )
             if not 0 <= self.exit_threshold <= self.enter_threshold <= 1:
                 raise ValueError("Expected 0 <= exit_threshold <= enter_threshold <= 1")
@@ -71,6 +73,17 @@ class FCNProfile:
         ).hexdigest()
 
 
+def default_profile(method):
+    if method == "fcn-993-rvc":
+        return FCNProfile(**json.loads(RVC_DEFAULT_PATH.read_text(encoding="utf-8")))
+    return FCNProfile(method=method)
+
+
+def recommended_profile_json(method):
+    """The UI displays exactly the same versioned values used by CLI/workers."""
+    return json.dumps(default_profile(method).to_dict(), indent=2)
+
+
 def resolve_profile(method, explicit=None, checkpoint=None):
     value = explicit
     if value is None and checkpoint is not None and checkpoint.get("method") == method:
@@ -83,11 +96,9 @@ def resolve_profile(method, explicit=None, checkpoint=None):
         value = json.loads(value)
     elif isinstance(value, (str, Path)):
         value = json.loads(Path(value).read_text(encoding="utf-8"))
-    profile = (
-        value
-        if isinstance(value, FCNProfile)
-        else FCNProfile(**(value or {"method": method}))
-    )
+    if value is None or value == {}:
+        return default_profile(method)
+    profile = value if isinstance(value, FCNProfile) else FCNProfile(**value)
     if profile.method != method:
         raise ValueError("FCN profile method does not match selected method")
     return profile

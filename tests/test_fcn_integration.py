@@ -27,6 +27,18 @@ def test_profile_precedence_and_blank_ui_value(tmp_path):
     )
 
 
+def test_rvc_default_preserves_checkpoint_and_explicit_legacy_settings():
+    method = "fcn-993-rvc"
+    legacy = {"method": method, "enter_threshold": 0.7, "exit_threshold": 0.3}
+    checkpoint = FCNProfile(**legacy).to_dict()
+    for blank in (None, "", "  "):
+        assert resolve_profile(method, blank, checkpoint).to_dict() == checkpoint
+    assert resolve_profile(method, legacy).median_frames == 0
+    recommended = resolve_profile(method)
+    assert resolve_profile(method, recommended, checkpoint) == recommended
+    assert resolve_profile(method, checkpoint=FCNProfile().to_dict()) == recommended
+
+
 def test_metadata_failure_and_method_changes_never_reuse(tmp_path):
     specification = {"method": "fcn-993", "fingerprint": "a"}
     previous = {
@@ -124,6 +136,14 @@ def test_training_inference_match_and_cache_shares_weights():
         FCNProfile(method="fcn-993-rvc", enter_threshold=0.6, exit_threshold=0.4),
     )
     assert first.model is second.model
+    default = pipeline.configure_fcn("fcn-993-rvc")
+    feature_rvc = FeatureInput("fcn-993-rvc", "cuda")
+    _, default_hz = pipeline.get_f0(audio, 30, "fcn-993-rvc")
+    np.testing.assert_array_equal(default_hz, feature_rvc.compute_f0(audio))
+    pipeline.configure_fcn("fcn-993-rvc", default.profile.to_dict())
+    _, explicit_hz = pipeline.get_f0(audio, 30, "fcn-993-rvc")
+    np.testing.assert_array_equal(default_hz, explicit_hz)
+    assert default.profile.median_frames == 5
 
 
 def test_export_checkpoint_preserves_pitch_metadata(tmp_path):

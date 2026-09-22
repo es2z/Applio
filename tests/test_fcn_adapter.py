@@ -5,9 +5,33 @@ from rvc.lib.predictors.fcn.adapter import FCNRVCAdapter, weighted_median
 from rvc.lib.predictors.fcn.profiles import FCNProfile, resolve_profile
 
 
-def test_no_uncalibrated_default_threshold():
+def test_rvc_has_a_versioned_starting_default():
+    from rvc.lib.predictors.fcn.profiles import (
+        RVC_DEFAULT_PATH,
+        recommended_profile_json,
+    )
+
+    profile = resolve_profile("fcn-993-rvc")
+    assert (profile.enter_threshold, profile.exit_threshold, profile.median_frames) == (
+        0.5,
+        0.4,
+        5,
+    )
+    assert not profile.calibrated
+    assert not profile.compile_model
+    assert resolve_profile("fcn-993-rvc", "") == profile
+    assert resolve_profile("fcn-993-rvc", RVC_DEFAULT_PATH) == profile
+    assert (
+        resolve_profile("fcn-993-rvc", recommended_profile_json("fcn-993-rvc"))
+        == profile
+    )
+
+
+def test_explicit_profiles_still_require_valid_thresholds():
     with pytest.raises(ValueError, match="explicit"):
-        resolve_profile("fcn-993-rvc")
+        resolve_profile(
+            "fcn-993-rvc", {"method": "fcn-993-rvc", "enter_threshold": 0.5}
+        )
     with pytest.raises(ValueError):
         FCNProfile(enter_threshold=0.1)
     with pytest.raises(ValueError):

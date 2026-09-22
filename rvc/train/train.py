@@ -462,24 +462,6 @@ def run(
     except Exception as e:
         print(f"Could not load model info file: {e}. Using defaults.")
 
-    # Determine text_enc_hidden_dim from embedder
-    from rvc.lib.utils import get_embedder_dim
-
-    text_enc_hidden_dim = 768  # default
-    if embedder_name:
-        text_enc_hidden_dim = get_embedder_dim(embedder_name)
-        print(f"Using text_enc_hidden_dim={text_enc_hidden_dim} for embedder '{embedder_name}'")
-
-    # Try to load from model_info if available (for resuming training)
-    try:
-        with open(model_info_path, "r") as f:
-            model_info = json.load(f)
-            if "text_enc_hidden_dim" in model_info:
-                text_enc_hidden_dim = model_info["text_enc_hidden_dim"]
-                print(f"Loaded text_enc_hidden_dim={text_enc_hidden_dim} from model_info.json")
-    except:
-        pass
-
     # Try to load speaker dim from latest checkpoint or pretrainG
     try:
         last_g = latest_checkpoint_path(experiment_dir, "G_*.pth")
@@ -511,7 +493,7 @@ def run(
     net_g = Synthesizer(
         config.data.filter_length // 2 + 1,
         config.train.segment_size // config.data.hop_length,
-        **model_config,
+        **config.model,
         use_f0=True,
         sr=config.data.sample_rate,
         vocoder=vocoder,
@@ -520,11 +502,6 @@ def run(
         sifigan_filter_resblock=sifigan_filter_resblock,
         **sifigan_source_scale,
     )
-
-    # Select discriminator version based on vocoder
-    disc_version = "v2"
-    if vocoder == "RefineGAN":
-        disc_version = "v3"
 
     net_d = MultiPeriodDiscriminator(
         config.model.use_spectral_norm,

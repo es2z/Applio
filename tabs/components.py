@@ -15,23 +15,36 @@ i18n = I18nAuto()
 
 def fcn_profile_controls(f0_method, realtime=False):
     from rvc.lib.predictors.f0_methods import FCN_METHODS
+    from rvc.lib.predictors.fcn.profiles import recommended_profile_json
 
     with gr.Group(visible=f0_method.value in FCN_METHODS) as group:
         gr.Markdown(
             "**FCN (CUDA)** — FCN-993 reproduces the original predictor without a voicing threshold. "
-            "FCN-993-RVC is experimental and requires an explicit threshold profile; no calibrated default is available. "
-            "Settings are fixed when processing starts. Optional network compilation: add `\"compile_model\": true` to the profile (default OFF)."
+            "For voice conversion with FCN, use **FCN-993-RVC**. No JSON is required: leave the profile blank to use a matching checkpoint profile or the bundled **Balanced v1** settings (enter 0.50, exit 0.40, median 5 ms). "
+            'Settings are fixed when processing starts. Optional network compilation: add `"compile_model": true` to the profile (default OFF).'
         )
         if realtime:
-            gr.Markdown("FCN delays audio and F0 together by 140–150 ms, plus capture filtering and up to 10 ms of grid alignment. Device, chunk and queue latency are additional.")
+            gr.Markdown(
+                "FCN delays audio and F0 together by 140–150 ms, plus capture filtering and up to 10 ms of grid alignment. Device, chunk and queue latency are additional."
+            )
         profile = gr.Textbox(
-            label="FCN profile JSON or local JSON path",
-            info="Leave blank for baseline defaults or a matching checkpoint profile. coarse_max may be 1680 (default) or 1100 Hz.",
-            value="", lines=3,
+            label="FCN profile JSON or local JSON path (optional)",
+            info="Normally leave blank. To explicitly use the recommended settings instead of checkpoint settings, press the button below. Edit the JSON only to customize. Details: docs/fcn-993.md",
+            value="",
+            lines=3,
+        )
+        recommended = gr.Button("Load recommended FCN settings")
+        recommended.click(
+            fn=recommended_profile_json,
+            inputs=[f0_method],
+            outputs=[profile],
+            show_progress=False,
         )
     f0_method.change(
         fn=lambda method: gr.update(visible=method in FCN_METHODS),
-        inputs=[f0_method], outputs=[group], show_progress=False,
+        inputs=[f0_method],
+        outputs=[group],
+        show_progress=False,
     )
     return profile
 
@@ -61,7 +74,5 @@ def mangio_crepe_decoder(f0_method):
         outputs=[decoder],
         show_progress=False,
     )
-    decoder.change(
-        fn=save_decoder, inputs=[decoder], outputs=[], show_progress=False
-    )
+    decoder.change(fn=save_decoder, inputs=[decoder], outputs=[], show_progress=False)
     return decoder

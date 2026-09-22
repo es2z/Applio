@@ -2365,7 +2365,7 @@ def parse_arguments():
     for fcn_parser in (infer_parser, batch_infer_parser, tts_parser, extract_parser):
         fcn_parser.add_argument(
             "--fcn_profile", default=None,
-            help="FCN profile JSON file. Baseline has a default; FCN-993-RVC requires explicit thresholds.",
+            help="Optional FCN profile JSON file. Omit to use a matching checkpoint profile or bundled defaults (FCN-993-RVC: Balanced v1).",
         )
     return parser.parse_args()
 
