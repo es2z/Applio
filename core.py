@@ -19,6 +19,7 @@ from rvc.lib.tools.analyzer import analyze_audio
 from rvc.lib.tools.launch_tensorboard import launch_tensorboard_pipeline
 from rvc.lib.tools.model_download import model_download_pipeline
 from rvc.lib.predictors.crepe_models import CREPE_CLI_METHODS
+from rvc.lib.predictors.f0_methods import FCN_METHODS
 
 python = sys.executable
 
@@ -111,6 +112,7 @@ def run_infer_script(
     delay_feedback: float = 0.0,
     delay_mix: float = 0.5,
     sid: int = 0,
+    fcn_profile=None,
 ):
     kwargs = {
         "audio_input_path": input_path,
@@ -122,6 +124,7 @@ def run_infer_script(
         "index_rate": index_rate,
         "protect": protect,
         "f0_method": f0_method,
+        "fcn_profile": fcn_profile,
         "pth_path": pth_path,
         "index_path": index_path,
         "split_audio": split_audio,
@@ -245,6 +248,7 @@ def run_batch_infer_script(
     delay_feedback: float = 0.0,
     delay_mix: float = 0.5,
     sid: int = 0,
+    fcn_profile=None,
 ):
     kwargs = {
         "audio_input_paths": input_folder,
@@ -256,6 +260,7 @@ def run_batch_infer_script(
         "volume_envelope": volume_envelope,
         "protect": protect,
         "f0_method": f0_method,
+        "fcn_profile": fcn_profile,
         "pth_path": pth_path,
         "index_path": index_path,
         "split_audio": split_audio,
@@ -343,6 +348,7 @@ def run_tts_script(
     embedder_model: str,
     embedder_model_custom: str = None,
     sid: int = 0,
+    fcn_profile=None,
 ):
 
     tts_script_path = os.path.join("rvc", "lib", "tools", "tts.py")
@@ -374,6 +380,7 @@ def run_tts_script(
         volume_envelope=volume_envelope,
         protect=protect,
         f0_method=f0_method,
+        fcn_profile=fcn_profile,
         audio_input_path=output_tts_path,
         audio_output_path=output_rvc_path,
         model_path=pth_path,
@@ -461,6 +468,7 @@ def run_extract_script(
     embedder_model_custom: str = None,
     include_mutes: int = 2,
     embedder_output_layer: int = 0,
+    fcn_profile=None,
 ):
 
     model_path = os.path.join(logs_path, model_name)
@@ -485,7 +493,12 @@ def run_extract_script(
         ),
     ]
 
-    subprocess.run(command_1)
+    if f0_method in FCN_METHODS:
+        from rvc.lib.predictors.fcn.profiles import resolve_profile
+
+        profile = resolve_profile(f0_method, fcn_profile)
+        command_1.append(json.dumps(profile.to_dict()))
+    subprocess.run(command_1, check=True)
 
     return f"Model {model_name} extracted successfully."
 
@@ -526,6 +539,13 @@ def run_train_script(
     if reset_training and cleanup:
         raise ValueError("Disable Cleanup when resetting training from existing weights.")
 
+    metadata_path = os.path.join(logs_path, model_name, "model_info.json")
+    if os.path.isfile(metadata_path):
+        with open(metadata_path, encoding="utf-8") as stream:
+            metadata = json.load(stream)
+        if metadata.get("pitch_extraction_run", {}).get("complete") is False:
+            raise ValueError("F0 extraction is incomplete. Complete extraction before training.")
+
     # These live only in logs/<model>/config.json, so set them there rather than
     # threading them through train.py's positional argv. Passing None leaves them alone.
     from rvc.train.extract.preparing_files import (
@@ -550,7 +570,7 @@ def run_train_script(
         from rvc.lib.tools.pretrained_selector import pretrained_selector
 
         if custom_pretrained == False:
-            pg, pd = pretrained_selector(str(vocoder), int(sample_rate), refinegan_variant)
+            pg, pd = pretrained_selector(str(vocoder), int(sample_rate))
         else:
             if g_pretrained_path is None or d_pretrained_path is None:
                 raise ValueError(
@@ -729,6 +749,7 @@ def parse_arguments():
         help=f0_method_description,
         choices=[
             *CREPE_CLI_METHODS,
+            *FCN_METHODS,
             "rmvpe",
             "fcpe",
             "swift",
@@ -1255,6 +1276,7 @@ def parse_arguments():
         help=f0_method_description,
         choices=[
             *CREPE_CLI_METHODS,
+            *FCN_METHODS,
             "rmvpe",
             "fcpe",
             "swift",
@@ -1743,6 +1765,7 @@ def parse_arguments():
         help=f0_method_description,
         choices=[
             *CREPE_CLI_METHODS,
+            *FCN_METHODS,
             "rmvpe",
             "fcpe",
             "swift",
@@ -1947,6 +1970,7 @@ def parse_arguments():
         help="Pitch extraction method to use.",
         choices=[
             *CREPE_CLI_METHODS,
+            *FCN_METHODS,
             "rmvpe",
             "fcpe",
         ],
@@ -2338,6 +2362,11 @@ def parse_arguments():
         "--input_path", type=str, help="Path to the input audio file.", required=True
     )
 
+    for fcn_parser in (infer_parser, batch_infer_parser, tts_parser, extract_parser):
+        fcn_parser.add_argument(
+            "--fcn_profile", default=None,
+            help="FCN profile JSON file. Baseline has a default; FCN-993-RVC requires explicit thresholds.",
+        )
     return parser.parse_args()
 
 
@@ -2356,6 +2385,7 @@ def main():
                 volume_envelope=args.volume_envelope,
                 protect=args.protect,
                 f0_method=args.f0_method,
+                fcn_profile=args.fcn_profile,
                 input_path=args.input_path,
                 output_path=args.output_path,
                 pth_path=args.pth_path,
@@ -2418,6 +2448,7 @@ def main():
                 volume_envelope=args.volume_envelope,
                 protect=args.protect,
                 f0_method=args.f0_method,
+                fcn_profile=args.fcn_profile,
                 input_folder=args.input_folder,
                 output_folder=args.output_folder,
                 pth_path=args.pth_path,
@@ -2484,6 +2515,7 @@ def main():
                 volume_envelope=args.volume_envelope,
                 protect=args.protect,
                 f0_method=args.f0_method,
+                fcn_profile=args.fcn_profile,
                 output_tts_path=args.output_tts_path,
                 output_rvc_path=args.output_rvc_path,
                 pth_path=args.pth_path,
@@ -2517,6 +2549,7 @@ def main():
             run_extract_script(
                 model_name=args.model_name,
                 f0_method=args.f0_method,
+                fcn_profile=args.fcn_profile,
                 cpu_cores=args.cpu_cores,
                 gpu=args.gpu,
                 sample_rate=args.sample_rate,
@@ -2594,6 +2627,7 @@ def main():
         import traceback
 
         traceback.print_exc()
+        raise SystemExit(1) from error
 
 
 if __name__ == "__main__":

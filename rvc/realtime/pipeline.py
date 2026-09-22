@@ -135,6 +135,7 @@ class Realtime_Pipeline:
         f0_method: str = "rmvpe",
         sid: int = 0,
         hybrid_blend_ratio: float = 0.5,
+        fcn_profile=None,
     ):
         self.vc = vc
         self.hubert_model = hubert_model
@@ -157,6 +158,19 @@ class Realtime_Pipeline:
         self.resamplers = {}
         self.f0_model = None
         self.f0_model_secondary = None
+        self.fcn_pitch = None
+        from rvc.lib.predictors.f0_methods import FCN_METHODS
+
+        if f0_method in FCN_METHODS:
+            from rvc.lib.predictors.fcn import FCNPredictor, resolve_profile
+
+            if torch.device(self.device).type != "cuda":
+                raise ValueError("FCN realtime requires CUDA")
+            checkpoint = (vc.cpt or {}).get("f0_extraction", {})
+            profile = resolve_profile(f0_method, fcn_profile, checkpoint.get("profile"))
+            if checkpoint.get("method") and checkpoint["method"] != f0_method:
+                print(f"FCN method differs from checkpoint: {checkpoint['method']} -> {f0_method}")
+            self.f0_model = FCNPredictor(self.device, f0_method, profile)
         self.compile_session = CompileSession(
             load_settings(),
             lambda feats: embedder_forward(hubert_model, feats),
@@ -179,6 +193,12 @@ class Realtime_Pipeline:
         Estimates the fundamental frequency (F0) of a given audio signal using various methods.
         """
 
+        from rvc.lib.predictors.f0_methods import FCN_METHODS
+
+        if self.f0_method in FCN_METHODS:
+            if self.fcn_pitch is None:
+                raise RuntimeError("FCN realtime requires a synchronized stream window")
+            return self._fcn_adjusted_pitch(f0_up_key, f0_autotune, f0_autotune_strength, proposed_pitch, proposed_pitch_threshold)
         if torch.is_tensor(x):
             # If the input is a tensor, it will need to be converted to numpy array to calculate with RMVPE and FCPE.
             x = x.cpu().numpy()
@@ -304,6 +324,30 @@ class Realtime_Pipeline:
             pitchf = f0
 
         return pitch.unsqueeze(0), pitchf.unsqueeze(0)
+
+    def _fcn_adjusted_pitch(self, shift, autotune, strength, proposed, target):
+        from rvc.lib.predictors.f0_quantization import quantize_f0
+
+        # Only the finalized 100 Hz vector crosses to NumPy for existing pitch
+        # correction. Capture, normalization, network and stream stay on CUDA.
+        f0 = self.fcn_pitch.cpu().numpy().copy()
+        voiced = f0 > 0
+        if autotune:
+            f0 = self.autotune.autotune_f0(f0, strength)
+        elif proposed:
+            valid = np.flatnonzero(voiced)
+            offset = 0
+            if len(valid) >= 2:
+                median = np.median(np.interp(np.arange(len(f0)), valid, f0[valid]))
+                if median > 0:
+                    offset = max(-12, min(12, int(np.round(12 * np.log2(target / median)))))
+            f0 *= 2 ** ((shift + offset) / 12)
+        else:
+            f0 *= 2 ** (shift / 12)
+        f0[~voiced] = 0
+        profile = self.f0_model.profile
+        coarse = quantize_f0(f0, profile.coarse_min, profile.coarse_max)
+        return torch.from_numpy(coarse).to(self.device)[None], torch.from_numpy(f0).to(self.device)[None]
 
     def voice_conversion(
         self,
@@ -468,6 +512,7 @@ def create_pipeline(
     sid: int = 0,
     hybrid_blend_ratio: float = 0.5,
     embedder_precision: str = "fp32",
+    fcn_profile=None,
 ):
     """
     Initialize real-time voice conversion pipeline.
@@ -503,6 +548,7 @@ def create_pipeline(
         f0_method,
         sid,
         hybrid_blend_ratio,
+        fcn_profile,
     )
 
     return pipeline

@@ -19,6 +19,7 @@ config.json
 *.safetensors
 !requirements.txt
 !requirementspy313.txt
+!tools/requirements-fcn-validation.txt
 
 assets/audios
 assets/datasets

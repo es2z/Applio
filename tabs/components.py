@@ -13,6 +13,29 @@ from rvc.lib.predictors.crepe_decoder import (
 i18n = I18nAuto()
 
 
+def fcn_profile_controls(f0_method, realtime=False):
+    from rvc.lib.predictors.f0_methods import FCN_METHODS
+
+    with gr.Group(visible=f0_method.value in FCN_METHODS) as group:
+        gr.Markdown(
+            "**FCN (CUDA)** — FCN-993 reproduces the original predictor without a voicing threshold. "
+            "FCN-993-RVC is experimental and requires an explicit threshold profile; no calibrated default is available. "
+            "Settings are fixed when processing starts. Optional network compilation: add `\"compile_model\": true` to the profile (default OFF)."
+        )
+        if realtime:
+            gr.Markdown("FCN delays audio and F0 together by 140–150 ms, plus capture filtering and up to 10 ms of grid alignment. Device, chunk and queue latency are additional.")
+        profile = gr.Textbox(
+            label="FCN profile JSON or local JSON path",
+            info="Leave blank for baseline defaults or a matching checkpoint profile. coarse_max may be 1680 (default) or 1100 Hz.",
+            value="", lines=3,
+        )
+    f0_method.change(
+        fn=lambda method: gr.update(visible=method in FCN_METHODS),
+        inputs=[f0_method], outputs=[group], show_progress=False,
+    )
+    return profile
+
+
 def mangio_crepe_decoder(f0_method):
     """A decoder picker that shows itself while a mangio-crepe method is selected.
 

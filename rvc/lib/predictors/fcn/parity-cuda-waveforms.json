@@ -1,0 +1,49 @@
+{
+  "torch": "2.13.0+cu132",
+  "device": "NVIDIA GeForce RTX 4090",
+  "waveforms": [
+    {
+      "max_activation_error": 8.344650268554688e-07,
+      "max_confidence_error": 5.364418029785156e-07,
+      "max_cents_error": 0.0012513082401710562,
+      "passed": true
+    },
+    {
+      "max_activation_error": 5.662441253662109e-07,
+      "max_confidence_error": 1.7881393432617188e-07,
+      "max_cents_error": 0.0009401548250025371,
+      "passed": true
+    },
+    {
+      "max_activation_error": 6.854534149169922e-07,
+      "max_confidence_error": 6.556510925292969e-07,
+      "max_cents_error": 0.001081694291315216,
+      "passed": true
+    },
+    {
+      "max_activation_error": 4.6193599700927734e-07,
+      "max_confidence_error": 4.6193599700927734e-07,
+      "max_cents_error": 0.0013400690932030557,
+      "passed": true
+    },
+    {
+      "max_activation_error": 6.556510925292969e-07,
+      "max_confidence_error": 6.109476089477539e-07,
+      "max_cents_error": 0.0011526783391673234,
+      "passed": true
+    },
+    {
+      "max_activation_error": 1.9744038581848145e-07,
+      "max_confidence_error": 1.9744038581848145e-07,
+      "max_cents_error": 0.00044457850708568003,
+      "passed": true
+    },
+    {
+      "max_activation_error": 8.642673492431641e-07,
+      "max_confidence_error": 5.960464477539062e-07,
+      "max_cents_error": 0.0012910394370919676,
+      "passed": true
+    }
+  ],
+  "passed": true
+}

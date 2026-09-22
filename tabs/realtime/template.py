@@ -131,7 +131,7 @@ class RealtimeTemplateManager:
         ptch, idx_rate, vol_env, prot,
         f0_meth, hybrid_ratio,
         emb_model, emb_custom, emb_precision,
-        chnk_size, cross_fade, extra_conv, silent_thresh
+        chnk_size, cross_fade, extra_conv, silent_thresh, fcn_profile=""
     ):
         """
         Create a settings dictionary from individual parameters.
@@ -167,6 +167,7 @@ class RealtimeTemplateManager:
                 },
                 "inference": {
                     "f0_method": f0_meth,
+                    "fcn_profile": fcn_profile or "",
                     "embedder_model": emb_model,
                     "embedder_model_custom": emb_custom or "",
                     "embedder_precision": emb_precision,
@@ -203,7 +204,7 @@ class RealtimeTemplateManager:
             Tuple of 31 gr.update() objects for all UI components
         """
         if not template_data:
-            return [gr.update()] * 32
+            return [gr.update()] * 33
 
         audio = template_data.get("audioTab", {})
         model = template_data.get("modelTab", {})
@@ -246,4 +247,5 @@ class RealtimeTemplateManager:
             gr.update(value=perf.get("crossfade_overlap_size", 0.05)),
             gr.update(value=perf.get("extra_convert_size", 0.5)),
             gr.update(value=perf.get("silence_threshold", -90)),
+            gr.update(value=model.get("inference", {}).get("fcn_profile", "")),
         )

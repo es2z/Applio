@@ -1,0 +1,76 @@
+{
+  "device": "cpu",
+  "torch": "2.13.0+cu132",
+  "layers": {
+    "conv1": {
+      "max_abs": 0.0,
+      "pass": true
+    },
+    "pool1": {
+      "max_abs": 0.0,
+      "pass": true
+    },
+    "bn1": {
+      "max_abs": 9.5367431640625e-07,
+      "pass": true
+    },
+    "conv2": {
+      "max_abs": 1.52587890625e-05,
+      "pass": true
+    },
+    "pool2": {
+      "max_abs": 1.52587890625e-05,
+      "pass": true
+    },
+    "bn2": {
+      "max_abs": 1.4901161193847656e-05,
+      "pass": true
+    },
+    "conv3": {
+      "max_abs": 6.198883056640625e-06,
+      "pass": true
+    },
+    "pool3": {
+      "max_abs": 6.198883056640625e-06,
+      "pass": true
+    },
+    "bn3": {
+      "max_abs": 3.993511199951172e-06,
+      "pass": true
+    },
+    "conv4": {
+      "max_abs": 7.3909759521484375e-06,
+      "pass": true
+    },
+    "bn4": {
+      "max_abs": 3.3974647521972656e-05,
+      "pass": true
+    },
+    "conv5": {
+      "max_abs": 1.239776611328125e-05,
+      "pass": true
+    },
+    "bn5": {
+      "max_abs": 1.0013580322265625e-05,
+      "pass": true
+    },
+    "conv6": {
+      "max_abs": 3.719329833984375e-05,
+      "pass": false
+    },
+    "bn6": {
+      "max_abs": 2.6226043701171875e-06,
+      "pass": true
+    },
+    "classifier": {
+      "max_abs": 1.52587890625e-05,
+      "pass": true
+    },
+    "sigmoid": {
+      "max_abs": 4.470348358154297e-07,
+      "pass": true
+    }
+  },
+  "max_cents_difference": 0.0007109112866601208,
+  "passed": false
+}

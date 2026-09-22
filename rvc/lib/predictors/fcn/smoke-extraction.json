@@ -1,0 +1,26 @@
+[
+  {
+    "method": "fcn-993",
+    "fingerprint": "c67f4b41b31cf42aeafc991cbe350165668bd8a0039d7a35acecab07f38d9ae7",
+    "complete": true,
+    "reused": false
+  },
+  {
+    "method": "fcn-993",
+    "fingerprint": "c67f4b41b31cf42aeafc991cbe350165668bd8a0039d7a35acecab07f38d9ae7",
+    "complete": true,
+    "reused": true
+  },
+  {
+    "method": "fcn-993-rvc",
+    "fingerprint": "974fb9336012666a12290e3f9c9f700bcbc4945b55e6dbaa79898635b9cf82c8",
+    "complete": true,
+    "reused": false
+  },
+  {
+    "method": "fcn-993-rvc",
+    "fingerprint": "974fb9336012666a12290e3f9c9f700bcbc4945b55e6dbaa79898635b9cf82c8",
+    "complete": true,
+    "reused": true
+  }
+]

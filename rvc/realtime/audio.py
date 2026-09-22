@@ -237,6 +237,8 @@ class Audio:
             # Check for buffer overflow/underflow
             if status:
                 print(f"[Audio Stream Warning] {status}")
+                if getattr(status, "input_overflow", False):
+                    self.callbacks.reset_stream()
                 self.consecutive_errors += 1
             else:
                 # Reset error count on successful processing
@@ -296,6 +298,8 @@ class Audio:
             # Check for buffer overflow/underflow
             if status:
                 print(f"[Input Stream Warning] {status}")
+                if getattr(status, "input_overflow", False):
+                    self.callbacks.reset_stream()
                 self.consecutive_errors += 1
             else:
                 # Reset error count on successful processing
@@ -618,6 +622,7 @@ class Audio:
                 # Attempt to restart streams with saved parameters
                 if self.last_stream_params is not None:
                     print("[Auto-Reconnect] Restarting streams with saved parameters...")
+                    self.callbacks.reset_stream()
                     params = self.last_stream_params
 
                     # Determine if we should use separate streams

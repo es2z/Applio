@@ -1,0 +1,80 @@
+{
+  "device": "cuda",
+  "torch": "2.13.0+cu132",
+  "precision": "float64",
+  "layers": {
+    "conv1": {
+      "max_abs": 0.0,
+      "pass": true
+    },
+    "pool1": {
+      "max_abs": 0.0,
+      "pass": true
+    },
+    "bn1": {
+      "max_abs": 3.552713678800501e-15,
+      "pass": true
+    },
+    "conv2": {
+      "max_abs": 3.197442310920451e-13,
+      "pass": true
+    },
+    "pool2": {
+      "max_abs": 3.197442310920451e-13,
+      "pass": true
+    },
+    "bn2": {
+      "max_abs": 4.75175454539567e-14,
+      "pass": true
+    },
+    "conv3": {
+      "max_abs": 3.8191672047105385e-14,
+      "pass": true
+    },
+    "pool3": {
+      "max_abs": 3.8191672047105385e-14,
+      "pass": true
+    },
+    "bn3": {
+      "max_abs": 2.042810365310288e-14,
+      "pass": true
+    },
+    "conv4": {
+      "max_abs": 4.3520742565306136e-14,
+      "pass": true
+    },
+    "bn4": {
+      "max_abs": 1.616484723854228e-13,
+      "pass": true
+    },
+    "conv5": {
+      "max_abs": 2.2959412149248237e-13,
+      "pass": true
+    },
+    "bn5": {
+      "max_abs": 1.3375411889171573e-13,
+      "pass": true
+    },
+    "conv6": {
+      "max_abs": 3.836930773104541e-13,
+      "pass": true
+    },
+    "bn6": {
+      "max_abs": 3.375077994860476e-14,
+      "pass": true
+    },
+    "classifier": {
+      "max_abs": 1.1723955140041653e-13,
+      "pass": true
+    },
+    "sigmoid": {
+      "max_abs": 3.6637359812630166e-15,
+      "pass": true
+    }
+  },
+  "max_cents_difference": 2.7284841053187847e-12,
+  "layerwise_passed": true,
+  "output_passed": true,
+  "gate": "all_layers",
+  "passed": true
+}

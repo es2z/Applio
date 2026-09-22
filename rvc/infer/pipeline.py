@@ -202,6 +202,26 @@ class Pipeline:
         self.f0_mel_max = 1127 * np.log(1 + self.f0_max / 700)
         self.device = config.device
         self.autotune = Autotune()
+        self.fcn_predictor = None
+
+    def configure_fcn(self, method, explicit_profile=None, checkpoint=None):
+        from rvc.lib.predictors.fcn import FCNPredictor, resolve_profile
+
+        if torch.device(self.device).type != "cuda":
+            raise ValueError("FCN-993 application inference requires a CUDA device")
+        checkpoint = checkpoint or {}
+        profile = resolve_profile(method, explicit_profile, checkpoint.get("profile"))
+        if checkpoint.get("method") and checkpoint["method"] != method:
+            print(f"FCN method differs from checkpoint: {checkpoint['method']} -> {method}")
+        reload_weight = self.fcn_predictor is None
+        if not reload_weight:
+            stat = self.fcn_predictor.weight_path.stat()
+            reload_weight = self.fcn_predictor.asset_signature != (stat.st_size, stat.st_mtime_ns)
+        if reload_weight:
+            self.fcn_predictor = FCNPredictor(device=self.device, method=method, profile=profile)
+        else:
+            self.fcn_predictor = self.fcn_predictor.with_profile(method, profile)
+        return self.fcn_predictor
 
     def get_f0(
         self,
@@ -226,7 +246,15 @@ class Pipeline:
             proposed_pitch: whether to apply proposed pitch adjustment
             proposed_pitch_threshold: target frequency, 155.0 for male, 255.0 for female
         """
-        if f0_method in CREPE_METHOD_TO_MODEL:
+        from rvc.lib.predictors.f0_methods import FCN_METHODS
+
+        if f0_method in FCN_METHODS:
+            model = self.fcn_predictor
+            if model is None or model.profile.method != f0_method:
+                model = self.configure_fcn(f0_method)
+            f0 = model.get_f0(x, p_len)
+            fcn_voiced = f0 > 0
+        elif f0_method in CREPE_METHOD_TO_MODEL:
             model = CREPE(
                 device=self.device, sample_rate=self.sample_rate, hop_size=self.window
             )
@@ -304,6 +332,12 @@ class Pipeline:
             f0 *= pow(2, (pitch + up_key) / 12)
         else:
             f0 *= pow(2, pitch / 12)
+        if f0_method in FCN_METHODS:
+            from rvc.lib.predictors.f0_quantization import quantize_f0
+
+            f0[~fcn_voiced] = 0
+            profile = self.fcn_predictor.profile
+            return quantize_f0(f0, profile.coarse_min, profile.coarse_max), f0.copy()
         # quantizing f0 to 255 buckets to make coarse f0
         f0bak = f0.copy()
         f0_mel = 1127 * np.log(1 + f0 / 700)
@@ -492,9 +526,12 @@ class Pipeline:
         p_len = audio_pad.shape[0] // self.window
         sid = torch.tensor(sid, device=self.device).unsqueeze(0).long()
         if pitch_guidance:
+            from rvc.lib.predictors.f0_methods import FCN_METHODS
+
+            is_fcn = f0_method in FCN_METHODS
             pitch, pitchf = self.get_f0(
-                audio_pad,
-                p_len,
+                audio if is_fcn else audio_pad,
+                len(audio) // self.window if is_fcn else p_len,
                 f0_method,
                 pitch,
                 f0_autotune,
@@ -502,6 +539,14 @@ class Pipeline:
                 proposed_pitch,
                 proposed_pitch_threshold,
             )
+            if is_fcn:
+                # Estimate only the true waveform; then reflect the already fixed
+                # pitch/mask onto the synthesis padding, preserving grid indices.
+                pad_frames = self.t_pad // self.window
+                if len(pitchf) == 0:
+                    raise ValueError("FCN conversion requires at least 10 ms of audio")
+                pitch = np.pad(pitch, (pad_frames, pad_frames), mode="reflect")
+                pitchf = np.pad(pitchf, (pad_frames, pad_frames), mode="reflect")
             pitch = pitch[:p_len]
             pitchf = pitchf[:p_len]
             if self.device == "mps":

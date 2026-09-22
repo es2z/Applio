@@ -1,4 +1,4 @@
-from tabs.components import mangio_crepe_decoder
+from tabs.components import mangio_crepe_decoder, fcn_profile_controls
 import gradio as gr
 import sounddevice as sd
 import os
@@ -22,6 +22,7 @@ from rvc.realtime.audio import list_audio_device
 from rvc.realtime.core import AUDIO_SAMPLE_RATE
 from rvc.configs.config_utils import load_config, save_config, update_nested_config
 from rvc.lib.predictors.crepe_models import CREPE_UI_METHODS
+from rvc.lib.predictors.f0_methods import FCN_UI_METHODS
 
 from assets.i18n.i18n import I18nAuto
 from tabs.realtime.template import RealtimeTemplateManager
@@ -406,6 +407,7 @@ def start_realtime(
     embedder_model: str,
     embedder_model_custom: str = None,
     embedder_precision: str = "fp32",
+    fcn_profile=None,
 ):
     global running, callbacks, audio_manager
     running = True
@@ -462,6 +464,7 @@ def start_realtime(
             model_path=pth_path,
             index_path=str(index_path),
             f0_method=f0_method,
+            fcn_profile=fcn_profile,
             embedder_model=embedder_model,
             embedder_model_custom=embedder_model_custom,
             embedder_precision=embedder_precision,
@@ -534,7 +537,7 @@ def start_realtime(
         elif hasattr(audio_manager, "latency"):
             # Normal operation - show latency
             yield (
-                f"Latency: {audio_manager.latency:.2f} ms" + seed_status + compile_session.status(),
+                f"Processing: {audio_manager.latency:.2f} ms" + (f" | FCN holdback: {callbacks.vc.vc_model.fcn_session.holdback_ms:.2f} ms" if getattr(callbacks.vc.vc_model, "fcn_session", None) else "") + seed_status + compile_session.status(),
                 interactive_false,
                 interactive_true,
             )
@@ -917,6 +920,7 @@ def realtime_tab():
                             "fcpe",
                             "swift",
                             *CREPE_UI_METHODS,
+                            *FCN_UI_METHODS,
                         ],
                         value="swift",
                         label=i18n("Pitch extraction algorithm"),
@@ -926,6 +930,7 @@ def realtime_tab():
                         interactive=True,
                     )
                     mangio_crepe_decoder(f0_method)
+                    fcn_profile = fcn_profile_controls(f0_method, realtime=True)
                     hybrid_blend_ratio = gr.Slider(
                         minimum=0.0,
                         maximum=1.0,
@@ -1182,6 +1187,7 @@ def realtime_tab():
                 embedder_model,
                 embedder_model_custom,
                 embedder_precision,
+                fcn_profile,
             ],
             outputs=[latency_info, start_button, stop_button],
         )
@@ -1264,12 +1270,12 @@ def realtime_tab():
             """Load and apply template settings"""
             if not template_name:
                 gr.Warning("Please select a template first.")
-                return [gr.update()] * 32
+                return [gr.update()] * 33
 
             template_data = template_manager.load_template(template_name)
             if not template_data:
                 gr.Warning(f"Template '{template_name}' not found.")
-                return [gr.update()] * 32
+                return [gr.update()] * 33
 
             # Check if devices exist in current device list
             audio_tab = template_data.get("audioTab", {})
@@ -1307,7 +1313,7 @@ def realtime_tab():
             """Apply template without confirmation"""
             if not template_name:
                 gr.Warning("Please select a template first.")
-                return [gr.update()] * 32
+                return [gr.update()] * 33
 
             return apply_template_settings(template_name)
 
@@ -1335,7 +1341,7 @@ def realtime_tab():
             mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
             speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
             emb_model, emb_custom, emb_precision,
-            chnk_size, cross_fade, extra_conv, silent_thresh
+            chnk_size, cross_fade, extra_conv, silent_thresh, fcn_profile_value
         ):
             """Handle save button in modal"""
             if not operation_state:
@@ -1371,7 +1377,7 @@ def realtime_tab():
                     mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
                     speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
                     emb_model, emb_custom, emb_precision,
-                    chnk_size, cross_fade, extra_conv, silent_thresh
+                    chnk_size, cross_fade, extra_conv, silent_thresh, fcn_profile_value
                 )
                 template_manager.save_template(new_name, settings)
                 gr.Info(f"Template '{new_name}' saved successfully.")
@@ -1397,7 +1403,7 @@ def realtime_tab():
                     mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
                     speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
                     emb_model, emb_custom, emb_precision,
-                    chnk_size, cross_fade, extra_conv, silent_thresh
+                    chnk_size, cross_fade, extra_conv, silent_thresh, fcn_profile_value
                 )
                 template_manager.save_template(new_name, settings)
                 gr.Info(f"Template '{new_name}' created successfully.")
@@ -1480,6 +1486,7 @@ def realtime_tab():
                 cross_fade_overlap_size,
                 extra_convert_size,
                 silent_threshold,
+                fcn_profile,
             ],
         )
 
@@ -1538,6 +1545,7 @@ def realtime_tab():
                 cross_fade_overlap_size,
                 extra_convert_size,
                 silent_threshold,
+                fcn_profile,
             ],
             outputs=[template_name_input_row, template_dropdown, template_operation_state],
         )

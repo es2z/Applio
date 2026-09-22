@@ -46,6 +46,7 @@ class Realtime:
         vad_frame_ms: int = 30,
         sid: int = 0,
         hybrid_blend_ratio: float = 0.5,
+        fcn_profile=None,
         # device: str = "cuda",
     ):
         self.sample_rate = SAMPLE_RATE
@@ -90,6 +91,7 @@ class Realtime:
             sid=sid,
             hybrid_blend_ratio=hybrid_blend_ratio,
             embedder_precision=embedder_precision,
+            fcn_profile=fcn_profile,
         )
         self.device = self.pipeline.device
         # Resampling of inputs and outputs.
@@ -156,6 +158,14 @@ class Realtime:
         self.pitchf_buffer = torch.zeros(
             self.convert_feature_size_16k + 1, dtype=self.dtype, device=self.device
         )
+        self.fcn_session = None
+        from rvc.lib.predictors.f0_methods import FCN_METHODS
+
+        if self.pipeline.f0_method in FCN_METHODS:
+            from rvc.realtime.fcn_session import FCNRealtimeSession
+
+            self.fcn_session = FCNRealtimeSession(self.pipeline.f0_model, self.resample_in, convert_size_16k)
+            print(f"[FCN] Synchronized audio/F0 holdback: {self.fcn_session.holdback_ms:.2f} ms")
 
     def flush_buffers(self):
         """
@@ -171,6 +181,11 @@ class Realtime:
         if self.pitchf_buffer is not None:
             self.pitchf_buffer.zero_()
         self.consecutive_input_silence = 0
+
+    def reset_fcn_stream(self):
+        if getattr(self, "fcn_session", None) is not None:
+            self.fcn_session.reset()
+            self.pipeline.fcn_pitch = None
 
     def inference(
         self,
@@ -188,9 +203,15 @@ class Realtime:
             raise RuntimeError("Pipeline is not initialized.")
 
         # Input audio is always float32
-        audio_input_16k = self.resample_in(
-            torch.as_tensor(audio_input, dtype=torch.float32, device=self.device)
-        ).to(self.dtype)
+        if getattr(self, "fcn_session", None) is not None:
+            waveform, pitch = self.fcn_session.push(audio_input)
+            self.convert_buffer.copy_(waveform)
+            self.pipeline.fcn_pitch = pitch
+            audio_input_16k = waveform[-max(1, len(audio_input) // 3):]
+        else:
+            audio_input_16k = self.resample_in(
+                torch.as_tensor(audio_input, dtype=torch.float32, device=self.device)
+            ).to(self.dtype)
         circular_write(audio_input_16k, self.audio_buffer)
 
         vol_t = torch.sqrt(torch.square(self.audio_buffer).mean())
@@ -217,7 +238,8 @@ class Realtime:
         # This ensures proper fade-out processing and prevents incomplete audio tails
         # For 2-stream mode: We rely on fast buffer flushing (silence_threshold_for_flush=3)
         # to clear old data quickly after output becomes silent
-        circular_write(audio_input_16k, self.convert_buffer)
+        if getattr(self, "fcn_session", None) is None:
+            circular_write(audio_input_16k, self.convert_buffer)
 
         # Always run pipeline processing
         audio_model = self.pipeline.voice_conversion(
@@ -301,6 +323,7 @@ class VoiceChanger:
         vad_frame_ms: int = 30,
         sid: int = 0,
         hybrid_blend_ratio: float = 0.5,
+        fcn_profile=None,
         # device: str = "cuda",
     ):
         self.block_frame = read_chunk_size * 128
@@ -321,6 +344,7 @@ class VoiceChanger:
             vad_frame_ms=vad_frame_ms,
             sid=sid,
             hybrid_blend_ratio=hybrid_blend_ratio,
+            fcn_profile=fcn_profile,
         )
         self.device = self.vc_model.device
         self.vc_model.realloc(

@@ -1,0 +1,6 @@
+# Install into an isolated validation environment, never the application runtime.
+tensorflow-cpu==2.18.0
+keras==3.15.1
+numpy==2.0.2
+h5py==3.14.0
+hmmlearn==0.3.3

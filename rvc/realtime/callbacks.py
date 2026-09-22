@@ -42,6 +42,7 @@ class AudioCallbacks:
         vad_frame_ms: int = 30,
         sid: int = 0,
         hybrid_blend_ratio: float = 0.5,
+        fcn_profile=None,
         # device: str = "cuda",
     ):
         self.pass_through = pass_through
@@ -62,6 +63,7 @@ class AudioCallbacks:
             vad_frame_ms=vad_frame_ms,
             sid=sid,
             hybrid_blend_ratio=hybrid_blend_ratio,
+            fcn_profile=fcn_profile,
         )
         self.audio = Audio(
             self,
@@ -100,7 +102,11 @@ class AudioCallbacks:
             runtime.vad = None
             try:
                 with torch.random.fork_rng(devices=devices), torch.no_grad():
-                    for _ in range(3 if compiling else 1):
+                    warmup_blocks = 3 if compiling else 1
+                    if getattr(runtime, "fcn_session", None) is not None:
+                        delay48 = runtime.fcn_session.stream.holdback_samples * 3
+                        warmup_blocks = max(warmup_blocks, (delay48 + self.vc.block_frame - 1) // self.vc.block_frame + 2)
+                    for _ in range(warmup_blocks):
                         runtime.inference(
                             tone, f0_up_key, index_rate, protect, volume_envelope,
                             f0_autotune, f0_autotune_strength, proposed_pitch,
@@ -110,6 +116,8 @@ class AudioCallbacks:
             finally:
                 runtime.vad = vad
                 runtime.flush_buffers()
+                if hasattr(runtime, "reset_fcn_stream"):
+                    runtime.reset_fcn_stream()
                 runtime.consecutive_silence_frames = 0
 
         # Last, so the stream starts from the same RNG state however much randomness
@@ -117,6 +125,17 @@ class AudioCallbacks:
         self.seed = apply_seed()
         if self.seed is not None:
             print(f"[Realtime] Fixed RNG seed {self.seed}.")
+
+    def reset_stream(self):
+        """Reset FCN state after dropped capture samples or reconnection."""
+        runtime = self.vc.vc_model
+        if getattr(runtime, "fcn_session", None) is not None:
+            with self.lock:
+                runtime.flush_buffers()
+                runtime.reset_fcn_stream()
+                runtime.consecutive_silence_frames = 0
+                if self.vc.sola_buffer is not None:
+                    self.vc.sola_buffer.zero_()
 
     def change_voice(
         self,

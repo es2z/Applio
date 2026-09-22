@@ -1,4 +1,4 @@
-from tabs.components import mangio_crepe_decoder
+from tabs.components import mangio_crepe_decoder, fcn_profile_controls
 import json
 import os
 import random
@@ -12,6 +12,7 @@ sys.path.append(now_dir)
 from assets.i18n.i18n import I18nAuto
 from core import run_tts_script
 from rvc.lib.predictors.crepe_models import CREPE_UI_METHODS
+from rvc.lib.predictors.f0_methods import FCN_UI_METHODS
 from tabs.settings.sections.filter import get_filter_trigger, load_config_filter
 from tabs.inference.inference import (
     change_choices,
@@ -297,7 +298,7 @@ def tts_tab():
                     "Pitch extraction algorithm to use for the audio conversion. The default algorithm is rmvpe, which is recommended for most cases."
                 ),
                 choices=[
-                    *CREPE_UI_METHODS,
+                    *CREPE_UI_METHODS, *FCN_UI_METHODS,
                     "rmvpe",
                     "fcpe",
                     "swift",
@@ -306,6 +307,7 @@ def tts_tab():
                 interactive=True,
             )
             mangio_crepe_decoder(f0_method)
+            fcn_profile = fcn_profile_controls(f0_method)
             embedder_model = gr.Radio(
                 label=i18n("Embedder Model"),
                 info=i18n("Model used for learning speaker embedding."),
@@ -462,6 +464,7 @@ def tts_tab():
             embedder_model,
             embedder_model_custom,
             sid,
+            fcn_profile,
         ],
         outputs=[vc_output1, vc_output2],
     )

@@ -1,0 +1,153 @@
+{
+  "architecture": {
+    "id": "fcn-993",
+    "sample_rate": 8000,
+    "receptive_field": 993,
+    "stride": 8,
+    "bins": 486,
+    "fmin": 30.0,
+    "fmax": 1000.0
+  },
+  "source_commit": "8a2b530af821319b6badca93c8a0ed1f14bfee3c",
+  "source_url": "https://github.com/ardaillon/FCN-f0",
+  "source_sha256": "1ef2ec2762399e74809c46b7484f637e2a9d6e9b1a4daef06b3613f731011222",
+  "converter_version": 1,
+  "parameters": {
+    "classifier/classifier/bias:0": [
+      486
+    ],
+    "classifier/classifier/kernel:0": [
+      4,
+      1,
+      512,
+      486
+    ],
+    "conv1/conv1/bias:0": [
+      256
+    ],
+    "conv1/conv1/kernel:0": [
+      32,
+      1,
+      1,
+      256
+    ],
+    "conv1-BN/conv1-BN/beta:0": [
+      256
+    ],
+    "conv1-BN/conv1-BN/gamma:0": [
+      256
+    ],
+    "conv1-BN/conv1-BN/moving_mean:0": [
+      256
+    ],
+    "conv1-BN/conv1-BN/moving_variance:0": [
+      256
+    ],
+    "conv2/conv2/bias:0": [
+      32
+    ],
+    "conv2/conv2/kernel:0": [
+      32,
+      1,
+      256,
+      32
+    ],
+    "conv2-BN/conv2-BN/beta:0": [
+      32
+    ],
+    "conv2-BN/conv2-BN/gamma:0": [
+      32
+    ],
+    "conv2-BN/conv2-BN/moving_mean:0": [
+      32
+    ],
+    "conv2-BN/conv2-BN/moving_variance:0": [
+      32
+    ],
+    "conv3/conv3/bias:0": [
+      32
+    ],
+    "conv3/conv3/kernel:0": [
+      32,
+      1,
+      32,
+      32
+    ],
+    "conv3-BN/conv3-BN/beta:0": [
+      32
+    ],
+    "conv3-BN/conv3-BN/gamma:0": [
+      32
+    ],
+    "conv3-BN/conv3-BN/moving_mean:0": [
+      32
+    ],
+    "conv3-BN/conv3-BN/moving_variance:0": [
+      32
+    ],
+    "conv4/conv4/bias:0": [
+      128
+    ],
+    "conv4/conv4/kernel:0": [
+      32,
+      1,
+      32,
+      128
+    ],
+    "conv4-BN/conv4-BN/beta:0": [
+      128
+    ],
+    "conv4-BN/conv4-BN/gamma:0": [
+      128
+    ],
+    "conv4-BN/conv4-BN/moving_mean:0": [
+      128
+    ],
+    "conv4-BN/conv4-BN/moving_variance:0": [
+      128
+    ],
+    "conv5/conv5/bias:0": [
+      256
+    ],
+    "conv5/conv5/kernel:0": [
+      32,
+      1,
+      128,
+      256
+    ],
+    "conv5-BN/conv5-BN/beta:0": [
+      256
+    ],
+    "conv5-BN/conv5-BN/gamma:0": [
+      256
+    ],
+    "conv5-BN/conv5-BN/moving_mean:0": [
+      256
+    ],
+    "conv5-BN/conv5-BN/moving_variance:0": [
+      256
+    ],
+    "conv6/conv6/bias:0": [
+      512
+    ],
+    "conv6/conv6/kernel:0": [
+      32,
+      1,
+      256,
+      512
+    ],
+    "conv6-BN/conv6-BN/beta:0": [
+      512
+    ],
+    "conv6-BN/conv6-BN/gamma:0": [
+      512
+    ],
+    "conv6-BN/conv6-BN/moving_mean:0": [
+      512
+    ],
+    "conv6-BN/conv6-BN/moving_variance:0": [
+      512
+    ]
+  },
+  "weight_sha256": "4ebcd1d8bd16cd4b3db784ec3514a5abbaa89aacfc8cc94693b0c69997f193a9"
+}

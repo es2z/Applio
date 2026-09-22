@@ -1,3 +1,4 @@
+from tabs.components import fcn_profile_controls
 import os
 import shutil
 import sys
@@ -21,6 +22,7 @@ from core import (
 )
 from rvc.configs.config import get_gpu_info, get_number_of_gpus, max_vram_gpu
 from rvc.lib.predictors.crepe_models import CREPE_UI_METHODS
+from rvc.lib.predictors.f0_methods import FCN_UI_METHODS
 from rvc.lib.utils import format_title
 from tabs.settings.sections.restart import stop_train
 
@@ -583,13 +585,15 @@ def train_tab():
                     "Pitch extraction algorithm to use for the audio conversion. The default algorithm is rmvpe, which is recommended for most cases."
                 ),
                 choices=[
-                    *CREPE_UI_METHODS,
+                    *CREPE_UI_METHODS, *FCN_UI_METHODS,
                     "rmvpe",
                     "fcpe",
                 ],
                 value="rmvpe",
                 interactive=True,
             )
+
+            fcn_profile = fcn_profile_controls(f0_method)
 
             embedder_model = gr.Radio(
                 label=i18n("Embedder Model"),
@@ -677,6 +681,7 @@ def train_tab():
                 embedder_model_custom,
                 include_mutes,
                 embedder_output_layer,
+                fcn_profile,
             ],
             outputs=[extract_output_info],
         )

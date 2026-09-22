@@ -33,6 +33,7 @@ from rvc.lib.predictors.crepe_models import (
 )
 from rvc.lib.predictors.f0 import CREPE, FCPE, RMVPE, MANGIO_CREPE
 from rvc.lib.predictors.crepe_decoder import DEFAULT_DECODER
+from rvc.lib.predictors.f0_methods import FCN_METHODS
 
 TRAINING_MANGIO_CREPE_DECODER = DEFAULT_DECODER  # viterbi
 from rvc.configs.config import Config
@@ -43,7 +44,7 @@ mp.set_start_method("spawn", force=True)
 
 
 class FeatureInput:
-    def __init__(self, f0_method="rmvpe", device="cpu"):
+    def __init__(self, f0_method="rmvpe", device="cpu", fcn_profile=None, overwrite=False, expected_weight=None):
         self.hop_size = 160  # default
         self.sample_rate = 16000  # default
         self.f0_bin = 256
@@ -52,7 +53,18 @@ class FeatureInput:
         self.f0_mel_min = 1127 * np.log(1 + self.f0_min / 700)
         self.f0_mel_max = 1127 * np.log(1 + self.f0_max / 700)
         self.device = device
-        if f0_method in CREPE_METHOD_TO_MODEL:
+        self.overwrite = overwrite
+        if f0_method in FCN_METHODS:
+            from rvc.lib.predictors.fcn import FCNPredictor
+
+            if torch.device(device).type != "cuda":
+                raise ValueError("FCN extraction requires CUDA; select a GPU (CLI: --gpu 0)")
+            self.model = FCNPredictor(device=device, method=f0_method, profile=fcn_profile)
+            if expected_weight and self.model.weight_sha256 != expected_weight:
+                raise ValueError("FCN weights changed after extraction settings were frozen")
+            self.f0_min = self.model.profile.coarse_min
+            self.f0_max = self.model.profile.coarse_max
+        elif f0_method in CREPE_METHOD_TO_MODEL:
             self.model = CREPE(
                 device=self.device, sample_rate=self.sample_rate, hop_size=self.hop_size
             )
@@ -80,6 +92,8 @@ class FeatureInput:
         compile_f0_predictor(getattr(self, "model", None), f0_method, self.device)
 
     def compute_f0(self, x, p_len=None):
+        if self.f0_method in FCN_METHODS:
+            return self.model.get_f0(x, len(x) // 160 if p_len is None else p_len)
         if self.f0_method in CREPE_METHOD_TO_MODEL:
             f0 = self.model.get_f0(
                 x,
@@ -103,6 +117,10 @@ class FeatureInput:
         return f0
 
     def coarse_f0(self, f0):
+        if self.f0_method in FCN_METHODS:
+            from rvc.lib.predictors.f0_quantization import quantize_f0
+
+            return quantize_f0(f0, self.f0_min, self.f0_max)
         f0_mel = 1127.0 * np.log(1.0 + f0 / 700.0)
         f0_mel = np.clip(
             (f0_mel - self.f0_mel_min)
@@ -116,7 +134,7 @@ class FeatureInput:
 
     def process_file(self, file_info):
         inp_path, opt_path_coarse, opt_path_full, _ = file_info
-        if os.path.exists(opt_path_coarse) and os.path.exists(opt_path_full):
+        if not self.overwrite and os.path.exists(opt_path_coarse) and os.path.exists(opt_path_full):
             return
 
         try:
@@ -129,17 +147,18 @@ class FeatureInput:
             print(
                 f"An error occurred extracting file {inp_path} on {self.device}: {error}"
             )
+            raise
 
 
-def process_files(files, f0_method, device, threads):
-    fe = FeatureInput(f0_method=f0_method, device=device)
+def process_files(files, f0_method, device, threads, fcn_profile=None, overwrite=False, expected_weight=None):
+    fe = FeatureInput(f0_method=f0_method, device=device, fcn_profile=fcn_profile, overwrite=overwrite, expected_weight=expected_weight)
     with tqdm.tqdm(total=len(files), leave=True) as pbar:
         for file_info in files:
             fe.process_file(file_info)
             pbar.update(1)
 
 
-def run_pitch_extraction(files, devices, f0_method, threads):
+def run_pitch_extraction(files, devices, f0_method, threads, fcn_profile=None, overwrite=False, expected_weight=None):
     devices_str = ", ".join(devices)
     print(f"Starting pitch extraction on {devices_str} using {f0_method}...")
     start_time = time.time()
@@ -152,10 +171,14 @@ def run_pitch_extraction(files, devices, f0_method, threads):
                 f0_method,
                 devices[i],
                 threads // len(devices),
+                fcn_profile,
+                overwrite,
+                expected_weight,
             )
             for i in range(len(devices))
         ]
-        concurrent.futures.wait(tasks)
+        for task in concurrent.futures.as_completed(tasks):
+            task.result()
 
     print(f"Pitch extraction completed in {time.time() - start_time:.2f} seconds.")
 
@@ -200,7 +223,8 @@ def process_file_embedding(
     with tqdm.tqdm(total=len(files), leave=True, position=device_num) as pbar:
         with concurrent.futures.ThreadPoolExecutor(max_workers=n_threads) as executor:
             futures = [executor.submit(worker, f) for f in files]
-            for _ in concurrent.futures.as_completed(futures):
+            for future in concurrent.futures.as_completed(futures):
+                future.result()
                 pbar.update(1)
 
 
@@ -259,7 +283,8 @@ def run_embedding_extraction(
             )
             for i in range(len(devices))
         ]
-        concurrent.futures.wait(tasks)
+        for task in concurrent.futures.as_completed(tasks):
+            task.result()
 
     print(f"Embedding extraction completed in {time.time() - start_time:.2f} seconds.")
 
@@ -328,6 +353,7 @@ if __name__ == "__main__":
     # 0 means the last layer, which is what every embedder used before this was settable.
     embedder_output_layer = int(sys.argv[9]) if len(sys.argv) > 9 else 0
     output_layer = embedder_output_layer or None
+    fcn_profile = sys.argv[10] if len(sys.argv) > 10 else None
 
     wav_path = os.path.join(exp_dir, "sliced_audios_16k")
     os.makedirs(os.path.join(exp_dir, "f0"), exist_ok=True)
@@ -374,7 +400,33 @@ if __name__ == "__main__":
 
     devices = ["cpu"] if gpus == "-" else [f"cuda:{idx}" for idx in gpus.split("-")]
 
-    run_pitch_extraction(files, devices, f0_method, num_processes)
+    from rvc.train.extract.fcn_metadata import (
+        extraction_spec, input_signature, can_reuse, validate_pitch_files, write_metadata,
+    )
+
+    specification = extraction_spec(f0_method, fcn_profile)
+    signature = input_signature(files)
+    reuse_pitch = can_reuse(data.get("pitch_extraction_run"), specification, signature)
+    if f0_method in FCN_METHODS:
+        if any(torch.device(device).type != "cuda" for device in devices):
+            raise ValueError("FCN extraction requires CUDA; select a GPU (CLI: --gpu 0)")
+        if reuse_pitch:
+            try:
+                validate_pitch_files(files)
+            except (OSError, ValueError):
+                reuse_pitch = False
+    data["pitch_extraction_run"] = {"complete": False, "specification": specification, "input_signature": signature}
+    data.pop("f0_extraction", None)
+    write_metadata(file_path, data)
+    run_pitch_extraction(
+        files, devices, f0_method, num_processes,
+        specification.get("profile"), not reuse_pitch, specification.get("weight_sha256"),
+    )
+    if f0_method in FCN_METHODS:
+        validate_pitch_files(files)
+        data["f0_extraction"] = specification
+    data["pitch_extraction_run"]["complete"] = True
+    write_metadata(file_path, data)
 
     run_embedding_extraction(
         files,
@@ -403,8 +455,7 @@ if __name__ == "__main__":
     data["embedder_output_layer"] = output_layer
     data["embedder_dim"] = feature_dim
     data["embedder_input_std_floor"] = input_std_floor
-    with open(file_path, "w") as f:
-        json.dump(data, f, indent=4)
+    write_metadata(file_path, data)
 
     generate_config(sample_rate, exp_dir, feature_dim)
     generate_filelist(exp_dir, sample_rate, include_mutes)

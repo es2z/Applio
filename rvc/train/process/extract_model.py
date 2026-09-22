@@ -44,9 +44,13 @@ def extract_model(
         embedder_feature_scale = 1.0
         embedder_output_layer = None
         embedder_input_std_floor = None
+        f0_extraction = None
         if os.path.exists(os.path.join(model_dir, "model_info.json")):
             with open(os.path.join(model_dir, "model_info.json"), "r") as f:
                 data = json.load(f)
+                if data.get("pitch_extraction_run", {}).get("complete") is False:
+                    raise ValueError("Cannot export a checkpoint from an incomplete F0 extraction run")
+                f0_extraction = data.get("f0_extraction")
                 dataset_length = data.get("total_dataset_duration", None)
                 embedder_model = data.get("embedder_model", None)
                 embedder_feature_scale = data.get("embedder_feature_scale", 1.0)
@@ -106,6 +110,8 @@ def extract_model(
         opt["embedder_feature_scale"] = embedder_feature_scale
         opt["embedder_output_layer"] = embedder_output_layer
         opt["embedder_input_std_floor"] = embedder_input_std_floor
+        if f0_extraction is not None:
+            opt["f0_extraction"] = f0_extraction
         # opt["config"] is a positional argument list for Synthesizer, so the feature
         # width goes in as its own key. Inference reads it off enc_p.emb_phone anyway;
         # this is for anything that wants the number without loading the weights.

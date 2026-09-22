@@ -34,6 +34,7 @@ class F0Extractor:
     f0_min: int = 50
     f0_max: int = 1600
     method: str = "rmvpe"
+    fcn_profile: object = None
     x: np.ndarray = dataclasses.field(init=False)
 
     def __post_init__(self):
@@ -50,6 +51,10 @@ class F0Extractor:
     def extract_f0(self):
         f0 = None
         method = self.method
+        from rvc.lib.predictors.f0_methods import FCN_METHODS
+
+        if method in FCN_METHODS:
+            return self.hz_to_cents(self.extract_track()["pitch_hz"], librosa.midi_to_hz(0))
         if method in CREPE_METHOD_TO_MODEL:
             wav16k_torch = torch.FloatTensor(self.wav16k).unsqueeze(0).to(config.device)
             # Get torch.compile settings
@@ -114,6 +119,24 @@ class F0Extractor:
         else:
             raise ValueError(f"Unknown method: {self.method}")
         return self.hz_to_cents(f0, librosa.midi_to_hz(0))
+
+    def extract_track(self):
+        from rvc.lib.predictors.f0_methods import FCN_METHODS
+
+        if self.method in FCN_METHODS:
+            from rvc.lib.predictors.fcn import FCNPredictor
+
+            if torch.device(config.device).type != "cuda":
+                raise ValueError("FCN utility requires CUDA")
+            predictor = FCNPredictor(config.device, self.method, self.fcn_profile)
+            track = predictor.extract_track(self.wav16k)
+            return {"timestamps": track.timestamps, "pitch_hz": track.pitch_hz,
+                    "confidence": track.confidence, "voiced": track.voiced}
+        cents = self.extract_f0()
+        hz = np.nan_to_num(librosa.midi_to_hz(0) * 2 ** (cents / 1200), nan=0.0)
+        hop = self.hop_size if self.method == "fcpe" else .01
+        return {"timestamps": np.arange(len(hz)) * hop, "pitch_hz": hz,
+                "confidence": np.full(len(hz), np.nan), "voiced": hz > 0}
 
     def plot_f0(self, f0):
         from matplotlib import pyplot as plt
