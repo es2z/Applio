@@ -14,8 +14,10 @@ FCNF0++ を、PENN 本来の pitch / periodicity / decoder / framing を変え�
 | --- | --- | --- |
 | **fcnf0++** | PENN の pitch をそのまま渡す。全フレーム有声、補間なし | FCNF0++ モデル自体の評価 |
 | **fcnf0++-rvc** | 同じ pitch のうち、PENN の periodicity が `periodicity_threshold` 以下のフレームだけを無声（0 Hz）にする | RVC での変換・学習 |
+| **fcnf0++-aligned** | fcnf0++ の窓を 11 ms 後ろに置く（モデル自身の話し声での遅れを打ち消す）。それ以外は同じ | 補正の効果の確認 |
+| **fcnf0++-rvc-aligned** | fcnf0++-rvc の補正版。しきい値は補正後に選び直した 0.0425 | 補正版での変換・学習 |
 
-両者の違いは V/UV の判定**だけ**です。聴き比べれば「聴感の問題が voicing 判定から来ているのか、モデルから来ているのか」を 1 回で切り分けられます。median filter、hysteresis、補間、無音ゲートなどは入れていません。
+`fcnf0++` と `fcnf0++-rvc` の違い（-aligned 同士も同じ）は、V/UV の判定**だけ**です。聴き比べれば「聴感の問題が voicing 判定から来ているのか、モデルから来ているのか」を 1 回で切り分けられます。median filter、hysteresis、補間、無音ゲートなどは入れていません。
 
 ## 同梱の既定値
 
@@ -33,6 +35,8 @@ FCNF0++ を、PENN 本来の pitch / periodicity / decoder / framing を変え�
 ~~~
 
 `fcnf0++` の既定値は `"periodicity_threshold": null` で、それ以外は同じです。
+`-aligned` の 2 方式は `"lag_compensation_ms": 11.0` を持ち、`fcnf0++-rvc-aligned` のしきい値は 0.0425 です。
+補正なしの 2 方式では `lag_compensation_ms` は 0 に固定されています（PENN のフレーミングそのまま）。
 「Load recommended F0 settings」ボタンで同じ JSON が入ります。優先順位は
 **明示 JSON → method が一致する checkpoint の設定 → 同梱の既定値** です（FCN-993 と同じ）。
 CLI では `--fcn_profile` に JSON を渡します（FCN-993 と FCNF0++ で共用です。JSON の `method` で振り分けます）。
@@ -42,6 +46,7 @@ CLI では `--fcn_profile` に JSON を渡します（FCN-993 と FCNF0++ で共
 | decoder | `viterbi` | PENN の既定値。`argmax` も選べます（どちらも local expected value ±9 bin を使います）。periodicity は decoder に依存しません |
 | periodicity_threshold | 0.035 | `periodicity > threshold` を有声とします（`penn.voicing.threshold` と同じ向き）。`fcnf0++` では `null` |
 | center | `zero` | frame i の窓中心を t = i × 10 ms に置きます。`half-hop`（+5 ms）は過去の実装を再現する比較用です |
+| lag_compensation_ms | 0（-aligned は 11） | 窓の中心を t = i × 10 ms からこの分だけ後ろに置きます。-aligned の方式だけで使え、0 より大きく 30 以下です |
 | coarse_min / coarse_max | 50 / 1680 | PENN が復号してよい範囲であり、同時に coarse F0 の量子化範囲でもあります。50–1100 も指定できます |
 
 設定を変えると学習抽出はやり直しになります（`model_info.json` の `f0_extraction` に記録されます）。
@@ -104,7 +109,7 @@ frame i の音高が実際に鳴っていた時刻から i × 10 ms を引いた
 | 参考：RMVPE / CREPE / FCPE / FCN-993（グライド） | +0.5 / +0.6 / +0.1 / −1.3 ms | |
 
 **窓の位置（統合側で決めるもの）は `zero` で正しく揃っています。** 一方、**倍音を含む話し声の帯域でだけ、FCNF0++ の出す音高は約 11 ms（約 1 フレーム）遅れます**。純音や高い声では遅れません。
-これは信号の中身によって変わるモデル自身の性質で、固定量をずらす補正では正しくならないため、**補正していません**（今回の範囲外）。語頭・語尾・breath への移行部の聴感に影響する可能性が最も高い、既知の性質です。
+これは信号の中身によって変わるモデル自身の性質です。補正なしの 2 方式ではそのまま残しています。固定量で打ち消すのが、後述の -aligned の 2 方式です（高い声では逆に早くなる代償があります）。
 
 定常の倍音音では、音高も平均 −4 cents ずれていました（−10.6〜+2.7 cents）。
 
@@ -118,7 +123,53 @@ frame i の音高が実際に鳴っていた時刻から i × 10 ms を引いた
 | mangio-crepe-full-speech | 67.6% | 256 | 0 | 12.9 c | −3 ms |
 | rmvpe | 67.4% | 126 | 2 | – | – |
 
-### realtime
+### 補正版（-aligned）
+
+補正なしの FCNF0++ は、倍音を含む話し声の帯域で約 11 ms 遅れます。-aligned は窓の中心を 11 ms（8 kHz で 88 サンプル）後ろに置きます。
+PENN の `zero` の reflect padding を前 424 / 後 600 サンプルに配分し直し、PENN 自身の `half-window`（padding なし）のフレーミングで切り出します。
+network・decoder・periodicity は PENN のままで、フレーム数も変わりません。補正量をちょうど 10 ms にすると、補正なしの次のフレームと端以外がビット一致します（`tests/test_fcnf0pp.py`）。
+
+### 補正量の選び方（0〜20 ms を 1 ms 刻みで掃引）
+
+| 補正量 | 注釈 4 例の RPA50 / RPA25 | reference.wav の平均差（RMVPE / CREPE） | グライドの残りのずれ 70–180 / 150–400 / 300–800 Hz |
+| ---: | ---: | ---: | ---: |
+| 0 ms | 76.9% / 53.7% | 47.9 / 46.3 c | −10.9 / −12.3 / −0.4 ms |
+| 5 ms | 85.8% / 63.2% | 32.4 / 35.5 c | −5.1 / −7.1 / +5.1 ms |
+| 10 ms | 89.4% / 74.5% | 22.8 / 30.7 c | −0.9 / −2.4 / +9.6 ms |
+| **11 ms** | **90.3% / 75.4%** | **22.4 / 30.3 c** | **−0.1 / −1.4 / +10.9 ms** |
+| 13 ms | 90.8% / 74.0% | 23.7 / 32.1 c | +3.0 / +0.4 / +12.8 ms |
+| 15 ms | 89.6% / 73.1% | 26.7 / 34.6 c | +4.9 / +2.8 / +15.3 ms |
+
+注釈データの RPA25、RMVPE との差、CREPE との差、低音域グライドのずれの 4 つが、そろって 11 ms で最良になりました。
+**代償として、300 Hz 以上の高い声では約 11 ms 早すぎる状態になります**（補正前はそこに遅れがなかったため）。
+補正版 RVC のしきい値は、補正後の periodicity に対して PENN と同じ F1 基準で選び直しました。F1 は 0.035〜0.045 の範囲で平坦で、最適値は 0.0425 です（[fcnf0pp-aligned-voicing-evaluation.json](fcnf0pp-aligned-voicing-evaluation.json)）。
+
+### 同じ土俵での比較（注釈付き 4 例、有声 804 / 無声 479 フレーム）
+
+| method | RPA50 | RPA25 | 誤差の中央値 | 無声→有声 | 有声→無声 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| fcn-993 | 91.7% | 78.4% | 10.3 c | – | – |
+| fcn-993-rvc | 90.6% | 77.7% | 11.2 c | 13.8% | 2.5% |
+| fcnf0++ | 76.9% | 53.7% | 22.5 c | – | – |
+| fcnf0++-rvc | 75.5% | 52.9% | 23.2 c | 7.1% | 3.7% |
+| fcnf0++-aligned | 90.3% | 75.4% | 13.0 c | – | – |
+| fcnf0++-rvc-aligned | 88.7% | 74.5% | 13.1 c | 5.8% | 3.9% |
+
+**補正量と補正版のしきい値はこの 4 例で選んだので、補正版の数字は評価データで調整した分だけ楽観的です。**
+補正後も音高の精度は FCN-993 に 1〜3 ポイント届いていません。V/UV は、無声を有声と誤る率が FCN-993-RVC の半分以下である一方、有声を無声と誤る率は少し高めです。
+
+### reference.wav（基準 RMVPE、音高差は共通の有声フレームでの中央値）
+
+| method | 有声率 | V/UV 遷移 | 音高差 | ラグ |
+| --- | ---: | ---: | ---: | ---: |
+| fcnf0++-rvc | 62.5% | 154 | 33.1 c | +11 ms |
+| fcnf0++-rvc-aligned | 61.3% | 162 | **8.9 c** | **0 ms** |
+| fcn-993-rvc | 66.0% | 262 | 10.6 c | +3 ms |
+| mangio-crepe-full-speech | 67.6% | 256 | 12.7 c | −3 ms |
+
+realtime の処理時間は補正の有無で変わりません（交互に測って p50 55〜58 ms、p95 90〜98 ms。GPU の負荷状況によって、前節の値より遅い回でした）。
+
+## realtime
 
 stateless で、毎ブロック convert 窓全体を再計算します（RMVPE・CREPE と同じ方式）。holdback はありません。
 160 ms ブロック、122 frame の窓、kushinada-hubert-large、MRF HiFi-GAN 48k で計測しました。
@@ -137,12 +188,14 @@ argmax（frame 独立）でも 71 / 12697 でした。V/UV の反転はどちら
 
 ## 聴き比べ
 
+既定では補正なしと補正版の 4 方式に、fcn-993、fcn-993-rvc、mangio-crepe-full-speech、rmvpe を加えた 8 方式を比べます。
+
 ~~~powershell
 .\env\python.exe tools\compare_f0_methods.py input.wav --output compare.json `
   --pth logs\MODEL\MODEL.pth --embedder_model kushinada-hubert-large --render_dir logs\f0_compare
 ~~~
 
-`fcnf0++` / `fcnf0++-rvc` / `fcn-993-rvc` / `mangio-crepe-full-speech` / `rmvpe` の F0 指標を JSON に出し、
+各方式の F0 指標を JSON に出し、
 同じモデル・ピッチシフト 0・index なしで変換した wav を書き出します。
 一度に変えるのは 1 項目だけにしてください（method、decoder、しきい値を同時に動かさない）。
 
@@ -168,5 +221,6 @@ argmax（frame 独立）でも 71 / 12697 でした。V/UV の反転はどちら
 
 ## 今回やっていないこと
 
-octave-jump の補正、posterior を使った裏返り補正、hysteresis による V/UV、median などの時間平滑化、語尾・breath 専用の処理、約 11 ms の遅れの補正、独自の streaming decoder。
+octave-jump の補正、posterior を使った裏返り補正、hysteresis による V/UV、median などの時間平滑化、語尾・breath 専用の処理、信号に応じて補正量を変える処理、独自の streaming decoder。
+約 11 ms の遅れの固定量の補正は、比較用に -aligned として別の方式で用意しています（補正なしの 2 方式は PENN のままです）。
 FCNF0++ を正しく統合した状態で聴感を評価してから、必要なら別途検討します。

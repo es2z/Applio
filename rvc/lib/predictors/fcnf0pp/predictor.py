@@ -12,6 +12,13 @@ Pitch is never interpolated (interp_unvoiced_at is always None). fcnf0++ returns
 penn's pitch untouched; fcnf0++-rvc additionally zeroes the frames penn itself
 would call unvoiced at the profile's periodicity threshold (periodicity > threshold
 is voiced, as in penn.voicing.threshold).
+
+The -aligned methods are the one departure from penn: each window is centred
+lag_compensation_ms later than t = i * 10 ms. On harmonic speech-range signals the
+model reports the pitch of ~11 ms before its window centre, so this puts that pitch
+back on frame i. It is a framing change only - the network, decoders and periodicity
+are penn's - and on high voices (>300 Hz), which show no such lag, it makes the
+output that much early instead.
 """
 
 import copy
@@ -117,23 +124,38 @@ class FCNF0PPPredictor:
         """Model logits for every penn frame, shape (frames, PITCH_BINS, 1)."""
         penn = self.penn
         audio8k = self.resampler(audio[None])
-        padding = (
-            penn.WINDOW_SIZE // 2
-            if self.profile.center == "zero"
-            else (penn.WINDOW_SIZE - penn.HOPSIZE) // 2
-        )
+        center = self.profile.center
+        # Samples at 8 kHz that each window is moved later by (the -aligned methods).
+        lag = round(self.profile.lag_compensation_ms * penn.SAMPLE_RATE / 1000)
+        if lag:
+            # penn's "zero" framing reflect-pads WINDOW_SIZE // 2 on both sides; moving
+            # that padding lag samples from the front to the back centres window i at
+            # i * hop + lag. Frame count and everything downstream are unchanged, and
+            # "half-window" is penn's own no-padding framing of the padded signal.
+            half = penn.WINDOW_SIZE // 2
+            padding = half + lag
+            left, right = half - lag, half + lag
+            center = "half-window"
+        else:
+            padding = (
+                penn.WINDOW_SIZE // 2
+                if center == "zero"
+                else (penn.WINDOW_SIZE - penn.HOPSIZE) // 2
+            )
         if audio8k.shape[-1] <= padding:
             raise ValueError(
                 f"FCNF0++ needs more than {2 * padding} samples at 16 kHz "
                 f"({padding / penn.SAMPLE_RATE * 1000:.0f} ms) for its reflect padding"
             )
+        if lag:
+            audio8k = torch.nn.functional.pad(audio8k, (left, right), mode="reflect")
         chunks = []
         for frames in penn.preprocess(
             audio8k,
             penn.SAMPLE_RATE,
             HOP_SECONDS,
             self.batch_size,
-            self.profile.center,
+            center,
         ):
             with penn.core.inference_context(self.model):
                 chunks.append(self.model(frames.to(self.device)).detach())

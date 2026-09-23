@@ -9,7 +9,15 @@ PROFILE_DIR = Path(__file__).with_name("profiles")
 DEFAULT_PATHS = {
     "fcnf0++": PROFILE_DIR / "baseline-v1.json",
     "fcnf0++-rvc": PROFILE_DIR / "rvc-default-v1.json",
+    "fcnf0++-aligned": PROFILE_DIR / "baseline-aligned-v1.json",
+    "fcnf0++-rvc-aligned": PROFILE_DIR / "rvc-aligned-v1.json",
 }
+# Methods that zero frames at or below periodicity_threshold.
+GATED_METHODS = ("fcnf0++-rvc", "fcnf0++-rvc-aligned")
+# Methods that place each window later to cancel the model's own lag on speech; the
+# others are PENN's framing unchanged. See lag_compensation_ms and docs/fcnf0pp.md.
+ALIGNED_METHODS = ("fcnf0++-aligned", "fcnf0++-rvc-aligned")
+MAX_LAG_COMPENSATION_MS = 30.0
 DECODERS = ("viterbi", "argmax")
 # "zero" puts frame i at t = i * 10 ms, the grid every other method here uses.
 # "half-hop" (+5 ms) is what the earlier integration used; kept only to reproduce it.
@@ -26,6 +34,10 @@ class FCNF0PPProfile:
     coarse_min: float = 50.0
     coarse_max: float = 1680.0
     calibrated: bool = False
+    # How much later than t = i * 10 ms frame i's window is centred. FCNF0++ reports the
+    # pitch of ~11 ms before its window centre on harmonic speech-range signals, so a
+    # positive value moves the reported pitch back onto frame i's instant.
+    lag_compensation_ms: float = 0.0
 
     def __post_init__(self):
         if self.method not in DEFAULT_PATHS or self.version != 1:
@@ -38,15 +50,26 @@ class FCNF0PPProfile:
             raise ValueError("FCNF0++ F0 range must be 50–1680 or 50–1100 Hz")
         if type(self.calibrated) is not bool:
             raise ValueError("calibrated must be true or false")
-        if self.method == "fcnf0++":
+        if self.method in ALIGNED_METHODS:
+            if not 0 < self.lag_compensation_ms <= MAX_LAG_COMPENSATION_MS:
+                raise ValueError(
+                    f"{self.method} needs 0 < lag_compensation_ms <= {MAX_LAG_COMPENSATION_MS:g}"
+                )
+            if self.center != "zero":
+                raise ValueError("lag_compensation_ms is defined relative to center 'zero'")
+        elif self.lag_compensation_ms != 0:
+            raise ValueError(
+                f"{self.method} keeps PENN's framing; use its -aligned method for lag compensation"
+            )
+        if self.method not in GATED_METHODS:
             if self.periodicity_threshold is not None:
                 raise ValueError(
-                    "fcnf0++ is the ungated baseline; use fcnf0++-rvc for a periodicity threshold"
+                    f"{self.method} is ungated; use an -rvc method for a periodicity threshold"
                 )
         else:
             if self.periodicity_threshold is None:
                 raise ValueError(
-                    "An explicit fcnf0++-rvc profile needs periodicity_threshold. "
+                    f"An explicit {self.method} profile needs periodicity_threshold. "
                     "Leave the profile blank to use the bundled default."
                 )
             if not 0 <= self.periodicity_threshold <= 1:

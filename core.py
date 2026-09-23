@@ -2375,7 +2375,7 @@ def parse_arguments():
     for fcn_parser in (infer_parser, batch_infer_parser, tts_parser, extract_parser):
         fcn_parser.add_argument(
             "--fcn_profile", default=None,
-            help="Optional F0 profile JSON (file or inline) for FCN-993 and FCNF0++ methods; its \"method\" must match --f0_method. Omit to use a matching checkpoint profile or bundled defaults (FCN-993-RVC: Balanced v1; FCNF0++-RVC: periodicity 0.035).",
+            help="Optional F0 profile JSON (file or inline) for FCN-993 and FCNF0++ methods; its \"method\" must match --f0_method. Omit to use a matching checkpoint profile or bundled defaults (FCN-993-RVC: Balanced v1; FCNF0++-RVC: periodicity 0.035; FCNF0++-RVC aligned: 0.0425 with 11 ms lag compensation).",
         )
     return parser.parse_args()
 

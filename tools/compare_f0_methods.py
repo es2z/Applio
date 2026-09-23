@@ -26,7 +26,10 @@ import torch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-DEFAULT_METHODS = ("fcnf0++", "fcnf0++-rvc", "fcn-993-rvc", "mangio-crepe-full-speech", "rmvpe")
+DEFAULT_METHODS = (
+    "fcnf0++", "fcnf0++-rvc", "fcnf0++-aligned", "fcnf0++-rvc-aligned",
+    "fcn-993", "fcn-993-rvc", "mangio-crepe-full-speech", "rmvpe",
+)
 
 
 def voicing(f0):

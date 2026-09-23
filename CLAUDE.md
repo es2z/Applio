@@ -190,7 +190,7 @@ Applio-3.5.0/
 - `fcpe` - Fastest, good for real-time
 - `crepe` - Highest quality, slowest
 - `fcn-993`, `fcn-993-rvc` - FCN-993 (fork-specific, `docs/fcn-993.md`)
-- `fcnf0++`, `fcnf0++-rvc` - FCNF0++ via penn (fork-specific, see below and `docs/fcnf0pp.md`)
+- `fcnf0++`, `fcnf0++-rvc`, `fcnf0++-aligned`, `fcnf0++-rvc-aligned` - FCNF0++ via penn (fork-specific, see below and `docs/fcnf0pp.md`)
 - `hybrid[...]` - Averages multiple methods for robustness
 
 ### Embedder Models
@@ -1129,7 +1129,7 @@ orderings), but it is a different estimator: against `viterbi` it moves the outp
 changes the voice, which is why the default is left alone and the choice is exposed
 rather than made here.
 
-### FCNF0++ (PENN): `fcnf0++` and `fcnf0++-rvc`
+### FCNF0++ (PENN): `fcnf0++`, `fcnf0++-rvc` and their `-aligned` variants
 `rvc/lib/predictors/fcnf0pp/`. Full write-up, measurements and usage in `docs/fcnf0pp.md`.
 Everything numeric is penn 1.0.0's own code - `penn.preprocess`, `penn.Model`,
 `penn.core.inference_context`, `penn.decode.Viterbi/Argmax`, `penn.periodicity.entropy` -
@@ -1152,11 +1152,19 @@ the 1440 x 1440 transition already on the device.
   t = i*10 ms (measured: RMVPE +0.5, CREPE +0.6, FCPE +0.1, FCN-993 -1.3 ms). `'zero'`
   returns `len//160 + 1` frames and the first `p_len` are used - no resize, and no
   FCN-style special padding in `infer/pipeline.py`.
-- **Known, deliberately uncorrected:** on harmonic signals in the speech range
-  (70-400 Hz) FCNF0++'s pitch runs **~11-12 ms late** even with `'zero'` (pure tones and
-  >300 Hz harmonics: ~0 ms; real speech vs RMVPE/CREPE: +11 ms). It depends on the signal,
-  so a fixed shift would be wrong elsewhere; it is the first suspect for onset/offset
-  artefacts. Steady harmonic tones also read ~-4 cents.
+- **The model's own lag:** on harmonic signals in the speech range (70-400 Hz)
+  FCNF0++'s pitch runs **~11-12 ms late** even with `'zero'` (pure tones and >300 Hz
+  harmonics: ~0 ms; real speech vs RMVPE/CREPE: +11 ms). `fcnf0++` / `fcnf0++-rvc` keep
+  it (PENN untouched, `lag_compensation_ms` must be 0). **`fcnf0++-aligned` /
+  `fcnf0++-rvc-aligned`** centre each window `lag_compensation_ms = 11` later by moving
+  88 samples @8 kHz of penn's `'zero'` reflect padding from the front to the back and
+  framing with penn's own `'half-window'`; at exactly 10 ms this is bit-identical to the
+  next plain frame (tested). 11 ms was where DTB RPA25, the RMVPE and CREPE agreement
+  and the low-glide residual all peaked; the cost is ~+11 ms (early) on >300 Hz voices,
+  where there was no lag. On the four DTB examples it lifts RPA50 76.9% -> 90.3%
+  (FCN-993: 91.7%) and median error 22.5 -> 13.0 c (FCN-993: 10.3 c) - in-sample, since
+  the 11 ms and the aligned threshold 0.0425 were chosen there. Steady harmonic tones
+  also read ~-4 cents, uncorrected in every variant.
 - **One F0 range, 50-1680 Hz, in all three paths**, and realtime quantizes with
   `quantize_f0`. Entropy periodicity's unvoiced floor is `1 - log(K)/log(1440)` for K
   allowed bins (0.0407 at 1100 Hz, 0.0230 at 1680 Hz), so the earlier integration's 0.065

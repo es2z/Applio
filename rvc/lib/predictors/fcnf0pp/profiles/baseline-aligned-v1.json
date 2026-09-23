@@ -1,0 +1,11 @@
+{
+  "method": "fcnf0++-aligned",
+  "version": 1,
+  "decoder": "viterbi",
+  "periodicity_threshold": null,
+  "center": "zero",
+  "coarse_min": 50.0,
+  "coarse_max": 1680.0,
+  "calibrated": false,
+  "lag_compensation_ms": 11.0
+}

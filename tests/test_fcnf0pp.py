@@ -47,14 +47,14 @@ def glide_offset_ms(f0, start, end, seconds=4.0):
     return float(np.median(sounded - index[keep] * 0.01) * 1000)
 
 
-def timing_ms(predictor, low, high):
+def timing_ms(predictor, low, high, harmonics=1):
     """Timing offset with the model's small constant pitch bias cancelled.
 
     A constant cents error reads as an early offset on a rising glide and a late one
     on a falling glide, so the mean of the two is timing alone.
     """
-    up = glide_offset_ms(predictor.get_f0(glide(low, high)), low, high)
-    down = glide_offset_ms(predictor.get_f0(glide(high, low)), high, low)
+    up = glide_offset_ms(predictor.get_f0(glide(low, high, harmonics=harmonics)), low, high)
+    down = glide_offset_ms(predictor.get_f0(glide(high, low, harmonics=harmonics)), high, low)
     return (up + down) / 2
 
 
@@ -63,16 +63,20 @@ def timing_ms(predictor, low, high):
 
 def test_bundled_profiles():
     baseline, rvc = default_profile("fcnf0++"), default_profile("fcnf0++-rvc")
-    assert baseline.periodicity_threshold is None
+    aligned, rvc_aligned = default_profile("fcnf0++-aligned"), default_profile("fcnf0++-rvc-aligned")
+    assert baseline.periodicity_threshold is None and aligned.periodicity_threshold is None
     assert rvc.periodicity_threshold == 0.035
-    for bundled in (baseline, rvc):
+    assert rvc_aligned.periodicity_threshold == 0.0425
+    assert baseline.lag_compensation_ms == rvc.lag_compensation_ms == 0.0
+    assert aligned.lag_compensation_ms == rvc_aligned.lag_compensation_ms == 11.0
+    for bundled in (baseline, rvc, aligned, rvc_aligned):
         assert bundled.decoder == "viterbi"
         assert bundled.center == "zero"
         assert (bundled.coarse_min, bundled.coarse_max) == (50.0, 1680.0)
 
 
 def test_profile_validation():
-    with pytest.raises(ValueError, match="ungated baseline"):
+    with pytest.raises(ValueError, match="is ungated"):
         FCNF0PPProfile(method="fcnf0++", periodicity_threshold=0.1)
     with pytest.raises(ValueError, match="needs periodicity_threshold"):
         FCNF0PPProfile(method="fcnf0++-rvc")
@@ -84,6 +88,17 @@ def test_profile_validation():
         FCNF0PPProfile(coarse_max=2000.0)
     with pytest.raises(ValueError, match="periodicity_threshold"):
         FCNF0PPProfile(method="fcnf0++-rvc", periodicity_threshold=1.5)
+    # The plain methods are PENN's framing; only -aligned moves the windows.
+    with pytest.raises(ValueError, match="-aligned"):
+        FCNF0PPProfile(method="fcnf0++", lag_compensation_ms=11.0)
+    with pytest.raises(ValueError, match="lag_compensation_ms"):
+        FCNF0PPProfile(method="fcnf0++-aligned")
+    with pytest.raises(ValueError, match="lag_compensation_ms"):
+        FCNF0PPProfile(method="fcnf0++-aligned", lag_compensation_ms=40.0)
+    with pytest.raises(ValueError, match="center 'zero'"):
+        FCNF0PPProfile(method="fcnf0++-aligned", lag_compensation_ms=11.0, center="half-hop")
+    with pytest.raises(ValueError, match="needs periodicity_threshold"):
+        FCNF0PPProfile(method="fcnf0++-rvc-aligned", lag_compensation_ms=11.0)
 
 
 def test_profile_resolution_order(tmp_path):
@@ -297,3 +312,40 @@ def test_realtime_pipeline_uses_the_training_quantization():
     legacy = np.rint(np.clip((mel - 50.0) * 254 / (1680.0 - 50.0) + 1, 1, 255))
     assert coarse[f0 > 0].max() > legacy[f0 > 0].max() + 20
     assert (coarse[f0 == 0] == 1).all()
+
+
+# --- lag compensation (the -aligned methods) ----------------------------------------
+
+
+def test_one_hop_of_compensation_is_exactly_the_next_penn_frame():
+    """With 10 ms (one hop) the windows are penn's "zero" windows moved by one frame."""
+    audio = np.concatenate([glide(120, 300, 1.5, 5), harmonic(220, 0.5)])
+    plain = make(decoder="argmax").extract_track(audio)
+    shifted = make("fcnf0++-aligned", decoder="argmax", lag_compensation_ms=10.0).extract_track(audio)
+    assert len(shifted.pitch_hz) == len(plain.pitch_hz) == len(audio) // 160
+    inner = slice(10, len(audio) // 160 - 10)  # the edges see different reflect padding
+    np.testing.assert_array_equal(
+        shifted.raw_pitch_hz[inner], plain.raw_pitch_hz[inner.start + 1 : inner.stop + 1]
+    )
+    np.testing.assert_array_equal(
+        shifted.periodicity[inner], plain.periodicity[inner.start + 1 : inner.stop + 1]
+    )
+
+
+def test_compensation_cancels_the_speech_range_lag_and_costs_high_voices():
+    plain, aligned = make(decoder="argmax"), make("fcnf0++-aligned", decoder="argmax")
+    # Harmonic speech-range glide: the model's own ~12 ms lag, gone once aligned.
+    assert timing_ms(plain, 150, 400, harmonics=5) < -9.0
+    assert abs(timing_ms(aligned, 150, 400, harmonics=5)) < 2.5
+    # Above ~300 Hz there was no lag, so the fixed compensation runs early there.
+    assert timing_ms(aligned, 300, 800) == pytest.approx(11.0, abs=2.0)
+
+
+def test_rvc_aligned_gate_is_only_its_threshold():
+    audio = np.concatenate([np.zeros(8000, np.float32), harmonic(180, 1.0)])
+    baseline = make("fcnf0++-aligned").extract_track(audio)
+    rvc = make("fcnf0++-rvc-aligned").extract_track(audio)
+    assert baseline.voiced.all()
+    np.testing.assert_array_equal(rvc.raw_pitch_hz, baseline.raw_pitch_hz)
+    np.testing.assert_array_equal(rvc.voiced, rvc.periodicity > 0.0425)
+    assert (rvc.pitch_hz[~rvc.voiced] == 0).all()

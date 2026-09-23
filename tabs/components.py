@@ -22,7 +22,8 @@ FCN_REALTIME_HELP = "FCN delays audio and F0 together by 140–150 ms, plus capt
 FCNF0PP_PROFILE_HELP = (
     "**FCNF0++ (PENN)** — FCNF0++ passes PENN's pitch through unchanged, with every frame voiced: use it to judge the model itself. "
     "**FCNF0++-RVC** is the same pitch with frames whose PENN periodicity is at or below `periodicity_threshold` set to unvoiced, and nothing else. "
-    'Leave the profile blank to use a matching checkpoint profile or the bundled defaults (Viterbi decoding; FCNF0++-RVC periodicity threshold 0.035, chosen by the voiced-F1 criterion PENN itself uses). `"decoder": "argmax"` is also available. Details: docs/fcnf0pp.md'
+    "The **(aligned)** variants centre each analysis window 11 ms later, cancelling the ~11 ms the model lags on speech-range voices; on high voices (above ~300 Hz) they run that much early instead. "
+    'Leave the profile blank to use a matching checkpoint profile or the bundled defaults (Viterbi decoding; periodicity threshold 0.035 for FCNF0++-RVC and 0.0425 for FCNF0++-RVC (aligned), each chosen by the voiced-F1 criterion PENN itself uses). `"decoder": "argmax"` is also available. Details: docs/fcnf0pp.md'
 )
 FCNF0PP_REALTIME_HELP = "FCNF0++ keeps no stream state and adds no holdback: every block recomputes the whole conversion window, like RMVPE and CREPE."
 

@@ -62,14 +62,16 @@ def scores(periodicity, truth, usable, threshold):
     }
 
 
-def evaluate(root, output, decoder, device):
+def evaluate(root, output, decoder, device, lag_compensation_ms=0.0):
     from rvc.lib.predictors.fcnf0pp import FCNF0PPPredictor
 
     root = Path(root)
-    predictor = FCNF0PPPredictor(device, "fcnf0++", {
-        "method": "fcnf0++", "version": 1, "decoder": decoder,
+    method = "fcnf0++-aligned" if lag_compensation_ms else "fcnf0++"
+    predictor = FCNF0PPPredictor(device, method, {
+        "method": method, "version": 1, "decoder": decoder,
         "periodicity_threshold": None, "center": "zero",
         "coarse_min": 50.0, "coarse_max": 1680.0, "calibrated": False,
+        "lag_compensation_ms": float(lag_compensation_ms),
     })
     periodicity, truth, usable, cents, files = [], [], [], [], []
     for name in EXAMPLES:
@@ -100,6 +102,7 @@ def evaluate(root, output, decoder, device):
         "scope": "four upstream manually corrected development examples; not a speaker-disjoint or independent held-out evaluation",
         "weight_sha256": predictor.weight_sha256,
         "decoder": decoder,
+        "lag_compensation_ms": float(lag_compensation_ms),
         "f0_range_hz": [50.0, 1680.0],
         "files": files,
         "pitch_on_reference_voiced_frames": {
@@ -123,7 +126,7 @@ def evaluate(root, output, decoder, device):
             f"  F1 {stats['f1']:.4f}  transitions {stats['transitions']}"
         )
 
-    print(f"FCNF0++ ({decoder}), 50-1680 Hz, {int(usable.sum())} usable frames")
+    print(f"FCNF0++ ({decoder}, lag compensation {lag_compensation_ms:g} ms), 50-1680 Hz, {int(usable.sum())} usable frames")
     print(line(f"PENN F1 optimum {f1_best[0]}", f1_best[1]))
     print(line(f"balanced optimum {balanced_best[0]}", balanced_best[1]))
     for t in REPORTED:
@@ -139,8 +142,10 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--decoder", default="viterbi", choices=("viterbi", "argmax"))
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--lag_compensation_ms", type=float, default=0.0,
+                        help="Evaluate the -aligned framing with this compensation")
     args = parser.parse_args()
-    evaluate(args.upstream, args.output, args.decoder, args.device)
+    evaluate(args.upstream, args.output, args.decoder, args.device, args.lag_compensation_ms)
 
 
 if __name__ == "__main__":
