@@ -47,6 +47,9 @@ torchvision==0.23+cu128; sys_platform == 'linux' or sys_platform == 'win32'
 torchcrepe @ git+https://github.com/es2z/torchcrepe_plus.git
 torchfcpe
 swift_f0
+# FCNF0++ (PENN). The PyPI torbi 1.4.0 wheel carries a binary for torch 2.8 / cu128.
+penn==1.0.0
+torbi==1.4.0
 einops
 # CodenameRingFormer's Conformer blocks use lucidrains' RingAttention. Pure python, and
 # with torch.distributed uninitialised it degrades to ordinary causal attention.

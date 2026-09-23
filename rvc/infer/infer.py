@@ -262,7 +262,7 @@ class VoiceConverter:
 
         self.get_vc(model_path, sid)
 
-        from rvc.lib.predictors.f0_methods import FCN_METHODS
+        from rvc.lib.predictors.f0_methods import FCN_METHODS, FCNF0PP_METHODS, PROFILE_METHODS
 
         if f0_method in FCN_METHODS:
             # Resolve once per file/batch invocation before error-catching code.
@@ -270,6 +270,9 @@ class VoiceConverter:
             if split_audio:
                 print("FCN keeps full-file F0 context; synthesis uses the pipeline's internal chunking.")
                 split_audio = False
+        elif f0_method in FCNF0PP_METHODS:
+            # A bad profile or a missing weight is reported, not swallowed below.
+            self.vc.configure_fcnf0pp(f0_method, kwargs.get("fcn_profile"), (self.cpt or {}).get("f0_extraction"))
 
         try:
             start_time = time.time()
@@ -375,7 +378,7 @@ class VoiceConverter:
         except Exception as error:
             print(f"An error occurred during audio conversion: {error}")
             print(traceback.format_exc())
-            if f0_method in FCN_METHODS:
+            if f0_method in PROFILE_METHODS:
                 raise
 
     def convert_audio_batch(
@@ -395,11 +398,17 @@ class VoiceConverter:
             **kwargs: Additional keyword arguments.
         """
         pid = os.getpid()
-        from rvc.lib.predictors.f0_methods import FCN_METHODS
+        from rvc.lib.predictors.f0_methods import FCN_METHODS, FCNF0PP_METHODS, PROFILE_METHODS
 
-        if kwargs.get("f0_method") in FCN_METHODS:
+        if kwargs.get("f0_method") in PROFILE_METHODS:
+            # Resolve once, so every file in the batch uses the same settings.
             self.get_vc(kwargs["model_path"], kwargs.get("sid", 0))
-            predictor = self.vc.configure_fcn(kwargs["f0_method"], kwargs.get("fcn_profile"), (self.cpt or {}).get("f0_extraction"))
+            configure = (
+                self.vc.configure_fcn
+                if kwargs["f0_method"] in FCN_METHODS
+                else self.vc.configure_fcnf0pp
+            )
+            predictor = configure(kwargs["f0_method"], kwargs.get("fcn_profile"), (self.cpt or {}).get("f0_extraction"))
             kwargs["fcn_profile"] = predictor.profile.to_dict()
         try:
             with open(
@@ -447,7 +456,7 @@ class VoiceConverter:
         except Exception as error:
             print(f"An error occurred during audio batch conversion: {error}")
             print(traceback.format_exc())
-            if kwargs.get("f0_method") in FCN_METHODS:
+            if kwargs.get("f0_method") in PROFILE_METHODS:
                 raise
         finally:
             os.remove(os.path.join(now_dir, "assets", "infer_pid.txt"))

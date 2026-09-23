@@ -7,10 +7,30 @@ from pathlib import Path
 
 import numpy as np
 
-from rvc.lib.predictors.f0_methods import FCN_METHODS
+from rvc.lib.predictors.f0_methods import FCN_METHODS, FCNF0PP_METHODS, PROFILE_METHODS
+
+
+def fcnf0pp_extraction_spec(method, profile=None):
+    from rvc.lib.predictors.fcnf0pp.profiles import resolve_profile, specification
+    from rvc.lib.predictors.fcnf0pp.weights import weight_sha256
+
+    profile = resolve_profile(method, profile)
+    weight_hash = weight_sha256()
+    return {
+        "method": method,
+        "fingerprint": profile.fingerprint(weight_hash),
+        **specification(profile, weight_hash),
+        "coarse": {
+            "minimum": profile.coarse_min,
+            "maximum": profile.coarse_max,
+            "bins": 256,
+        },
+    }
 
 
 def extraction_spec(method, profile=None):
+    if method in FCNF0PP_METHODS:
+        return fcnf0pp_extraction_spec(method, profile)
     if method not in FCN_METHODS:
         return {"method": method}
     from rvc.lib.predictors.fcn.adapter import DEFAULT_WEIGHT
@@ -59,7 +79,7 @@ def input_signature(files):
 
 def can_reuse(previous, specification, signature):
     if not previous:
-        return specification["method"] not in FCN_METHODS
+        return specification["method"] not in PROFILE_METHODS
     return bool(
         previous.get("complete")
         and previous.get("specification") == specification
@@ -89,7 +109,7 @@ def validate_pitch_files(files):
             or (coarse < 1).any()
             or (coarse > 255).any()
         ):
-            raise ValueError(f"Invalid FCN grid or coarse range: {source}")
+            raise ValueError(f"Invalid F0 grid or coarse range: {source}")
 
 
 def write_metadata(path, data):

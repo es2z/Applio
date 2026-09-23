@@ -33,7 +33,7 @@ from rvc.lib.predictors.crepe_models import (
 )
 from rvc.lib.predictors.f0 import CREPE, FCPE, RMVPE, MANGIO_CREPE
 from rvc.lib.predictors.crepe_decoder import DEFAULT_DECODER
-from rvc.lib.predictors.f0_methods import FCN_METHODS
+from rvc.lib.predictors.f0_methods import FCN_METHODS, FCNF0PP_METHODS, PROFILE_METHODS
 
 TRAINING_MANGIO_CREPE_DECODER = DEFAULT_DECODER  # viterbi
 from rvc.configs.config import Config
@@ -64,6 +64,16 @@ class FeatureInput:
                 raise ValueError("FCN weights changed after extraction settings were frozen")
             self.f0_min = self.model.profile.coarse_min
             self.f0_max = self.model.profile.coarse_max
+        elif f0_method in FCNF0PP_METHODS:
+            from rvc.lib.predictors.fcnf0pp import FCNF0PPPredictor
+
+            # One network per worker process, reused for every file it extracts.
+            self.model = FCNF0PPPredictor(device=device, method=f0_method, profile=fcn_profile)
+            if expected_weight and self.model.weight_sha256 != expected_weight:
+                raise ValueError("FCNF0++ weights changed after extraction settings were frozen")
+            # The profile's range is both what PENN may decode and what coarse F0 spans.
+            self.f0_min = self.model.profile.coarse_min
+            self.f0_max = self.model.profile.coarse_max
         elif f0_method in CREPE_METHOD_TO_MODEL:
             self.model = CREPE(
                 device=self.device, sample_rate=self.sample_rate, hop_size=self.hop_size
@@ -92,7 +102,7 @@ class FeatureInput:
         compile_f0_predictor(getattr(self, "model", None), f0_method, self.device)
 
     def compute_f0(self, x, p_len=None):
-        if self.f0_method in FCN_METHODS:
+        if self.f0_method in PROFILE_METHODS:
             return self.model.get_f0(x, len(x) // 160 if p_len is None else p_len)
         if self.f0_method in CREPE_METHOD_TO_MODEL:
             f0 = self.model.get_f0(
@@ -117,7 +127,7 @@ class FeatureInput:
         return f0
 
     def coarse_f0(self, f0):
-        if self.f0_method in FCN_METHODS:
+        if self.f0_method in PROFILE_METHODS:
             from rvc.lib.predictors.f0_quantization import quantize_f0
 
             return quantize_f0(f0, self.f0_min, self.f0_max)
@@ -407,9 +417,11 @@ if __name__ == "__main__":
     specification = extraction_spec(f0_method, fcn_profile)
     signature = input_signature(files)
     reuse_pitch = can_reuse(data.get("pitch_extraction_run"), specification, signature)
-    if f0_method in FCN_METHODS:
-        if any(torch.device(device).type != "cuda" for device in devices):
-            raise ValueError("FCN extraction requires CUDA; select a GPU (CLI: --gpu 0)")
+    if f0_method in FCN_METHODS and any(
+        torch.device(device).type != "cuda" for device in devices
+    ):
+        raise ValueError("FCN extraction requires CUDA; select a GPU (CLI: --gpu 0)")
+    if f0_method in PROFILE_METHODS:
         if reuse_pitch:
             try:
                 validate_pitch_files(files)
@@ -422,7 +434,7 @@ if __name__ == "__main__":
         files, devices, f0_method, num_processes,
         specification.get("profile"), not reuse_pitch, specification.get("weight_sha256"),
     )
-    if f0_method in FCN_METHODS:
+    if f0_method in PROFILE_METHODS:
         validate_pitch_files(files)
         data["f0_extraction"] = specification
     data["pitch_extraction_run"]["complete"] = True

@@ -51,9 +51,9 @@ class F0Extractor:
     def extract_f0(self):
         f0 = None
         method = self.method
-        from rvc.lib.predictors.f0_methods import FCN_METHODS
+        from rvc.lib.predictors.f0_methods import FCN_METHODS, FCNF0PP_METHODS
 
-        if method in FCN_METHODS:
+        if method in FCN_METHODS or method in FCNF0PP_METHODS:
             return self.hz_to_cents(self.extract_track()["pitch_hz"], librosa.midi_to_hz(0))
         if method in CREPE_METHOD_TO_MODEL:
             wav16k_torch = torch.FloatTensor(self.wav16k).unsqueeze(0).to(config.device)
@@ -121,8 +121,19 @@ class F0Extractor:
         return self.hz_to_cents(f0, librosa.midi_to_hz(0))
 
     def extract_track(self):
-        from rvc.lib.predictors.f0_methods import FCN_METHODS
+        from rvc.lib.predictors.f0_methods import FCN_METHODS, FCNF0PP_METHODS
 
+        if self.method in FCNF0PP_METHODS:
+            from rvc.lib.predictors.fcnf0pp import FCNF0PPPredictor
+
+            # Same 16 kHz input and 10 ms grid as training and conversion. Periodicity is
+            # PENN's entropy measure, not a confidence, so it gets its own column.
+            predictor = FCNF0PPPredictor(config.device, self.method, self.fcn_profile)
+            track = predictor.extract_track(self.wav16k)
+            return {"timestamps": track.timestamps, "pitch_hz": track.pitch_hz,
+                    "confidence": np.full(len(track.pitch_hz), np.nan),
+                    "voiced": track.voiced, "periodicity": track.periodicity,
+                    "raw_pitch_hz": track.raw_pitch_hz}
         if self.method in FCN_METHODS:
             from rvc.lib.predictors.fcn import FCNPredictor
 

@@ -19,7 +19,7 @@ from rvc.lib.tools.analyzer import analyze_audio
 from rvc.lib.tools.launch_tensorboard import launch_tensorboard_pipeline
 from rvc.lib.tools.model_download import model_download_pipeline
 from rvc.lib.predictors.crepe_models import CREPE_CLI_METHODS
-from rvc.lib.predictors.f0_methods import FCN_METHODS
+from rvc.lib.predictors.f0_methods import FCN_METHODS, FCNF0PP_METHODS
 
 python = sys.executable
 
@@ -498,6 +498,12 @@ def run_extract_script(
 
         profile = resolve_profile(f0_method, fcn_profile)
         command_1.append(json.dumps(profile.to_dict()))
+    elif f0_method in FCNF0PP_METHODS:
+        # Resolved here so a bad profile fails before the subprocess starts.
+        from rvc.lib.predictors.fcnf0pp.profiles import resolve_profile
+
+        profile = resolve_profile(f0_method, fcn_profile)
+        command_1.append(json.dumps(profile.to_dict()))
     subprocess.run(command_1, check=True)
 
     return f"Model {model_name} extracted successfully."
@@ -750,6 +756,7 @@ def parse_arguments():
         choices=[
             *CREPE_CLI_METHODS,
             *FCN_METHODS,
+            *FCNF0PP_METHODS,
             "rmvpe",
             "fcpe",
             "swift",
@@ -1277,6 +1284,7 @@ def parse_arguments():
         choices=[
             *CREPE_CLI_METHODS,
             *FCN_METHODS,
+            *FCNF0PP_METHODS,
             "rmvpe",
             "fcpe",
             "swift",
@@ -1766,6 +1774,7 @@ def parse_arguments():
         choices=[
             *CREPE_CLI_METHODS,
             *FCN_METHODS,
+            *FCNF0PP_METHODS,
             "rmvpe",
             "fcpe",
             "swift",
@@ -1971,6 +1980,7 @@ def parse_arguments():
         choices=[
             *CREPE_CLI_METHODS,
             *FCN_METHODS,
+            *FCNF0PP_METHODS,
             "rmvpe",
             "fcpe",
         ],
@@ -2365,7 +2375,7 @@ def parse_arguments():
     for fcn_parser in (infer_parser, batch_infer_parser, tts_parser, extract_parser):
         fcn_parser.add_argument(
             "--fcn_profile", default=None,
-            help="Optional FCN profile JSON file. Omit to use a matching checkpoint profile or bundled defaults (FCN-993-RVC: Balanced v1).",
+            help="Optional F0 profile JSON (file or inline) for FCN-993 and FCNF0++ methods; its \"method\" must match --f0_method. Omit to use a matching checkpoint profile or bundled defaults (FCN-993-RVC: Balanced v1; FCNF0++-RVC: periodicity 0.035).",
         )
     return parser.parse_args()
 

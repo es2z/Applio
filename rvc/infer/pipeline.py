@@ -203,6 +203,27 @@ class Pipeline:
         self.device = config.device
         self.autotune = Autotune()
         self.fcn_predictor = None
+        self.fcnf0pp_predictor = None
+
+    def configure_fcnf0pp(self, method, explicit_profile=None, checkpoint=None):
+        """Resolve the FCNF0++ profile once and keep the network across calls."""
+        from rvc.lib.predictors.fcnf0pp import FCNF0PPPredictor, resolve_profile
+
+        checkpoint = checkpoint or {}
+        profile = resolve_profile(method, explicit_profile, checkpoint.get("profile"))
+        if checkpoint.get("method") and checkpoint["method"] != method:
+            print(f"F0 method differs from checkpoint: {checkpoint['method']} -> {method}")
+        predictor = self.fcnf0pp_predictor
+        reload_weight = predictor is None
+        if not reload_weight:
+            stat = predictor.weight_path.stat()
+            reload_weight = predictor.asset_signature != (stat.st_size, stat.st_mtime_ns)
+        if reload_weight:
+            predictor = FCNF0PPPredictor(device=self.device, method=method, profile=profile)
+        else:
+            predictor = predictor.with_profile(method, profile)
+        self.fcnf0pp_predictor = predictor
+        return predictor
 
     def configure_fcn(self, method, explicit_profile=None, checkpoint=None):
         from rvc.lib.predictors.fcn import FCNPredictor, resolve_profile
@@ -246,12 +267,20 @@ class Pipeline:
             proposed_pitch: whether to apply proposed pitch adjustment
             proposed_pitch_threshold: target frequency, 155.0 for male, 255.0 for female
         """
-        from rvc.lib.predictors.f0_methods import FCN_METHODS
+        from rvc.lib.predictors.f0_methods import FCN_METHODS, FCNF0PP_METHODS
 
         if f0_method in FCN_METHODS:
             model = self.fcn_predictor
             if model is None or model.profile.method != f0_method:
                 model = self.configure_fcn(f0_method)
+            f0 = model.get_f0(x, p_len)
+            fcn_voiced = f0 > 0
+        elif f0_method in FCNF0PP_METHODS:
+            model = self.fcnf0pp_predictor
+            if model is None or model.profile.method != f0_method:
+                model = self.configure_fcnf0pp(f0_method)
+            # x is the reflect-padded audio and p_len == len(x) // 160, so this is the
+            # grid every other method is sliced to; no resize is needed.
             f0 = model.get_f0(x, p_len)
             fcn_voiced = f0 > 0
         elif f0_method in CREPE_METHOD_TO_MODEL:
@@ -332,11 +361,13 @@ class Pipeline:
             f0 *= pow(2, (pitch + up_key) / 12)
         else:
             f0 *= pow(2, pitch / 12)
-        if f0_method in FCN_METHODS:
+        if f0_method in FCN_METHODS or f0_method in FCNF0PP_METHODS:
             from rvc.lib.predictors.f0_quantization import quantize_f0
 
             f0[~fcn_voiced] = 0
-            profile = self.fcn_predictor.profile
+            profile = (
+                self.fcn_predictor if f0_method in FCN_METHODS else self.fcnf0pp_predictor
+            ).profile
             return quantize_f0(f0, profile.coarse_min, profile.coarse_max), f0.copy()
         # quantizing f0 to 255 buckets to make coarse f0
         f0bak = f0.copy()

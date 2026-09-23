@@ -41,6 +41,13 @@ torchvision==0.28.0+cu132; sys_platform == 'linux' or sys_platform == 'win32'
 torchcrepe @ git+https://github.com/es2z/torchcrepe_plus.git
 torchfcpe
 swift_f0
+# FCNF0++ (PENN). penn imports torbi at package import, even for argmax decoding.
+# The PyPI torbi 1.4.0 Windows wheel ships binaries only up to torch 2.11 / cu130, so
+# Windows installs the unmodified build for torch 2.13 / cu132 in vendor/torbi.
+# torchutil (a penn dependency) imports apprise and psutil at import time.
+penn==1.0.0
+vendor/torbi/torbi-1.4.0-cp39-abi3-win_amd64.whl; sys_platform == 'win32'
+torbi==1.4.0; sys_platform != 'win32'
 einops
 # CodenameRingFormer's Conformer blocks use lucidrains' RingAttention. Pure python, and
 # with torch.distributed uninitialised it degrades to ordinary causal attention.

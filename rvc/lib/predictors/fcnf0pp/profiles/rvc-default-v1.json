@@ -1,0 +1,10 @@
+{
+  "method": "fcnf0++-rvc",
+  "version": 1,
+  "decoder": "viterbi",
+  "periodicity_threshold": 0.035,
+  "center": "zero",
+  "coarse_min": 50.0,
+  "coarse_max": 1680.0,
+  "calibrated": false
+}

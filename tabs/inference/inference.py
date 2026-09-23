@@ -16,7 +16,7 @@ from assets.i18n.i18n import I18nAuto
 
 from rvc.lib.utils import format_title
 from rvc.lib.predictors.crepe_models import CREPE_UI_METHODS
-from rvc.lib.predictors.f0_methods import FCN_UI_METHODS
+from rvc.lib.predictors.f0_methods import FCN_UI_METHODS, FCNF0PP_UI_METHODS
 from tabs.settings.sections.restart import stop_infer
 from tabs.settings.sections.filter import get_filter_trigger, load_config_filter
 
@@ -1115,7 +1115,7 @@ def inference_tab():
                         "Pitch extraction algorithm to use for the audio conversion. The default algorithm is rmvpe, which is recommended for most cases."
                     ),
                     choices=[
-                        *CREPE_UI_METHODS, *FCN_UI_METHODS,
+                        *CREPE_UI_METHODS, *FCN_UI_METHODS, *FCNF0PP_UI_METHODS,
                         "rmvpe",
                         "fcpe",
                         "swift",
@@ -1754,7 +1754,7 @@ def inference_tab():
                         "Pitch extraction algorithm to use for the audio conversion. The default algorithm is rmvpe, which is recommended for most cases."
                     ),
                     choices=[
-                        *CREPE_UI_METHODS, *FCN_UI_METHODS,
+                        *CREPE_UI_METHODS, *FCN_UI_METHODS, *FCNF0PP_UI_METHODS,
                         "rmvpe",
                         "fcpe",
                         "swift",

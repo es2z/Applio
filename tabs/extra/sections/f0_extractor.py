@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 
 from rvc.lib.predictors.F0Extractor import F0Extractor
 from rvc.lib.predictors.crepe_models import CREPE_UI_METHODS
-from rvc.lib.predictors.f0_methods import FCN_UI_METHODS
+from rvc.lib.predictors.f0_methods import FCN_UI_METHODS, FCNF0PP_UI_METHODS
 
 from assets.i18n.i18n import I18nAuto
 
@@ -35,10 +35,15 @@ def extract_f0_curve(audio_path: str, method: str, fcn_profile=None):
     plt.savefig(image_path)
     plt.close()
 
+    extra = [key for key in ("periodicity", "raw_pitch_hz") if key in track]
     with open(txt_path, "w") as txtfile:
-        txtfile.write("seconds,pitch_hz,confidence,voiced\n")
-        for time, pitch, confidence, voiced in zip(track["timestamps"], f0, track["confidence"], track["voiced"]):
-            txtfile.write(f"{time},{pitch},{confidence},{int(voiced)}\n")
+        txtfile.write(",".join(["seconds", "pitch_hz", "confidence", "voiced", *extra]) + "\n")
+        for i, (time, pitch, confidence, voiced) in enumerate(
+            zip(track["timestamps"], f0, track["confidence"], track["voiced"])
+        ):
+            values = [f"{time}", f"{pitch}", f"{confidence}", f"{int(voiced)}"]
+            values += [f"{track[key][i]}" for key in extra]
+            txtfile.write(",".join(values) + "\n")
 
     print("F0 Curve extracted successfully!")
     return image_path, txt_path
@@ -51,7 +56,7 @@ def f0_extractor_tab():
         info=i18n(
             "Pitch extraction algorithm to use for the audio conversion. The default algorithm is rmvpe, which is recommended for most cases."
         ),
-        choices=[*CREPE_UI_METHODS, *FCN_UI_METHODS, "fcpe", "rmvpe"],
+        choices=[*CREPE_UI_METHODS, *FCN_UI_METHODS, *FCNF0PP_UI_METHODS, "fcpe", "rmvpe"],
         value="rmvpe",
     )
     mangio_crepe_decoder(f0_method)

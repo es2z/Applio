@@ -22,7 +22,7 @@ from rvc.realtime.audio import list_audio_device
 from rvc.realtime.core import AUDIO_SAMPLE_RATE
 from rvc.configs.config_utils import load_config, save_config, update_nested_config
 from rvc.lib.predictors.crepe_models import CREPE_UI_METHODS
-from rvc.lib.predictors.f0_methods import FCN_UI_METHODS
+from rvc.lib.predictors.f0_methods import FCN_UI_METHODS, FCNF0PP_UI_METHODS
 
 from assets.i18n.i18n import I18nAuto
 from tabs.realtime.template import RealtimeTemplateManager
@@ -921,6 +921,7 @@ def realtime_tab():
                             "swift",
                             *CREPE_UI_METHODS,
                             *FCN_UI_METHODS,
+                            *FCNF0PP_UI_METHODS,
                         ],
                         value="swift",
                         label=i18n("Pitch extraction algorithm"),

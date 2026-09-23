@@ -159,7 +159,7 @@ class Realtime_Pipeline:
         self.f0_model = None
         self.f0_model_secondary = None
         self.fcn_pitch = None
-        from rvc.lib.predictors.f0_methods import FCN_METHODS
+        from rvc.lib.predictors.f0_methods import FCN_METHODS, FCNF0PP_METHODS
 
         if f0_method in FCN_METHODS:
             from rvc.lib.predictors.fcn import FCNPredictor, resolve_profile
@@ -171,6 +171,16 @@ class Realtime_Pipeline:
             if checkpoint.get("method") and checkpoint["method"] != f0_method:
                 print(f"FCN method differs from checkpoint: {checkpoint['method']} -> {f0_method}")
             self.f0_model = FCNPredictor(self.device, f0_method, profile)
+        elif f0_method in FCNF0PP_METHODS:
+            from rvc.lib.predictors.fcnf0pp import FCNF0PPPredictor, resolve_profile
+
+            # Built eagerly so a bad profile or a missing weight fails before audio
+            # starts, and so the model is warm for the first block.
+            checkpoint = (vc.cpt or {}).get("f0_extraction", {})
+            profile = resolve_profile(f0_method, fcn_profile, checkpoint.get("profile"))
+            if checkpoint.get("method") and checkpoint["method"] != f0_method:
+                print(f"F0 method differs from checkpoint: {checkpoint['method']} -> {f0_method}")
+            self.f0_model = FCNF0PPPredictor(self.device, f0_method, profile)
         self.compile_session = CompileSession(
             load_settings(),
             lambda feats: embedder_forward(hubert_model, feats),
@@ -193,7 +203,7 @@ class Realtime_Pipeline:
         Estimates the fundamental frequency (F0) of a given audio signal using various methods.
         """
 
-        from rvc.lib.predictors.f0_methods import FCN_METHODS
+        from rvc.lib.predictors.f0_methods import FCN_METHODS, FCNF0PP_METHODS
 
         if self.f0_method in FCN_METHODS:
             if self.fcn_pitch is None:
@@ -203,7 +213,13 @@ class Realtime_Pipeline:
             # If the input is a tensor, it will need to be converted to numpy array to calculate with RMVPE and FCPE.
             x = x.cpu().numpy()
 
-        if self.f0_method == "rmvpe":
+        # Voicing from the predictor, kept through pitch correction (FCNF0++ only).
+        voiced = None
+        if self.f0_method in FCNF0PP_METHODS:
+            # Stateless: the whole window is recomputed each block, as for RMVPE/CREPE.
+            f0 = self.f0_model.get_f0(x, x.shape[0] // self.window)
+            voiced = f0 > 0
+        elif self.f0_method == "rmvpe":
             if self.f0_model is None:
                 self.f0_model = RMVPE(
                     device=self.device,
@@ -303,18 +319,30 @@ class Realtime_Pipeline:
         else:
             f0 *= pow(2, f0_up_key / 12)
 
-        # Convert to Tensor for computational use
-        f0 = torch.from_numpy(f0).to(self.device).float()
+        if voiced is not None:
+            from rvc.lib.predictors.f0_quantization import quantize_f0
 
-        # quantizing f0 to 255 buckets to make coarse f0
-        f0_mel = 1127.0 * torch.log(1.0 + f0 / 700.0)
-        f0_mel = torch.clip(
-            (f0_mel - self.f0_min) * 254 / (self.f0_max - self.f0_min) + 1,
-            1,
-            255,
-            out=f0_mel,
-        )
-        f0_coarse = torch.round(f0_mel, out=f0_mel).long()
+            # The same mel quantization as training and offline conversion. The formula
+            # below mixes Hz bounds into mel values; it stays as is for the other methods.
+            f0[~voiced] = 0
+            profile = self.f0_model.profile
+            f0_coarse = torch.from_numpy(
+                quantize_f0(f0, profile.coarse_min, profile.coarse_max)
+            ).to(self.device)
+            f0 = torch.from_numpy(f0).to(self.device).float()
+        else:
+            # Convert to Tensor for computational use
+            f0 = torch.from_numpy(f0).to(self.device).float()
+
+            # quantizing f0 to 255 buckets to make coarse f0
+            f0_mel = 1127.0 * torch.log(1.0 + f0 / 700.0)
+            f0_mel = torch.clip(
+                (f0_mel - self.f0_min) * 254 / (self.f0_max - self.f0_min) + 1,
+                1,
+                255,
+                out=f0_mel,
+            )
+            f0_coarse = torch.round(f0_mel, out=f0_mel).long()
 
         if pitch is not None and pitchf is not None:
             circular_write(f0_coarse, pitch)

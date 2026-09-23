@@ -189,6 +189,8 @@ Applio-3.5.0/
 - `rmvpe` - Default, best balance of speed/quality
 - `fcpe` - Fastest, good for real-time
 - `crepe` - Highest quality, slowest
+- `fcn-993`, `fcn-993-rvc` - FCN-993 (fork-specific, `docs/fcn-993.md`)
+- `fcnf0++`, `fcnf0++-rvc` - FCNF0++ via penn (fork-specific, see below and `docs/fcnf0pp.md`)
 - `hybrid[...]` - Averages multiple methods for robustness
 
 ### Embedder Models
@@ -1126,6 +1128,55 @@ orderings), but it is a different estimator: against `viterbi` it moves the outp
 1.043 dB median mel distance, about what changing the RNG seed does (1.188 dB). So it
 changes the voice, which is why the default is left alone and the choice is exposed
 rather than made here.
+
+### FCNF0++ (PENN): `fcnf0++` and `fcnf0++-rvc`
+`rvc/lib/predictors/fcnf0pp/`. Full write-up, measurements and usage in `docs/fcnf0pp.md`.
+Everything numeric is penn 1.0.0's own code - `penn.preprocess`, `penn.Model`,
+`penn.core.inference_context`, `penn.decode.Viterbi/Argmax`, `penn.periodicity.entropy` -
+and the output is **bit-identical to `penn.from_audio(..., center='zero',
+interp_unvoiced_at=None)`** on CPU and CUDA (`tests/test_fcnf0pp.py`). Only caching is
+ours: one Resample(16000, 8000), one model loaded `weights_only=True`, decoders held with
+the 1440 x 1440 transition already on the device.
+
+- `fcnf0++` is PENN's pitch untouched, every frame voiced; `fcnf0++-rvc` differs only in
+  zeroing frames with `periodicity <= periodicity_threshold`. No interpolation, median,
+  hysteresis or silence gate - A/B the two to tell a voicing problem from a model one.
+- Profiles work like FCN's (`profiles.py`, explicit JSON -> matching checkpoint ->
+  bundled) and travel through the **same `fcn_profile` field** in the UI, CLI
+  (`--fcn_profile`), extract argv[10] and realtime templates; the JSON's `method` picks
+  the family. `PROFILE_METHODS` in `f0_methods.py` is FCN + FCNF0++ wherever extraction
+  metadata / `f0_extraction` applies. FCN's own branches are untouched.
+- **`center='zero'`, not penn's default `'half-window'` (+64 ms) or README's
+  `'half-hop'` (+5 ms).** The model predicts the pitch at its window centre (penn's
+  training slice is `[i*80-472, i*80+552)` labelled at `(i+0.5)*hop`), and RVC frame i is
+  t = i*10 ms (measured: RMVPE +0.5, CREPE +0.6, FCPE +0.1, FCN-993 -1.3 ms). `'zero'`
+  returns `len//160 + 1` frames and the first `p_len` are used - no resize, and no
+  FCN-style special padding in `infer/pipeline.py`.
+- **Known, deliberately uncorrected:** on harmonic signals in the speech range
+  (70-400 Hz) FCNF0++'s pitch runs **~11-12 ms late** even with `'zero'` (pure tones and
+  >300 Hz harmonics: ~0 ms; real speech vs RMVPE/CREPE: +11 ms). It depends on the signal,
+  so a fixed shift would be wrong elsewhere; it is the first suspect for onset/offset
+  artefacts. Steady harmonic tones also read ~-4 cents.
+- **One F0 range, 50-1680 Hz, in all three paths**, and realtime quantizes with
+  `quantize_f0`. Entropy periodicity's unvoiced floor is `1 - log(K)/log(1440)` for K
+  allowed bins (0.0407 at 1100 Hz, 0.0230 at 1680 Hz), so the earlier integration's 0.065
+  meant different things offline and in training. Realtime's other methods keep their
+  Hz-in-mel coarse formula untouched.
+- **Default threshold 0.035**, chosen PENN's way (max voiced F1) on the same four DTB
+  examples that chose FCN-993-RVC's Balanced v1: UV->V 7.1%, V->UV 3.7%, F1 0.960, fewest
+  transitions (`tools/evaluate_fcnf0pp_voicing.py`, `docs/fcnf0pp-voicing-evaluation.json`).
+  promonet's 0.1625 drops 16% of voiced frames; README's 0.065 drops 8.1%.
+- **Viterbi is the default everywhere, realtime included.** Re-decoding the sliding window
+  changes overlapping frames no more than frame-independent argmax does (>50 c: 76 vs 71
+  of 12697; identical 223 V/UV flips) - window-edge padding dominates both. Realtime p50/p95
+  at 160 ms blocks: viterbi 46/63 ms, argmax 26/31 ms, rmvpe 40/52 ms.
+- **torbi on Windows is `vendor/torbi/*.whl`**, an unmodified build for torch 2.13 / cu132:
+  PyPI torbi 1.4.0 ships binaries only up to pt211cu130, the pt211 binary will not load
+  (`OSError`), and penn imports torbi at package import even for argmax. torchutil (a
+  penn dependency) imports apprise and psutil at import time.
+- Weights: the HuggingFace `fcnf0++.pt` (107 MB, sha256 `28d89add...`) is a training
+  checkpoint with Adam state; `tools/strip_fcnf0pp.py` (also run by the prerequisites
+  download) keeps `model` (35.7 MB) and writes `fcnf0++.manifest.json`.
 
 ### Realtime embedder precision
 `embedder_precision` (`fp32` / `bf16` / `fp16`, default `fp32`) is saved in

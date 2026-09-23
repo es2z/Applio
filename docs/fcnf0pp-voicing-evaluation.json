@@ -1,0 +1,2256 @@
+{
+  "scope": "four upstream manually corrected development examples; not a speaker-disjoint or independent held-out evaluation",
+  "weight_sha256": "979f1692d0ccade98d3a0634ad6dae9234e5230f160511ebf3365f9b6c120594",
+  "decoder": "viterbi",
+  "f0_range_hz": [
+    50.0,
+    1680.0
+  ],
+  "files": [
+    {
+      "name": "4",
+      "audio_sha256": "24e4abbbf423cb355da4ad99e011918f36a9277965d02b416ba77b50ab070297",
+      "reference_sha256": "9da76307a99fd9945ad70b1959ea9ebed480dc20b0101c9f5355dcfd86137af7"
+    },
+    {
+      "name": "5",
+      "audio_sha256": "a22139d38e7037ab2795f07e136e413a50b0499fe060c2e2e31425e0cd758099",
+      "reference_sha256": "4b50707e478d1c577fa7bd375844e0af795177b2f7452a8349a31560a03956f8"
+    },
+    {
+      "name": "11",
+      "audio_sha256": "9d5c603338307929ca19a005c7c5742d2eb49ff816666f384569c08bfad51866",
+      "reference_sha256": "d63d030f14e908c8caec2f56db5e8096244b18cf87fa0ce774b0859b0431f3fe"
+    },
+    {
+      "name": "28",
+      "audio_sha256": "e505ae48cc1a849c71bc903449fac280078111da3777711a88523c9148300d7c",
+      "reference_sha256": "d6470b9ab8b81a622dd47a4531737f8a419af7cb57f7ff55b3f3ee8b8e09a5ef"
+    }
+  ],
+  "pitch_on_reference_voiced_frames": {
+    "median_abs_cents": 22.526375103732157,
+    "p90_abs_cents": 84.62476183458111,
+    "over_600_cents": 2
+  },
+  "penn_f1_optimum": {
+    "threshold": 0.035,
+    "false_voiced": 34,
+    "false_unvoiced": 30,
+    "unvoiced_frames": 479,
+    "voiced_frames": 804,
+    "f1": 0.9602977667493796,
+    "balanced_error": 0.054147321845885395,
+    "transitions": 60
+  },
+  "balanced_error_optimum": {
+    "threshold": 0.0375,
+    "false_voiced": 32,
+    "false_unvoiced": 33,
+    "unvoiced_frames": 479,
+    "voiced_frames": 804,
+    "f1": 0.9595519601742377,
+    "balanced_error": 0.05392531081544262,
+    "transitions": 60
+  },
+  "reported": {
+    "0.065": {
+      "false_voiced": 28,
+      "false_unvoiced": 65,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9408020369191598,
+      "balanced_error": 0.06965044298341279,
+      "transitions": 76
+    },
+    "0.1": {
+      "false_voiced": 22,
+      "false_unvoiced": 91,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.926575698505523,
+      "balanced_error": 0.07955654919556705,
+      "transitions": 80
+    },
+    "0.1625": {
+      "false_voiced": 14,
+      "false_unvoiced": 129,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9042196918955124,
+      "balanced_error": 0.09483765930265166,
+      "transitions": 86
+    }
+  },
+  "table": {
+    "0": {
+      "false_voiced": 479,
+      "false_unvoiced": 0,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.770483948251078,
+      "balanced_error": 0.5,
+      "transitions": 0
+    },
+    "0.0025": {
+      "false_voiced": 479,
+      "false_unvoiced": 0,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.770483948251078,
+      "balanced_error": 0.5,
+      "transitions": 0
+    },
+    "0.005": {
+      "false_voiced": 479,
+      "false_unvoiced": 0,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.770483948251078,
+      "balanced_error": 0.5,
+      "transitions": 0
+    },
+    "0.0075": {
+      "false_voiced": 479,
+      "false_unvoiced": 0,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.770483948251078,
+      "balanced_error": 0.5,
+      "transitions": 0
+    },
+    "0.01": {
+      "false_voiced": 479,
+      "false_unvoiced": 0,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.770483948251078,
+      "balanced_error": 0.5,
+      "transitions": 0
+    },
+    "0.0125": {
+      "false_voiced": 479,
+      "false_unvoiced": 0,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.770483948251078,
+      "balanced_error": 0.5,
+      "transitions": 0
+    },
+    "0.015": {
+      "false_voiced": 479,
+      "false_unvoiced": 0,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.770483948251078,
+      "balanced_error": 0.5,
+      "transitions": 0
+    },
+    "0.0175": {
+      "false_voiced": 479,
+      "false_unvoiced": 0,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.770483948251078,
+      "balanced_error": 0.5,
+      "transitions": 0
+    },
+    "0.02": {
+      "false_voiced": 479,
+      "false_unvoiced": 0,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.770483948251078,
+      "balanced_error": 0.5,
+      "transitions": 0
+    },
+    "0.0225": {
+      "false_voiced": 479,
+      "false_unvoiced": 0,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.770483948251078,
+      "balanced_error": 0.5,
+      "transitions": 0
+    },
+    "0.025": {
+      "false_voiced": 53,
+      "false_unvoiced": 20,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.95551492992078,
+      "balanced_error": 0.06776140175946987,
+      "transitions": 72
+    },
+    "0.0275": {
+      "false_voiced": 47,
+      "false_unvoiced": 22,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9577464788732395,
+      "balanced_error": 0.06274213483729578,
+      "transitions": 68
+    },
+    "0.03": {
+      "false_voiced": 42,
+      "false_unvoiced": 28,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9568434032059188,
+      "balanced_error": 0.061254271440293315,
+      "transitions": 64
+    },
+    "0.0325": {
+      "false_voiced": 39,
+      "false_unvoiced": 28,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.958616429894997,
+      "balanced_error": 0.05812274743194258,
+      "transitions": 64
+    },
+    "0.035": {
+      "false_voiced": 34,
+      "false_unvoiced": 30,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9602977667493796,
+      "balanced_error": 0.054147321845885395,
+      "transitions": 60
+    },
+    "0.0375": {
+      "false_voiced": 32,
+      "false_unvoiced": 33,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9595519601742377,
+      "balanced_error": 0.05392531081544262,
+      "transitions": 60
+    },
+    "0.04": {
+      "false_voiced": 32,
+      "false_unvoiced": 38,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9563046192259675,
+      "balanced_error": 0.05703476355176103,
+      "transitions": 66
+    },
+    "0.0425": {
+      "false_voiced": 32,
+      "false_unvoiced": 40,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9550000000000001,
+      "balanced_error": 0.058278544646288385,
+      "transitions": 68
+    },
+    "0.045": {
+      "false_voiced": 32,
+      "false_unvoiced": 46,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9510664993726474,
+      "balanced_error": 0.06200988792987048,
+      "transitions": 68
+    },
+    "0.0475": {
+      "false_voiced": 31,
+      "false_unvoiced": 47,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9510050251256281,
+      "balanced_error": 0.06158793714101725,
+      "transitions": 70
+    },
+    "0.05": {
+      "false_voiced": 30,
+      "false_unvoiced": 51,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9489603024574669,
+      "balanced_error": 0.06303165799395508,
+      "transitions": 72
+    },
+    "0.0525": {
+      "false_voiced": 29,
+      "false_unvoiced": 54,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9475679090334808,
+      "balanced_error": 0.0638534882996292,
+      "transitions": 72
+    },
+    "0.055": {
+      "false_voiced": 28,
+      "false_unvoiced": 55,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9475015812776724,
+      "balanced_error": 0.06343153751077597,
+      "transitions": 74
+    },
+    "0.0575": {
+      "false_voiced": 28,
+      "false_unvoiced": 57,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9461684610512983,
+      "balanced_error": 0.06467531860530333,
+      "transitions": 76
+    },
+    "0.06": {
+      "false_voiced": 28,
+      "false_unvoiced": 60,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9441624365482234,
+      "balanced_error": 0.06654099024709438,
+      "transitions": 74
+    },
+    "0.0625": {
+      "false_voiced": 28,
+      "false_unvoiced": 63,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9421487603305785,
+      "balanced_error": 0.06840666188888543,
+      "transitions": 76
+    },
+    "0.065": {
+      "false_voiced": 28,
+      "false_unvoiced": 65,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9408020369191598,
+      "balanced_error": 0.06965044298341279,
+      "transitions": 76
+    },
+    "0.0675": {
+      "false_voiced": 28,
+      "false_unvoiced": 66,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.940127388535032,
+      "balanced_error": 0.07027233353067647,
+      "transitions": 76
+    },
+    "0.07": {
+      "false_voiced": 28,
+      "false_unvoiced": 68,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9387755102040817,
+      "balanced_error": 0.07151611462520384,
+      "transitions": 76
+    },
+    "0.0725": {
+      "false_voiced": 27,
+      "false_unvoiced": 69,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9386973180076629,
+      "balanced_error": 0.0710941638363506,
+      "transitions": 74
+    },
+    "0.075": {
+      "false_voiced": 26,
+      "false_unvoiced": 72,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9372599231754161,
+      "balanced_error": 0.07191599414202474,
+      "transitions": 72
+    },
+    "0.0775": {
+      "false_voiced": 24,
+      "false_unvoiced": 74,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9370988446726572,
+      "balanced_error": 0.07107209256431829,
+      "transitions": 70
+    },
+    "0.08": {
+      "false_voiced": 24,
+      "false_unvoiced": 77,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9350482315112539,
+      "balanced_error": 0.07293776420610933,
+      "transitions": 72
+    },
+    "0.0825": {
+      "false_voiced": 24,
+      "false_unvoiced": 80,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9329896907216496,
+      "balanced_error": 0.07480343584790038,
+      "transitions": 76
+    },
+    "0.085": {
+      "false_voiced": 23,
+      "false_unvoiced": 81,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9329032258064516,
+      "balanced_error": 0.07438148505904714,
+      "transitions": 76
+    },
+    "0.0875": {
+      "false_voiced": 23,
+      "false_unvoiced": 81,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9329032258064516,
+      "balanced_error": 0.07438148505904714,
+      "transitions": 76
+    },
+    "0.09": {
+      "false_voiced": 23,
+      "false_unvoiced": 82,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9322143318269852,
+      "balanced_error": 0.07500337560631082,
+      "transitions": 76
+    },
+    "0.0925": {
+      "false_voiced": 23,
+      "false_unvoiced": 82,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9322143318269852,
+      "balanced_error": 0.07500337560631082,
+      "transitions": 76
+    },
+    "0.095": {
+      "false_voiced": 22,
+      "false_unvoiced": 86,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9300518134715026,
+      "balanced_error": 0.07644709645924865,
+      "transitions": 80
+    },
+    "0.0975": {
+      "false_voiced": 22,
+      "false_unvoiced": 86,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9300518134715026,
+      "balanced_error": 0.07644709645924865,
+      "transitions": 80
+    },
+    "0.1": {
+      "false_voiced": 22,
+      "false_unvoiced": 91,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.926575698505523,
+      "balanced_error": 0.07955654919556705,
+      "transitions": 80
+    },
+    "0.1025": {
+      "false_voiced": 22,
+      "false_unvoiced": 92,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9258777633289987,
+      "balanced_error": 0.08017843974283073,
+      "transitions": 82
+    },
+    "0.105": {
+      "false_voiced": 19,
+      "false_unvoiced": 94,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9262883235485976,
+      "balanced_error": 0.07829069682900736,
+      "transitions": 80
+    },
+    "0.1075": {
+      "false_voiced": 19,
+      "false_unvoiced": 94,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9262883235485976,
+      "balanced_error": 0.07829069682900736,
+      "transitions": 80
+    },
+    "0.11": {
+      "false_voiced": 18,
+      "false_unvoiced": 96,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9254901960784313,
+      "balanced_error": 0.07849063658741781,
+      "transitions": 80
+    },
+    "0.1125": {
+      "false_voiced": 18,
+      "false_unvoiced": 99,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9233791748526522,
+      "balanced_error": 0.08035630822920886,
+      "transitions": 82
+    },
+    "0.115": {
+      "false_voiced": 18,
+      "false_unvoiced": 99,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9233791748526522,
+      "balanced_error": 0.08035630822920886,
+      "transitions": 82
+    },
+    "0.1175": {
+      "false_voiced": 16,
+      "false_unvoiced": 100,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9238845144356954,
+      "balanced_error": 0.07889051610423872,
+      "transitions": 82
+    },
+    "0.12": {
+      "false_voiced": 16,
+      "false_unvoiced": 100,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9238845144356954,
+      "balanced_error": 0.07889051610423872,
+      "transitions": 82
+    },
+    "0.1225": {
+      "false_voiced": 16,
+      "false_unvoiced": 103,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9217619986850756,
+      "balanced_error": 0.08075618774602977,
+      "transitions": 84
+    },
+    "0.125": {
+      "false_voiced": 16,
+      "false_unvoiced": 105,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9203423304805793,
+      "balanced_error": 0.08199996884055713,
+      "transitions": 84
+    },
+    "0.1275": {
+      "false_voiced": 16,
+      "false_unvoiced": 106,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9196310935441371,
+      "balanced_error": 0.08262185938782082,
+      "transitions": 82
+    },
+    "0.13": {
+      "false_voiced": 15,
+      "false_unvoiced": 108,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9188118811881189,
+      "balanced_error": 0.08282179914623126,
+      "transitions": 84
+    },
+    "0.1325": {
+      "false_voiced": 15,
+      "false_unvoiced": 108,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9188118811881189,
+      "balanced_error": 0.08282179914623126,
+      "transitions": 84
+    },
+    "0.135": {
+      "false_voiced": 15,
+      "false_unvoiced": 108,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9188118811881189,
+      "balanced_error": 0.08282179914623126,
+      "transitions": 84
+    },
+    "0.1375": {
+      "false_voiced": 15,
+      "false_unvoiced": 110,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9173826834104428,
+      "balanced_error": 0.08406558024075862,
+      "transitions": 84
+    },
+    "0.14": {
+      "false_voiced": 15,
+      "false_unvoiced": 111,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9166666666666665,
+      "balanced_error": 0.08468747078802231,
+      "transitions": 84
+    },
+    "0.1425": {
+      "false_voiced": 15,
+      "false_unvoiced": 115,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9137931034482758,
+      "balanced_error": 0.08717503297707703,
+      "transitions": 84
+    },
+    "0.145": {
+      "false_voiced": 15,
+      "false_unvoiced": 116,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9130723291307233,
+      "balanced_error": 0.08779692352434072,
+      "transitions": 84
+    },
+    "0.1475": {
+      "false_voiced": 14,
+      "false_unvoiced": 117,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9129568106312294,
+      "balanced_error": 0.08737497273548749,
+      "transitions": 84
+    },
+    "0.15": {
+      "false_voiced": 14,
+      "false_unvoiced": 120,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9107856191744341,
+      "balanced_error": 0.08924064437727852,
+      "transitions": 82
+    },
+    "0.1525": {
+      "false_voiced": 14,
+      "false_unvoiced": 124,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9078771695594126,
+      "balanced_error": 0.09172820656633325,
+      "transitions": 84
+    },
+    "0.155": {
+      "false_voiced": 14,
+      "false_unvoiced": 125,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9071476285905145,
+      "balanced_error": 0.09235009711359693,
+      "transitions": 86
+    },
+    "0.1575": {
+      "false_voiced": 14,
+      "false_unvoiced": 126,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9064171122994653,
+      "balanced_error": 0.09297198766086062,
+      "transitions": 84
+    },
+    "0.16": {
+      "false_voiced": 14,
+      "false_unvoiced": 127,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9056856187290969,
+      "balanced_error": 0.0935938782081243,
+      "transitions": 86
+    },
+    "0.1625": {
+      "false_voiced": 14,
+      "false_unvoiced": 129,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9042196918955124,
+      "balanced_error": 0.09483765930265166,
+      "transitions": 86
+    },
+    "0.165": {
+      "false_voiced": 14,
+      "false_unvoiced": 132,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.9020134228187919,
+      "balanced_error": 0.09670333094444271,
+      "transitions": 88
+    },
+    "0.1675": {
+      "false_voiced": 14,
+      "false_unvoiced": 135,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8997982515131138,
+      "balanced_error": 0.09856900258623376,
+      "transitions": 90
+    },
+    "0.17": {
+      "false_voiced": 14,
+      "false_unvoiced": 137,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8983164983164983,
+      "balanced_error": 0.09981278368076112,
+      "transitions": 88
+    },
+    "0.1725": {
+      "false_voiced": 14,
+      "false_unvoiced": 139,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.896830748482805,
+      "balanced_error": 0.10105656477528847,
+      "transitions": 88
+    },
+    "0.175": {
+      "false_voiced": 14,
+      "false_unvoiced": 140,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8960863697705803,
+      "balanced_error": 0.10167845532255217,
+      "transitions": 90
+    },
+    "0.1775": {
+      "false_voiced": 14,
+      "false_unvoiced": 140,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8960863697705803,
+      "balanced_error": 0.10167845532255217,
+      "transitions": 90
+    },
+    "0.18": {
+      "false_voiced": 14,
+      "false_unvoiced": 144,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8930987821380244,
+      "balanced_error": 0.10416601751160688,
+      "transitions": 94
+    },
+    "0.1825": {
+      "false_voiced": 14,
+      "false_unvoiced": 146,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8915989159891599,
+      "balanced_error": 0.10540979860613425,
+      "transitions": 92
+    },
+    "0.185": {
+      "false_voiced": 14,
+      "false_unvoiced": 146,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8915989159891599,
+      "balanced_error": 0.10540979860613425,
+      "transitions": 92
+    },
+    "0.1875": {
+      "false_voiced": 14,
+      "false_unvoiced": 147,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8908474576271185,
+      "balanced_error": 0.10603168915339793,
+      "transitions": 92
+    },
+    "0.19": {
+      "false_voiced": 14,
+      "false_unvoiced": 149,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8893414799728446,
+      "balanced_error": 0.10727547024792529,
+      "transitions": 94
+    },
+    "0.1925": {
+      "false_voiced": 14,
+      "false_unvoiced": 151,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8878314072059823,
+      "balanced_error": 0.10851925134245266,
+      "transitions": 96
+    },
+    "0.195": {
+      "false_voiced": 14,
+      "false_unvoiced": 153,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8863172226004083,
+      "balanced_error": 0.10976303243698002,
+      "transitions": 98
+    },
+    "0.1975": {
+      "false_voiced": 14,
+      "false_unvoiced": 155,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8847989093387866,
+      "balanced_error": 0.11100681353150739,
+      "transitions": 100
+    },
+    "0.2": {
+      "false_voiced": 14,
+      "false_unvoiced": 156,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.884038199181446,
+      "balanced_error": 0.11162870407877107,
+      "transitions": 100
+    },
+    "0.2025": {
+      "false_voiced": 14,
+      "false_unvoiced": 160,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8809849521203831,
+      "balanced_error": 0.1141162662678258,
+      "transitions": 100
+    },
+    "0.205": {
+      "false_voiced": 14,
+      "false_unvoiced": 162,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8794520547945206,
+      "balanced_error": 0.11536004736235315,
+      "transitions": 98
+    },
+    "0.2075": {
+      "false_voiced": 14,
+      "false_unvoiced": 166,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8763736263736264,
+      "balanced_error": 0.11784760955140788,
+      "transitions": 98
+    },
+    "0.21": {
+      "false_voiced": 14,
+      "false_unvoiced": 170,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8732782369146006,
+      "balanced_error": 0.12033517174046261,
+      "transitions": 104
+    },
+    "0.2125": {
+      "false_voiced": 13,
+      "false_unvoiced": 171,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8731034482758621,
+      "balanced_error": 0.11991322095160939,
+      "transitions": 106
+    },
+    "0.215": {
+      "false_voiced": 13,
+      "false_unvoiced": 177,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8684210526315791,
+      "balanced_error": 0.12364456423519148,
+      "transitions": 106
+    },
+    "0.2175": {
+      "false_voiced": 12,
+      "false_unvoiced": 180,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8666666666666666,
+      "balanced_error": 0.12446639454086561,
+      "transitions": 106
+    },
+    "0.22": {
+      "false_voiced": 12,
+      "false_unvoiced": 185,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8627177700348432,
+      "balanced_error": 0.12757584727718402,
+      "transitions": 108
+    },
+    "0.2225": {
+      "false_voiced": 12,
+      "false_unvoiced": 188,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8603351955307262,
+      "balanced_error": 0.12944151891897507,
+      "transitions": 108
+    },
+    "0.225": {
+      "false_voiced": 12,
+      "false_unvoiced": 188,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8603351955307262,
+      "balanced_error": 0.12944151891897507,
+      "transitions": 108
+    },
+    "0.2275": {
+      "false_voiced": 12,
+      "false_unvoiced": 190,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8587412587412588,
+      "balanced_error": 0.13068530001350243,
+      "transitions": 108
+    },
+    "0.23": {
+      "false_voiced": 12,
+      "false_unvoiced": 192,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8571428571428572,
+      "balanced_error": 0.13192908110802978,
+      "transitions": 106
+    },
+    "0.2325": {
+      "false_voiced": 12,
+      "false_unvoiced": 194,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8555399719495093,
+      "balanced_error": 0.13317286220255717,
+      "transitions": 108
+    },
+    "0.235": {
+      "false_voiced": 12,
+      "false_unvoiced": 199,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8515130190007038,
+      "balanced_error": 0.13628231493887558,
+      "transitions": 112
+    },
+    "0.2375": {
+      "false_voiced": 12,
+      "false_unvoiced": 200,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8507042253521128,
+      "balanced_error": 0.13690420548613924,
+      "transitions": 112
+    },
+    "0.24": {
+      "false_voiced": 11,
+      "false_unvoiced": 205,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8472418670438473,
+      "balanced_error": 0.13896981688634072,
+      "transitions": 112
+    },
+    "0.2425": {
+      "false_voiced": 11,
+      "false_unvoiced": 205,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8472418670438473,
+      "balanced_error": 0.13896981688634072,
+      "transitions": 112
+    },
+    "0.245": {
+      "false_voiced": 10,
+      "false_unvoiced": 206,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8470254957507083,
+      "balanced_error": 0.1385478660974875,
+      "transitions": 110
+    },
+    "0.2475": {
+      "false_voiced": 10,
+      "false_unvoiced": 208,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8453900709219858,
+      "balanced_error": 0.13979164719201487,
+      "transitions": 110
+    },
+    "0.25": {
+      "false_voiced": 9,
+      "false_unvoiced": 209,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8451704545454546,
+      "balanced_error": 0.13936969640316166,
+      "transitions": 112
+    },
+    "0.2525": {
+      "false_voiced": 9,
+      "false_unvoiced": 210,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8443496801705757,
+      "balanced_error": 0.13999158695042532,
+      "transitions": 114
+    },
+    "0.255": {
+      "false_voiced": 9,
+      "false_unvoiced": 212,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8427046263345195,
+      "balanced_error": 0.1412353680449527,
+      "transitions": 116
+    },
+    "0.2575": {
+      "false_voiced": 9,
+      "false_unvoiced": 216,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8394004282655246,
+      "balanced_error": 0.14372293023400742,
+      "transitions": 116
+    },
+    "0.26": {
+      "false_voiced": 9,
+      "false_unvoiced": 219,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8369098712446352,
+      "balanced_error": 0.14558860187579847,
+      "transitions": 120
+    },
+    "0.2625": {
+      "false_voiced": 9,
+      "false_unvoiced": 222,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8344086021505376,
+      "balanced_error": 0.14745427351758952,
+      "transitions": 122
+    },
+    "0.265": {
+      "false_voiced": 9,
+      "false_unvoiced": 222,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8344086021505376,
+      "balanced_error": 0.14745427351758952,
+      "transitions": 122
+    },
+    "0.2675": {
+      "false_voiced": 9,
+      "false_unvoiced": 223,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8335724533715925,
+      "balanced_error": 0.1480761640648532,
+      "transitions": 122
+    },
+    "0.27": {
+      "false_voiced": 9,
+      "false_unvoiced": 225,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8318965517241379,
+      "balanced_error": 0.14931994515938055,
+      "transitions": 124
+    },
+    "0.2725": {
+      "false_voiced": 9,
+      "false_unvoiced": 230,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8276856524873829,
+      "balanced_error": 0.15242939789569895,
+      "transitions": 122
+    },
+    "0.275": {
+      "false_voiced": 8,
+      "false_unvoiced": 232,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8265895953757225,
+      "balanced_error": 0.1526293376541094,
+      "transitions": 122
+    },
+    "0.2775": {
+      "false_voiced": 8,
+      "false_unvoiced": 232,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8265895953757225,
+      "balanced_error": 0.1526293376541094,
+      "transitions": 122
+    },
+    "0.28": {
+      "false_voiced": 8,
+      "false_unvoiced": 235,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8240405503258509,
+      "balanced_error": 0.15449500929590043,
+      "transitions": 124
+    },
+    "0.2825": {
+      "false_voiced": 8,
+      "false_unvoiced": 236,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8231884057971015,
+      "balanced_error": 0.15511689984316412,
+      "transitions": 126
+    },
+    "0.285": {
+      "false_voiced": 8,
+      "false_unvoiced": 237,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8223350253807107,
+      "balanced_error": 0.15573879039042782,
+      "transitions": 126
+    },
+    "0.2875": {
+      "false_voiced": 8,
+      "false_unvoiced": 241,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8189090909090908,
+      "balanced_error": 0.15822635257948253,
+      "transitions": 128
+    },
+    "0.29": {
+      "false_voiced": 8,
+      "false_unvoiced": 242,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8180494905385735,
+      "balanced_error": 0.15884824312674622,
+      "transitions": 128
+    },
+    "0.2925": {
+      "false_voiced": 8,
+      "false_unvoiced": 245,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8154631655725748,
+      "balanced_error": 0.16071391476853725,
+      "transitions": 130
+    },
+    "0.295": {
+      "false_voiced": 8,
+      "false_unvoiced": 246,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8145985401459854,
+      "balanced_error": 0.16133580531580094,
+      "transitions": 132
+    },
+    "0.2975": {
+      "false_voiced": 8,
+      "false_unvoiced": 250,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8111273792093705,
+      "balanced_error": 0.16382336750485565,
+      "transitions": 132
+    },
+    "0.3": {
+      "false_voiced": 8,
+      "false_unvoiced": 253,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8085106382978723,
+      "balanced_error": 0.1656890391466467,
+      "transitions": 132
+    },
+    "0.3025": {
+      "false_voiced": 8,
+      "false_unvoiced": 257,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8050036791758646,
+      "balanced_error": 0.16817660133570145,
+      "transitions": 132
+    },
+    "0.305": {
+      "false_voiced": 8,
+      "false_unvoiced": 259,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8032424465733234,
+      "balanced_error": 0.1694203824302288,
+      "transitions": 130
+    },
+    "0.3075": {
+      "false_voiced": 8,
+      "false_unvoiced": 262,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.8005908419497785,
+      "balanced_error": 0.17128605407201986,
+      "transitions": 132
+    },
+    "0.31": {
+      "false_voiced": 8,
+      "false_unvoiced": 265,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7979274611398964,
+      "balanced_error": 0.1731517257138109,
+      "transitions": 130
+    },
+    "0.3125": {
+      "false_voiced": 8,
+      "false_unvoiced": 267,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7961452928094885,
+      "balanced_error": 0.17439550680833826,
+      "transitions": 130
+    },
+    "0.315": {
+      "false_voiced": 8,
+      "false_unvoiced": 271,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7925650557620818,
+      "balanced_error": 0.17688306899739298,
+      "transitions": 132
+    },
+    "0.3175": {
+      "false_voiced": 8,
+      "false_unvoiced": 277,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7871545929798357,
+      "balanced_error": 0.18061441228097508,
+      "transitions": 130
+    },
+    "0.32": {
+      "false_voiced": 8,
+      "false_unvoiced": 281,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7835205992509363,
+      "balanced_error": 0.1831019744700298,
+      "transitions": 128
+    },
+    "0.3225": {
+      "false_voiced": 8,
+      "false_unvoiced": 283,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7816954238559639,
+      "balanced_error": 0.18434575556455715,
+      "transitions": 130
+    },
+    "0.325": {
+      "false_voiced": 8,
+      "false_unvoiced": 287,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7780285929270128,
+      "balanced_error": 0.1868333177536119,
+      "transitions": 128
+    },
+    "0.3275": {
+      "false_voiced": 8,
+      "false_unvoiced": 291,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7743396226415095,
+      "balanced_error": 0.1893208799426666,
+      "transitions": 128
+    },
+    "0.33": {
+      "false_voiced": 8,
+      "false_unvoiced": 296,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7696969696969697,
+      "balanced_error": 0.19243033267898502,
+      "transitions": 130
+    },
+    "0.3325": {
+      "false_voiced": 8,
+      "false_unvoiced": 299,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7668944570994686,
+      "balanced_error": 0.19429600432077607,
+      "transitions": 136
+    },
+    "0.335": {
+      "false_voiced": 8,
+      "false_unvoiced": 303,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7631378522467631,
+      "balanced_error": 0.19678356650983078,
+      "transitions": 136
+    },
+    "0.3375": {
+      "false_voiced": 8,
+      "false_unvoiced": 305,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7612509534706331,
+      "balanced_error": 0.19802734760435817,
+      "transitions": 136
+    },
+    "0.34": {
+      "false_voiced": 8,
+      "false_unvoiced": 310,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7565084226646248,
+      "balanced_error": 0.20113680034067657,
+      "transitions": 134
+    },
+    "0.3425": {
+      "false_voiced": 7,
+      "false_unvoiced": 314,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7532667179093004,
+      "balanced_error": 0.2025805211936144,
+      "transitions": 132
+    },
+    "0.345": {
+      "false_voiced": 7,
+      "false_unvoiced": 317,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7503852080123268,
+      "balanced_error": 0.20444619283540544,
+      "transitions": 134
+    },
+    "0.3475": {
+      "false_voiced": 7,
+      "false_unvoiced": 325,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7426356589147287,
+      "balanced_error": 0.2094213172135149,
+      "transitions": 132
+    },
+    "0.35": {
+      "false_voiced": 6,
+      "false_unvoiced": 325,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7432117920868891,
+      "balanced_error": 0.208377475877398,
+      "transitions": 130
+    },
+    "0.3525": {
+      "false_voiced": 6,
+      "false_unvoiced": 328,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.740279937791602,
+      "balanced_error": 0.21024314751918902,
+      "transitions": 126
+    },
+    "0.355": {
+      "false_voiced": 6,
+      "false_unvoiced": 332,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7363494539781591,
+      "balanced_error": 0.21273070970824376,
+      "transitions": 126
+    },
+    "0.3575": {
+      "false_voiced": 6,
+      "false_unvoiced": 335,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7333854573885848,
+      "balanced_error": 0.2145963813500348,
+      "transitions": 124
+    },
+    "0.36": {
+      "false_voiced": 6,
+      "false_unvoiced": 340,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.728414442700157,
+      "balanced_error": 0.21770583408635322,
+      "transitions": 124
+    },
+    "0.3625": {
+      "false_voiced": 6,
+      "false_unvoiced": 346,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.722397476340694,
+      "balanced_error": 0.2214371773699353,
+      "transitions": 118
+    },
+    "0.365": {
+      "false_voiced": 6,
+      "false_unvoiced": 350,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7183544303797468,
+      "balanced_error": 0.22392473955899003,
+      "transitions": 118
+    },
+    "0.3675": {
+      "false_voiced": 6,
+      "false_unvoiced": 354,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.7142857142857143,
+      "balanced_error": 0.22641230174804475,
+      "transitions": 118
+    },
+    "0.37": {
+      "false_voiced": 6,
+      "false_unvoiced": 356,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.712241653418124,
+      "balanced_error": 0.2276560828425721,
+      "transitions": 114
+    },
+    "0.3725": {
+      "false_voiced": 6,
+      "false_unvoiced": 364,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.704,
+      "balanced_error": 0.23263120722068156,
+      "transitions": 106
+    },
+    "0.375": {
+      "false_voiced": 6,
+      "false_unvoiced": 366,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.701923076923077,
+      "balanced_error": 0.23387498831520892,
+      "transitions": 106
+    },
+    "0.3775": {
+      "false_voiced": 6,
+      "false_unvoiced": 368,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6998394863563403,
+      "balanced_error": 0.2351187694097363,
+      "transitions": 106
+    },
+    "0.38": {
+      "false_voiced": 6,
+      "false_unvoiced": 371,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6967015285599357,
+      "balanced_error": 0.23698444105152733,
+      "transitions": 108
+    },
+    "0.3825": {
+      "false_voiced": 6,
+      "false_unvoiced": 371,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6967015285599357,
+      "balanced_error": 0.23698444105152733,
+      "transitions": 108
+    },
+    "0.385": {
+      "false_voiced": 6,
+      "false_unvoiced": 375,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6924939467312349,
+      "balanced_error": 0.23947200324058207,
+      "transitions": 106
+    },
+    "0.3875": {
+      "false_voiced": 6,
+      "false_unvoiced": 376,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6914378029079159,
+      "balanced_error": 0.24009389378784574,
+      "transitions": 108
+    },
+    "0.39": {
+      "false_voiced": 6,
+      "false_unvoiced": 383,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6839967506092608,
+      "balanced_error": 0.24444712761869153,
+      "transitions": 110
+    },
+    "0.3925": {
+      "false_voiced": 6,
+      "false_unvoiced": 389,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6775510204081633,
+      "balanced_error": 0.2481784709022736,
+      "transitions": 114
+    },
+    "0.395": {
+      "false_voiced": 5,
+      "false_unvoiced": 391,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6759410801963994,
+      "balanced_error": 0.24837841066068406,
+      "transitions": 112
+    },
+    "0.3975": {
+      "false_voiced": 5,
+      "false_unvoiced": 394,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6726825266611977,
+      "balanced_error": 0.2502440823024751,
+      "transitions": 106
+    },
+    "0.4": {
+      "false_voiced": 5,
+      "false_unvoiced": 399,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6672158154859966,
+      "balanced_error": 0.2533535350387935,
+      "transitions": 108
+    },
+    "0.4025": {
+      "false_voiced": 5,
+      "false_unvoiced": 406,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6594863297431648,
+      "balanced_error": 0.2577067688696393,
+      "transitions": 108
+    },
+    "0.405": {
+      "false_voiced": 5,
+      "false_unvoiced": 410,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6550290939318371,
+      "balanced_error": 0.260194331058694,
+      "transitions": 106
+    },
+    "0.4075": {
+      "false_voiced": 5,
+      "false_unvoiced": 412,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.652789342214821,
+      "balanced_error": 0.2614381121532214,
+      "transitions": 104
+    },
+    "0.41": {
+      "false_voiced": 5,
+      "false_unvoiced": 417,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6471571906354515,
+      "balanced_error": 0.2645475648895398,
+      "transitions": 104
+    },
+    "0.4125": {
+      "false_voiced": 5,
+      "false_unvoiced": 420,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6437552388935457,
+      "balanced_error": 0.2664132365313308,
+      "transitions": 106
+    },
+    "0.415": {
+      "false_voiced": 4,
+      "false_unvoiced": 425,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6385846672283066,
+      "balanced_error": 0.2684788479315323,
+      "transitions": 104
+    },
+    "0.4175": {
+      "false_voiced": 4,
+      "false_unvoiced": 432,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6305084745762712,
+      "balanced_error": 0.2728320817623781,
+      "transitions": 104
+    },
+    "0.42": {
+      "false_voiced": 4,
+      "false_unvoiced": 435,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.627017841971113,
+      "balanced_error": 0.27469775340416913,
+      "transitions": 104
+    },
+    "0.4225": {
+      "false_voiced": 4,
+      "false_unvoiced": 438,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6235093696763203,
+      "balanced_error": 0.2765634250459602,
+      "transitions": 104
+    },
+    "0.425": {
+      "false_voiced": 4,
+      "false_unvoiced": 441,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6199829205807004,
+      "balanced_error": 0.27842909668775123,
+      "transitions": 106
+    },
+    "0.4275": {
+      "false_voiced": 4,
+      "false_unvoiced": 445,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6152527849185947,
+      "balanced_error": 0.28091665887680595,
+      "transitions": 108
+    },
+    "0.43": {
+      "false_voiced": 4,
+      "false_unvoiced": 446,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6140651801029159,
+      "balanced_error": 0.28153854942406964,
+      "transitions": 108
+    },
+    "0.4325": {
+      "false_voiced": 4,
+      "false_unvoiced": 449,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6104901117798796,
+      "balanced_error": 0.2834042210658607,
+      "transitions": 108
+    },
+    "0.435": {
+      "false_voiced": 4,
+      "false_unvoiced": 452,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6068965517241379,
+      "balanced_error": 0.28526989270765174,
+      "transitions": 108
+    },
+    "0.4375": {
+      "false_voiced": 4,
+      "false_unvoiced": 457,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.6008658008658009,
+      "balanced_error": 0.28837934544397015,
+      "transitions": 108
+    },
+    "0.44": {
+      "false_voiced": 4,
+      "false_unvoiced": 461,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.5960034752389226,
+      "balanced_error": 0.29086690763302486,
+      "transitions": 110
+    },
+    "0.4425": {
+      "false_voiced": 3,
+      "false_unvoiced": 469,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.5866900175131349,
+      "balanced_error": 0.2947981906750174,
+      "transitions": 110
+    },
+    "0.445": {
+      "false_voiced": 3,
+      "false_unvoiced": 475,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.5792253521126761,
+      "balanced_error": 0.29852953395859944,
+      "transitions": 106
+    },
+    "0.4475": {
+      "false_voiced": 3,
+      "false_unvoiced": 477,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.5767195767195769,
+      "balanced_error": 0.2997733150531268,
+      "transitions": 104
+    },
+    "0.45": {
+      "false_voiced": 3,
+      "false_unvoiced": 480,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.5729442970822282,
+      "balanced_error": 0.30163898669491784,
+      "transitions": 104
+    },
+    "0.4525": {
+      "false_voiced": 3,
+      "false_unvoiced": 488,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.5627782724844167,
+      "balanced_error": 0.30661411107302733,
+      "transitions": 108
+    },
+    "0.455": {
+      "false_voiced": 3,
+      "false_unvoiced": 494,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.5550581915846017,
+      "balanced_error": 0.31034545435660943,
+      "transitions": 110
+    },
+    "0.4575": {
+      "false_voiced": 3,
+      "false_unvoiced": 496,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.5524663677130044,
+      "balanced_error": 0.31158923545113676,
+      "transitions": 110
+    },
+    "0.46": {
+      "false_voiced": 3,
+      "false_unvoiced": 498,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.549865229110512,
+      "balanced_error": 0.31283301654566414,
+      "transitions": 106
+    },
+    "0.4625": {
+      "false_voiced": 3,
+      "false_unvoiced": 507,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.5380434782608695,
+      "balanced_error": 0.31843003147103727,
+      "transitions": 102
+    },
+    "0.465": {
+      "false_voiced": 3,
+      "false_unvoiced": 511,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.5327272727272727,
+      "balanced_error": 0.320917593660092,
+      "transitions": 104
+    },
+    "0.4675": {
+      "false_voiced": 3,
+      "false_unvoiced": 513,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.5300546448087432,
+      "balanced_error": 0.32216137475461937,
+      "transitions": 102
+    },
+    "0.47": {
+      "false_voiced": 3,
+      "false_unvoiced": 513,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.5300546448087432,
+      "balanced_error": 0.32216137475461937,
+      "transitions": 102
+    },
+    "0.4725": {
+      "false_voiced": 3,
+      "false_unvoiced": 513,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.5300546448087432,
+      "balanced_error": 0.32216137475461937,
+      "transitions": 102
+    },
+    "0.475": {
+      "false_voiced": 2,
+      "false_unvoiced": 520,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.5211009174311927,
+      "balanced_error": 0.32547076724934826,
+      "transitions": 104
+    },
+    "0.4775": {
+      "false_voiced": 2,
+      "false_unvoiced": 523,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.5170193192272309,
+      "balanced_error": 0.3273364388911393,
+      "transitions": 104
+    },
+    "0.48": {
+      "false_voiced": 2,
+      "false_unvoiced": 532,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.5046382189239333,
+      "balanced_error": 0.3329334538165124,
+      "transitions": 104
+    },
+    "0.4825": {
+      "false_voiced": 2,
+      "false_unvoiced": 535,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.5004651162790698,
+      "balanced_error": 0.3347991254583035,
+      "transitions": 100
+    },
+    "0.485": {
+      "false_voiced": 2,
+      "false_unvoiced": 539,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.49486461251167135,
+      "balanced_error": 0.3372866876473582,
+      "transitions": 100
+    },
+    "0.4875": {
+      "false_voiced": 2,
+      "false_unvoiced": 545,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.48638497652582163,
+      "balanced_error": 0.3410180309309403,
+      "transitions": 98
+    },
+    "0.49": {
+      "false_voiced": 2,
+      "false_unvoiced": 550,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.47924528301886793,
+      "balanced_error": 0.3441274836672587,
+      "transitions": 90
+    },
+    "0.4925": {
+      "false_voiced": 2,
+      "false_unvoiced": 558,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.467680608365019,
+      "balanced_error": 0.34910260804536813,
+      "transitions": 92
+    },
+    "0.495": {
+      "false_voiced": 1,
+      "false_unvoiced": 564,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.4593301435406698,
+      "balanced_error": 0.35179010999283333,
+      "transitions": 94
+    },
+    "0.4975": {
+      "false_voiced": 1,
+      "false_unvoiced": 566,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.4563758389261745,
+      "balanced_error": 0.35303389108736066,
+      "transitions": 92
+    },
+    "0.5": {
+      "false_voiced": 1,
+      "false_unvoiced": 581,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.43385214007782097,
+      "balanced_error": 0.3623622492963159,
+      "transitions": 92
+    },
+    "0.5025": {
+      "false_voiced": 1,
+      "false_unvoiced": 587,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.4246575342465754,
+      "balanced_error": 0.366093592579898,
+      "transitions": 90
+    },
+    "0.505": {
+      "false_voiced": 1,
+      "false_unvoiced": 592,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.416912487708948,
+      "balanced_error": 0.3692030453162164,
+      "transitions": 92
+    },
+    "0.5075": {
+      "false_voiced": 1,
+      "false_unvoiced": 600,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.4043607532210109,
+      "balanced_error": 0.3741781696943259,
+      "transitions": 86
+    },
+    "0.51": {
+      "false_voiced": 1,
+      "false_unvoiced": 607,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.39321357285429137,
+      "balanced_error": 0.3785314035251716,
+      "transitions": 84
+    },
+    "0.5125": {
+      "false_voiced": 1,
+      "false_unvoiced": 610,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.38838838838838835,
+      "balanced_error": 0.3803970751669627,
+      "transitions": 82
+    },
+    "0.515": {
+      "false_voiced": 1,
+      "false_unvoiced": 620,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.372093023255814,
+      "balanced_error": 0.3866159806395995,
+      "transitions": 76
+    },
+    "0.5175": {
+      "false_voiced": 1,
+      "false_unvoiced": 623,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.3671399594320487,
+      "balanced_error": 0.38848165228139053,
+      "transitions": 82
+    },
+    "0.52": {
+      "false_voiced": 1,
+      "false_unvoiced": 629,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.35714285714285715,
+      "balanced_error": 0.39221299556497263,
+      "transitions": 84
+    },
+    "0.5225": {
+      "false_voiced": 1,
+      "false_unvoiced": 640,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.3384932920536635,
+      "balanced_error": 0.39905379158487314,
+      "transitions": 74
+    },
+    "0.525": {
+      "false_voiced": 1,
+      "false_unvoiced": 643,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.3333333333333333,
+      "balanced_error": 0.40091946322666416,
+      "transitions": 70
+    },
+    "0.5275": {
+      "false_voiced": 1,
+      "false_unvoiced": 647,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.3264033264033264,
+      "balanced_error": 0.4034070254157189,
+      "transitions": 70
+    },
+    "0.53": {
+      "false_voiced": 1,
+      "false_unvoiced": 653,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.3158995815899582,
+      "balanced_error": 0.407138368699301,
+      "transitions": 66
+    },
+    "0.5325": {
+      "false_voiced": 1,
+      "false_unvoiced": 663,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.2980972515856237,
+      "balanced_error": 0.4133572741719378,
+      "transitions": 64
+    },
+    "0.535": {
+      "false_voiced": 1,
+      "false_unvoiced": 669,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.28723404255319146,
+      "balanced_error": 0.4170886174555199,
+      "transitions": 66
+    },
+    "0.5375": {
+      "false_voiced": 1,
+      "false_unvoiced": 681,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.2650862068965517,
+      "balanced_error": 0.42455130402268404,
+      "transitions": 64
+    },
+    "0.54": {
+      "false_voiced": 1,
+      "false_unvoiced": 689,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.24999999999999994,
+      "balanced_error": 0.4295264284007935,
+      "transitions": 56
+    },
+    "0.5425": {
+      "false_voiced": 0,
+      "false_unvoiced": 695,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.23877327491785322,
+      "balanced_error": 0.4322139303482587,
+      "transitions": 56
+    },
+    "0.545": {
+      "false_voiced": 0,
+      "false_unvoiced": 708,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.21333333333333335,
+      "balanced_error": 0.44029850746268656,
+      "transitions": 44
+    },
+    "0.5475": {
+      "false_voiced": 0,
+      "false_unvoiced": 712,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.20535714285714285,
+      "balanced_error": 0.4427860696517413,
+      "transitions": 40
+    },
+    "0.55": {
+      "false_voiced": 0,
+      "false_unvoiced": 721,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.1871476888387824,
+      "balanced_error": 0.44838308457711445,
+      "transitions": 38
+    },
+    "0.5525": {
+      "false_voiced": 0,
+      "false_unvoiced": 726,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.17687074829931973,
+      "balanced_error": 0.45149253731343286,
+      "transitions": 36
+    },
+    "0.555": {
+      "false_voiced": 0,
+      "false_unvoiced": 732,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.1643835616438356,
+      "balanced_error": 0.4552238805970149,
+      "transitions": 38
+    },
+    "0.5575": {
+      "false_voiced": 0,
+      "false_unvoiced": 735,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.15807560137457044,
+      "balanced_error": 0.457089552238806,
+      "transitions": 36
+    },
+    "0.56": {
+      "false_voiced": 0,
+      "false_unvoiced": 743,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.14104046242774568,
+      "balanced_error": 0.4620646766169154,
+      "transitions": 32
+    },
+    "0.5625": {
+      "false_voiced": 0,
+      "false_unvoiced": 754,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.117096018735363,
+      "balanced_error": 0.4689054726368159,
+      "transitions": 28
+    },
+    "0.565": {
+      "false_voiced": 0,
+      "false_unvoiced": 759,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.10600706713780918,
+      "balanced_error": 0.47201492537313433,
+      "transitions": 28
+    },
+    "0.5675": {
+      "false_voiced": 0,
+      "false_unvoiced": 766,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.09026128266033255,
+      "balanced_error": 0.4763681592039801,
+      "transitions": 18
+    },
+    "0.57": {
+      "false_voiced": 0,
+      "false_unvoiced": 771,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.07885304659498207,
+      "balanced_error": 0.47947761194029853,
+      "transitions": 16
+    },
+    "0.5725": {
+      "false_voiced": 0,
+      "false_unvoiced": 774,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.07194244604316546,
+      "balanced_error": 0.48134328358208955,
+      "transitions": 14
+    },
+    "0.575": {
+      "false_voiced": 0,
+      "false_unvoiced": 781,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.05562273276904474,
+      "balanced_error": 0.48569651741293535,
+      "transitions": 14
+    },
+    "0.5775": {
+      "false_voiced": 0,
+      "false_unvoiced": 787,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.04141291108404385,
+      "balanced_error": 0.4894278606965174,
+      "transitions": 10
+    },
+    "0.58": {
+      "false_voiced": 0,
+      "false_unvoiced": 788,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.03902439024390244,
+      "balanced_error": 0.4900497512437811,
+      "transitions": 8
+    },
+    "0.5825": {
+      "false_voiced": 0,
+      "false_unvoiced": 790,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.034229828850855744,
+      "balanced_error": 0.49129353233830847,
+      "transitions": 4
+    },
+    "0.585": {
+      "false_voiced": 0,
+      "false_unvoiced": 793,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.026993865030674847,
+      "balanced_error": 0.4931592039800995,
+      "transitions": 4
+    },
+    "0.5875": {
+      "false_voiced": 0,
+      "false_unvoiced": 794,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.024570024570024572,
+      "balanced_error": 0.4937810945273632,
+      "transitions": 2
+    },
+    "0.59": {
+      "false_voiced": 0,
+      "false_unvoiced": 795,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.02214022140221402,
+      "balanced_error": 0.4944029850746269,
+      "transitions": 2
+    },
+    "0.5925": {
+      "false_voiced": 0,
+      "false_unvoiced": 795,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.02214022140221402,
+      "balanced_error": 0.4944029850746269,
+      "transitions": 2
+    },
+    "0.595": {
+      "false_voiced": 0,
+      "false_unvoiced": 796,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.019704433497536946,
+      "balanced_error": 0.49502487562189057,
+      "transitions": 2
+    },
+    "0.5975": {
+      "false_voiced": 0,
+      "false_unvoiced": 797,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.017262638717632554,
+      "balanced_error": 0.4956467661691542,
+      "transitions": 2
+    },
+    "0.6": {
+      "false_voiced": 0,
+      "false_unvoiced": 797,
+      "unvoiced_frames": 479,
+      "voiced_frames": 804,
+      "f1": 0.017262638717632554,
+      "balanced_error": 0.4956467661691542,
+      "transitions": 2
+    }
+  }
+}

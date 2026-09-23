@@ -13,37 +13,66 @@ from rvc.lib.predictors.crepe_decoder import (
 i18n = I18nAuto()
 
 
-def fcn_profile_controls(f0_method, realtime=False):
-    from rvc.lib.predictors.f0_methods import FCN_METHODS
-    from rvc.lib.predictors.fcn.profiles import recommended_profile_json
+FCN_PROFILE_HELP = (
+    "**FCN (CUDA)** — FCN-993 reproduces the original predictor without a voicing threshold. "
+    "For voice conversion with FCN, use **FCN-993-RVC**. No JSON is required: leave the profile blank to use a matching checkpoint profile or the bundled **Balanced v1** settings (enter 0.50, exit 0.40, median 5 ms). "
+    'Settings are fixed when processing starts. Optional network compilation: add `"compile_model": true` to the profile (default OFF).'
+)
+FCN_REALTIME_HELP = "FCN delays audio and F0 together by 140–150 ms, plus capture filtering and up to 10 ms of grid alignment. Device, chunk and queue latency are additional."
+FCNF0PP_PROFILE_HELP = (
+    "**FCNF0++ (PENN)** — FCNF0++ passes PENN's pitch through unchanged, with every frame voiced: use it to judge the model itself. "
+    "**FCNF0++-RVC** is the same pitch with frames whose PENN periodicity is at or below `periodicity_threshold` set to unvoiced, and nothing else. "
+    'Leave the profile blank to use a matching checkpoint profile or the bundled defaults (Viterbi decoding; FCNF0++-RVC periodicity threshold 0.035, chosen by the voiced-F1 criterion PENN itself uses). `"decoder": "argmax"` is also available. Details: docs/fcnf0pp.md'
+)
+FCNF0PP_REALTIME_HELP = "FCNF0++ keeps no stream state and adds no holdback: every block recomputes the whole conversion window, like RMVPE and CREPE."
 
-    with gr.Group(visible=f0_method.value in FCN_METHODS) as group:
-        gr.Markdown(
-            "**FCN (CUDA)** — FCN-993 reproduces the original predictor without a voicing threshold. "
-            "For voice conversion with FCN, use **FCN-993-RVC**. No JSON is required: leave the profile blank to use a matching checkpoint profile or the bundled **Balanced v1** settings (enter 0.50, exit 0.40, median 5 ms). "
-            'Settings are fixed when processing starts. Optional network compilation: add `"compile_model": true` to the profile (default OFF).'
-        )
-        if realtime:
-            gr.Markdown(
-                "FCN delays audio and F0 together by 140–150 ms, plus capture filtering and up to 10 ms of grid alignment. Device, chunk and queue latency are additional."
-            )
+
+def _f0_profile_help(method, realtime):
+    from rvc.lib.predictors.f0_methods import FCN_METHODS, FCNF0PP_METHODS
+
+    if method in FCNF0PP_METHODS:
+        return FCNF0PP_PROFILE_HELP + ("\n\n" + FCNF0PP_REALTIME_HELP if realtime else "")
+    if method in FCN_METHODS:
+        return FCN_PROFILE_HELP + ("\n\n" + FCN_REALTIME_HELP if realtime else "")
+    return ""
+
+
+def recommended_f0_profile_json(method):
+    from rvc.lib.predictors.f0_methods import FCNF0PP_METHODS
+
+    if method in FCNF0PP_METHODS:
+        from rvc.lib.predictors.fcnf0pp.profiles import recommended_profile_json
+    else:
+        from rvc.lib.predictors.fcn.profiles import recommended_profile_json
+    return recommended_profile_json(method)
+
+
+def fcn_profile_controls(f0_method, realtime=False):
+    """The profile box shared by FCN-993 and FCNF0++; the JSON's method picks the family."""
+    from rvc.lib.predictors.f0_methods import PROFILE_METHODS
+
+    with gr.Group(visible=f0_method.value in PROFILE_METHODS) as group:
+        help_text = gr.Markdown(_f0_profile_help(f0_method.value, realtime))
         profile = gr.Textbox(
-            label="FCN profile JSON or local JSON path (optional)",
-            info="Normally leave blank. To explicitly use the recommended settings instead of checkpoint settings, press the button below. Edit the JSON only to customize. Details: docs/fcn-993.md",
+            label="F0 profile JSON or local JSON path (optional)",
+            info="Normally leave blank. To explicitly use the recommended settings instead of checkpoint settings, press the button below. Edit the JSON only to customize. Details: docs/fcn-993.md, docs/fcnf0pp.md",
             value="",
             lines=3,
         )
-        recommended = gr.Button("Load recommended FCN settings")
+        recommended = gr.Button("Load recommended F0 settings")
         recommended.click(
-            fn=recommended_profile_json,
+            fn=recommended_f0_profile_json,
             inputs=[f0_method],
             outputs=[profile],
             show_progress=False,
         )
     f0_method.change(
-        fn=lambda method: gr.update(visible=method in FCN_METHODS),
+        fn=lambda method: (
+            gr.update(visible=method in PROFILE_METHODS),
+            gr.update(value=_f0_profile_help(method, realtime)),
+        ),
         inputs=[f0_method],
-        outputs=[group],
+        outputs=[group, help_text],
         show_progress=False,
     )
     return profile

@@ -123,6 +123,53 @@ def download_mapping_files(file_mapping_list, global_bar, base_url=None):
             future.result()
 
 
+def fcnf0pp_missing():
+    from rvc.lib.predictors.fcnf0pp.weights import DEFAULT_WEIGHT, manifest_path
+
+    return not (DEFAULT_WEIGHT.is_file() and manifest_path(DEFAULT_WEIGHT).is_file())
+
+
+def fcnf0pp_download_size():
+    from rvc.lib.predictors.fcnf0pp.weights import SOURCE_URL
+
+    if not fcnf0pp_missing():
+        return 0
+    try:
+        response = requests.head(SOURCE_URL, allow_redirects=True, timeout=10)
+        return int(response.headers.get("content-length", 0))
+    except Exception:
+        return 0
+
+
+def download_fcnf0pp(global_bar):
+    """Fetch the published FCNF0++ checkpoint and keep only its weights.
+
+    The published file is a 107 MB training checkpoint; strip_checkpoint checks its
+    sha256, keeps checkpoint["model"] (34 MB) and writes the manifest.
+    """
+    from rvc.lib.predictors.fcnf0pp.weights import (
+        DEFAULT_WEIGHT,
+        SOURCE_URL,
+        strip_checkpoint,
+    )
+
+    if not fcnf0pp_missing():
+        return
+    source = DEFAULT_WEIGHT.with_name("fcnf0++.source.pt")
+    source.parent.mkdir(parents=True, exist_ok=True)
+    response = requests.get(SOURCE_URL, stream=True, timeout=60)
+    response.raise_for_status()
+    try:
+        with open(source, "wb") as file:
+            for data in response.iter_content(1 << 20):
+                file.write(data)
+                global_bar.update(len(data))
+        strip_checkpoint(source, DEFAULT_WEIGHT)
+    finally:
+        if source.exists():
+            source.unlink()
+
+
 def split_pretraineds(pretrained_list):
     f0_list = []
     non_f0_list = []
@@ -153,6 +200,7 @@ def calculate_total_size(
     if models:
         total_size += get_file_size_if_missing(models_list)
         total_size += get_file_size_if_missing(embedders_list)
+        total_size += fcnf0pp_download_size()
     if exe and os.name == "nt":
         total_size += get_file_size_if_missing(executables_list)
     if pretraineds_hifigan:
@@ -191,6 +239,7 @@ def prequisites_download_pipeline(
             if models:
                 download_mapping_files(models_list, global_bar)
                 download_mapping_files(embedders_list, global_bar)
+                download_fcnf0pp(global_bar)
             if exe:
                 if os.name == "nt":
                     download_mapping_files(executables_list, global_bar)
