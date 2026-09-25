@@ -267,7 +267,12 @@ class Pipeline:
             proposed_pitch: whether to apply proposed pitch adjustment
             proposed_pitch_threshold: target frequency, 155.0 for male, 255.0 for female
         """
-        from rvc.lib.predictors.f0_methods import FCN_METHODS, FCNF0PP_METHODS
+        from rvc.lib.predictors.f0_methods import (
+            FCN_METHODS,
+            FCNF0PP_METHODS,
+            HPA_RMVPE_METHODS,
+            hpa_rmvpe_variant,
+        )
 
         if f0_method in FCN_METHODS:
             model = self.fcn_predictor
@@ -313,6 +318,14 @@ class Pipeline:
             )
             f0 = model.get_f0(x, filter_radius=0.03)
             del model
+        elif f0_method in HPA_RMVPE_METHODS:
+            from rvc.lib.predictors.hpa_rmvpe import get_offline_predictor
+
+            # Cached for the process, unlike rmvpe above, so a compiled network is
+            # compiled once rather than on every conversion.
+            variant, aligned = hpa_rmvpe_variant(f0_method)
+            model = get_offline_predictor(variant, self.device)
+            f0 = model.get_f0(x, filter_radius=0.03, aligned=aligned)
         elif f0_method == "fcpe":
             model = FCPE(
                 device=self.device, sample_rate=self.sample_rate, hop_size=self.window

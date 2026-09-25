@@ -191,6 +191,7 @@ Applio-3.5.0/
 - `crepe` - Highest quality, slowest
 - `fcn-993`, `fcn-993-rvc` - FCN-993 (fork-specific, `docs/fcn-993.md`)
 - `fcnf0++`, `fcnf0++-rvc`, `fcnf0++-aligned`, `fcnf0++-rvc-aligned` - FCNF0++ via penn (fork-specific, see below and `docs/fcnf0pp.md`)
+- `hpa-rmvpe-76000`, `hpa-rmvpe-112000` and their `-aligned` variants - HPA-RMVPE (fork-specific, see below and `docs/hpa-rmvpe.md`)
 - `hybrid[...]` - Averages multiple methods for robustness
 
 ### Embedder Models
@@ -1044,8 +1045,9 @@ the file untouched. TensorBoard's `learning_rate` shows the effective generator 
 ### TorchCompile during training (extraction only)
 `training_compile_extraction` (`assets/config.json`, default off) compiles the embedder
 and the RMVPE/FCPE pitch models during training feature extraction
-(`rvc/train/extract/compile_extract.py`). CREPE already compiles itself through the
-"Enable TorchCompile (CREPE)" setting.
+(`rvc/train/extract/compile_extract.py`). CREPE and HPA-RMVPE compile themselves
+through the "Enable TorchCompile for F0 models" setting (`torch_compile_enabled`, the box
+that used to read "Enable TorchCompile (CREPE)"), which covers training extraction too.
 
 Per file this is x1.32 (embedder), x1.33 (RMVPE), x1.52 (FCPE) on an RTX 4090, measured
 A-B-A so warm-up cannot be read as a speedup. But tracing costs ~17 s per worker process
@@ -1185,6 +1187,37 @@ the 1440 x 1440 transition already on the device.
 - Weights: the HuggingFace `fcnf0++.pt` (107 MB, sha256 `28d89add...`) is a training
   checkpoint with Adam state; `tools/strip_fcnf0pp.py` (also run by the prerequisites
   download) keeps `model` (35.7 MB) and writes `fcnf0++.manifest.json`.
+
+### HPA-RMVPE: `hpa-rmvpe-76000`, `hpa-rmvpe-112000` and their `-aligned` variants
+`rvc/lib/predictors/hpa_rmvpe/`. Full write-up and measurements in `docs/hpa-rmvpe.md`.
+- RMVPE's front end, chunking and decoder with a hypergraph-attention network
+  ([PhamHuynhAnh16/HPA-RMVPE](https://github.com/PhamHuynhAnh16/HPA-RMVPE), MIT per the HF
+  card). `HPARMVPEPredictor` subclasses `RMVPE0Predictor` and replaces only `__init__`;
+  output is **bit-identical to upstream's `HPARMVPE.infer_from_audio`** on CPU and CUDA for
+  both checkpoints. `E2E0`'s `num_heads=4` is not in the weights, so it is fixed, not exposed.
+- **Weights are fetched on first use**, not by the prerequisites download: 203 MB training
+  checkpoints from a pinned HF revision, size- and sha256-checked, stripped to `model`
+  (68 MB) with a manifest. They carry `best_rpa` as a numpy float64, so the strip loads
+  with `weights_only=True` plus three allowlisted numpy globals - never
+  `weights_only=False`. The stripped file is written through a buffer so its sha256 is
+  deterministic (`torch.save` to a path names the archive after the temp file). Training
+  extraction fetches in the parent (`extraction_spec`), realtime at pipeline construction.
+- **On speech its pitch runs ~20 ms late** against RMVPE and CREPE (16-24 ms on four
+  recordings, both checkpoints; only 3-6 ms on synthetic harmonic glides; the cause is
+  not in upstream's label alignment). `-aligned` appends 2 hops of reflect padding and
+  drops the first 2 frames (`HPA_RMVPE_LAG_FRAMES`), which leaves ±4 ms and brings the
+  median difference from RMVPE from ~65 c to 10-12 c. Frame count stays `len // 160 + 1`.
+- Not a profile method; coarse F0 uses rmvpe's mel formula. `extraction_spec` records
+  `{"method", "weight_sha256"}` and `can_reuse` never trusts unrecorded pitch files for it.
+- **TorchCompile follows the F0 box on every path**, training extraction included;
+  `compile_f0_predictor` leaves it alone. Offline paths compile `dynamic=True` without CUDA
+  graphs and share one predictor per (variant, device) per process
+  (`get_offline_predictor`, rebuilt when the setting changes); realtime compiles static
+  shapes and hands its `CompiledPath` to `CompileSession(f0=...)`, so the warm-up runs 3
+  blocks and the status shows it. Measured on an RTX 4090: realtime 1.5 s window
+  19.6 -> 9.7 ms p50 (`reduce-overhead`), offline only x1.02-1.28 because the mel and the
+  numpy decoder dominate, and a cold first compile costs 47-100 s. Compiled vs eager:
+  p99 0.1 c, 6 of 19,703 frames over 10 c.
 
 ### Realtime embedder precision
 `embedder_precision` (`fp32` / `bf16` / `fp16`, default `fp32`) is saved in

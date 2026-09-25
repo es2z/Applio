@@ -114,22 +114,32 @@ class CompiledPath:
 
 
 class CompileSession:
-    def __init__(self, settings, embedder, rvc, device):
+    def __init__(self, settings, embedder, rvc, device, f0=None):
+        """f0 is an F0 model's own CompiledPath (HPA-RMVPE), or None. The predictor
+        builds it under the F0 TorchCompile setting; the session only reports it and
+        lets it lengthen the warm-up like the other two."""
         self.settings = settings
         self.embedder = CompiledPath(
             "Embedder", embedder, settings.embedder, settings.mode, device,
         )
         self.rvc = CompiledPath("RVC", rvc, settings.rvc, settings.mode, device)
+        self.f0 = f0
+
+    def _paths(self):
+        return [path for path in (self.embedder, self.rvc, self.f0) if path is not None]
 
     @property
     def enabled(self):
-        return self.embedder.compiled is not None or self.rvc.compiled is not None
+        return any(path.compiled is not None for path in self._paths())
 
     def status(self):
-        if not (self.settings.embedder or self.settings.rvc):
-            return ""
-        return "\n" + self.embedder.status() + "\n" + self.rvc.status()
+        lines = []
+        if self.settings.embedder or self.settings.rvc:
+            lines += [self.embedder.status(), self.rvc.status()]
+        if self.f0 is not None:
+            lines.append(self.f0.status())
+        return "".join("\n" + line for line in lines)
 
     def close(self):
-        self.embedder.compiled = None
-        self.rvc.compiled = None
+        for path in self._paths():
+            path.compiled = None

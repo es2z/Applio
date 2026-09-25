@@ -22,7 +22,11 @@ from core import (
 )
 from rvc.configs.config import get_gpu_info, get_number_of_gpus, max_vram_gpu
 from rvc.lib.predictors.crepe_models import CREPE_UI_METHODS
-from rvc.lib.predictors.f0_methods import FCN_UI_METHODS, FCNF0PP_UI_METHODS
+from rvc.lib.predictors.f0_methods import (
+    FCN_UI_METHODS,
+    FCNF0PP_UI_METHODS,
+    HPA_RMVPE_UI_METHODS,
+)
 from rvc.lib.utils import format_title
 from tabs.settings.sections.restart import stop_train
 
@@ -586,6 +590,7 @@ def train_tab():
                 ),
                 choices=[
                     *CREPE_UI_METHODS, *FCN_UI_METHODS, *FCNF0PP_UI_METHODS,
+                    *HPA_RMVPE_UI_METHODS,
                     "rmvpe",
                     "fcpe",
                 ],

@@ -124,8 +124,10 @@ with gr.Blocks(
                 )
         with gr.Row():
             torch_compile_checkbox = gr.Checkbox(
-                label=i18n("Enable TorchCompile") + " (CREPE)",
-                info=i18n("Enable torch.compile for CREPE inference."),
+                label=i18n("Enable TorchCompile for F0 models") + " (CREPE / HPA-RMVPE)",
+                info=i18n(
+                    "Compile the CREPE, mangio-crepe and HPA-RMVPE pitch models on every path that uses them: conversion, batch, TTS, realtime, the F0 curve tool and training extraction. Each process compiles on its first call: about 1.5 minutes with a cold cache and 5-30 s once the cache is warm (realtime does it during its warm-up), so for a single short conversion it costs more than it saves. RMVPE and FCPE are not affected; they compile only through the training extraction setting below."
+                ),
                 value=torch_compile_initial_enabled,
                 interactive=True,
             )
@@ -139,7 +141,7 @@ with gr.Blocks(
                 interactive=True,
             )
             torch_compile_disable_triton_checkbox = gr.Checkbox(
-                label=i18n("Disable Triton") + " (CREPE)",
+                label=i18n("Disable Triton") + " (F0)",
                 info=i18n(
                     "Force disable triton optimization even when installed. Useful when running alongside games to reduce GPU resource contention."
                 ),
@@ -182,12 +184,12 @@ with gr.Blocks(
             compile_extraction = gr.Checkbox(
                 label=i18n("Enable TorchCompile for Extraction (Training)"),
                 info=i18n(
-                    "Compile the embedder and the RMVPE/FCPE pitch models during training feature extraction. Per file this is x1.3-1.5, but compilation itself costs about 35 s per run, so it only pays off past roughly 4000 clips (about 4 hours of dataset). Leave it off for smaller datasets. The training step itself is never compiled: it measured x1.03."
+                    "Compile the embedder and the RMVPE/FCPE pitch models during training feature extraction. Per file this is x1.3-1.5, but compilation itself costs about 35 s per run, so it only pays off past roughly 4000 clips (about 4 hours of dataset). Leave it off for smaller datasets. The training step itself is never compiled: it measured x1.03. CREPE and HPA-RMVPE follow the F0 setting above instead."
                 ),
                 value=load_training_compile_extraction(),
             )
         gr.Markdown(i18n(
-            "TorchCompile Mode applies to CREPE, Embedder and RVC. Embedder and RVC changes take effect on the next realtime start. Initial compilation may take time. Failed paths fall back to normal inference, with the reason shown in the status."
+            "TorchCompile Mode applies to the F0 models (CREPE, HPA-RMVPE), Embedder and RVC. Embedder, RVC and HPA-RMVPE changes take effect on the next realtime start. Initial compilation may take time. Failed paths fall back to normal inference, with the reason shown in the status."
         ))
         compile_extraction.change(
             fn=save_training_compile_extraction,

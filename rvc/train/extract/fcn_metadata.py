@@ -7,7 +7,13 @@ from pathlib import Path
 
 import numpy as np
 
-from rvc.lib.predictors.f0_methods import FCN_METHODS, FCNF0PP_METHODS, PROFILE_METHODS
+from rvc.lib.predictors.f0_methods import (
+    FCN_METHODS,
+    FCNF0PP_METHODS,
+    HPA_RMVPE_METHODS,
+    PROFILE_METHODS,
+    hpa_rmvpe_variant,
+)
 
 
 def fcnf0pp_extraction_spec(method, profile=None):
@@ -31,6 +37,12 @@ def fcnf0pp_extraction_spec(method, profile=None):
 def extraction_spec(method, profile=None):
     if method in FCNF0PP_METHODS:
         return fcnf0pp_extraction_spec(method, profile)
+    if method in HPA_RMVPE_METHODS:
+        from rvc.lib.predictors.hpa_rmvpe.weights import weight_sha256
+
+        # Runs in the parent before any worker starts, so a first use downloads the
+        # checkpoint exactly once here rather than once per GPU.
+        return {"method": method, "weight_sha256": weight_sha256(hpa_rmvpe_variant(method)[0])}
     if method not in FCN_METHODS:
         return {"method": method}
     from rvc.lib.predictors.fcn.adapter import DEFAULT_WEIGHT
@@ -79,7 +91,8 @@ def input_signature(files):
 
 def can_reuse(previous, specification, signature):
     if not previous:
-        return specification["method"] not in PROFILE_METHODS
+        # Unrecorded pitch files predate these methods, so they cannot be theirs.
+        return specification["method"] not in PROFILE_METHODS + HPA_RMVPE_METHODS
     return bool(
         previous.get("complete")
         and previous.get("specification") == specification

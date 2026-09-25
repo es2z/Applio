@@ -25,9 +25,9 @@ hours of dataset). Below that, leave this off.
 Every clip has its own length (771 distinct lengths across the 1364 files of the
 reference dataset), so everything here is compiled with ``dynamic=True`` and no CUDA
 graphs: graphs need fixed shapes and inductor skips them under dynamic shapes anyway.
-CREPE and mangio-crepe are not touched here - they compile themselves through
-``get_torch_compile_settings`` in ``rvc/lib/predictors/f0.py``, driven by the
-"Enable TorchCompile (CREPE)" setting.
+CREPE, mangio-crepe and HPA-RMVPE are not touched here - they compile themselves
+through ``get_torch_compile_settings``, driven by the "Enable TorchCompile for F0
+models" setting (``torch_compile_enabled``), on this path as on every other.
 """
 
 import os
@@ -81,8 +81,8 @@ def compiled_extractor(name, eager, device):
 def compile_f0_predictor(predictor, f0_method, device):
     """Compile the neural part of an F0 predictor in place, where there is one.
 
-    Only rmvpe and fcpe are handled: crepe/mangio-crepe compile themselves, and swift
-    runs on CPU. Both attributes replaced here are only ever called, never introspected,
+    Only rmvpe and fcpe are handled: crepe/mangio-crepe and the hpa-rmvpe methods
+    compile themselves under the F0 setting, and swift runs on CPU. Both attributes replaced here are only ever called, never introspected,
     after the predictor is constructed.
     """
     if predictor is None:

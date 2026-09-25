@@ -33,7 +33,13 @@ from rvc.lib.predictors.crepe_models import (
 )
 from rvc.lib.predictors.f0 import CREPE, FCPE, RMVPE, MANGIO_CREPE
 from rvc.lib.predictors.crepe_decoder import DEFAULT_DECODER
-from rvc.lib.predictors.f0_methods import FCN_METHODS, FCNF0PP_METHODS, PROFILE_METHODS
+from rvc.lib.predictors.f0_methods import (
+    FCN_METHODS,
+    FCNF0PP_METHODS,
+    HPA_RMVPE_METHODS,
+    PROFILE_METHODS,
+    hpa_rmvpe_variant,
+)
 
 TRAINING_MANGIO_CREPE_DECODER = DEFAULT_DECODER  # viterbi
 from rvc.configs.config import Config
@@ -92,6 +98,15 @@ class FeatureInput:
             self.model = RMVPE(
                 device=self.device, sample_rate=self.sample_rate, hop_size=self.hop_size
             )
+        elif f0_method in HPA_RMVPE_METHODS:
+            from rvc.lib.predictors.hpa_rmvpe import HPARMVPEPredictor
+
+            variant, self.hpa_rmvpe_aligned = hpa_rmvpe_variant(f0_method)
+            # Compiles under the F0 TorchCompile setting, not the extraction one:
+            # compile_f0_predictor below leaves it alone.
+            self.model = HPARMVPEPredictor(variant, device, compile_profile="offline")
+            if expected_weight and self.model.weight_sha256 != expected_weight:
+                raise ValueError("HPA-RMVPE weights changed after extraction settings were frozen")
         elif f0_method == "fcpe":
             self.model = FCPE(
                 device=self.device, sample_rate=self.sample_rate, hop_size=self.hop_size
@@ -122,6 +137,8 @@ class FeatureInput:
             )
         elif self.f0_method == "rmvpe":
             f0 = self.model.get_f0(x, filter_radius=0.03)
+        elif self.f0_method in HPA_RMVPE_METHODS:
+            f0 = self.model.get_f0(x, filter_radius=0.03, aligned=self.hpa_rmvpe_aligned)
         elif self.f0_method == "fcpe":
             f0 = self.model.get_f0(x, p_len, filter_radius=0.006)
         return f0

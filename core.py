@@ -19,7 +19,11 @@ from rvc.lib.tools.analyzer import analyze_audio
 from rvc.lib.tools.launch_tensorboard import launch_tensorboard_pipeline
 from rvc.lib.tools.model_download import model_download_pipeline
 from rvc.lib.predictors.crepe_models import CREPE_CLI_METHODS
-from rvc.lib.predictors.f0_methods import FCN_METHODS, FCNF0PP_METHODS
+from rvc.lib.predictors.f0_methods import (
+    FCN_METHODS,
+    FCNF0PP_METHODS,
+    HPA_RMVPE_METHODS,
+)
 
 python = sys.executable
 
@@ -757,6 +761,7 @@ def parse_arguments():
             *CREPE_CLI_METHODS,
             *FCN_METHODS,
             *FCNF0PP_METHODS,
+            *HPA_RMVPE_METHODS,
             "rmvpe",
             "fcpe",
             "swift",
@@ -1285,6 +1290,7 @@ def parse_arguments():
             *CREPE_CLI_METHODS,
             *FCN_METHODS,
             *FCNF0PP_METHODS,
+            *HPA_RMVPE_METHODS,
             "rmvpe",
             "fcpe",
             "swift",
@@ -1775,6 +1781,7 @@ def parse_arguments():
             *CREPE_CLI_METHODS,
             *FCN_METHODS,
             *FCNF0PP_METHODS,
+            *HPA_RMVPE_METHODS,
             "rmvpe",
             "fcpe",
             "swift",
@@ -1981,6 +1988,7 @@ def parse_arguments():
             *CREPE_CLI_METHODS,
             *FCN_METHODS,
             *FCNF0PP_METHODS,
+            *HPA_RMVPE_METHODS,
             "rmvpe",
             "fcpe",
         ],

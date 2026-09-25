@@ -159,8 +159,14 @@ class Realtime_Pipeline:
         self.f0_model = None
         self.f0_model_secondary = None
         self.fcn_pitch = None
-        from rvc.lib.predictors.f0_methods import FCN_METHODS, FCNF0PP_METHODS
+        from rvc.lib.predictors.f0_methods import (
+            FCN_METHODS,
+            FCNF0PP_METHODS,
+            HPA_RMVPE_METHODS,
+            hpa_rmvpe_variant,
+        )
 
+        self.hpa_rmvpe_aligned = False
         if f0_method in FCN_METHODS:
             from rvc.lib.predictors.fcn import FCNPredictor, resolve_profile
 
@@ -181,11 +187,22 @@ class Realtime_Pipeline:
             if checkpoint.get("method") and checkpoint["method"] != f0_method:
                 print(f"F0 method differs from checkpoint: {checkpoint['method']} -> {f0_method}")
             self.f0_model = FCNF0PPPredictor(self.device, f0_method, profile)
+        elif f0_method in HPA_RMVPE_METHODS:
+            from rvc.lib.predictors.hpa_rmvpe import HPARMVPEPredictor
+
+            # Built eagerly, like FCNF0++, so a first-use download or a bad weight
+            # happens before audio starts; its own compile path joins the session so
+            # the warm-up compiles it and the status reports it.
+            variant, self.hpa_rmvpe_aligned = hpa_rmvpe_variant(f0_method)
+            self.f0_model = HPARMVPEPredictor(
+                variant, self.device, compile_profile="realtime"
+            )
         self.compile_session = CompileSession(
             load_settings(),
             lambda feats: embedder_forward(hubert_model, feats),
             self.vc.infer_audio,
             self.device,
+            f0=getattr(self.f0_model, "compile_path", None),
         )
 
     def get_f0(
@@ -203,7 +220,11 @@ class Realtime_Pipeline:
         Estimates the fundamental frequency (F0) of a given audio signal using various methods.
         """
 
-        from rvc.lib.predictors.f0_methods import FCN_METHODS, FCNF0PP_METHODS
+        from rvc.lib.predictors.f0_methods import (
+            FCN_METHODS,
+            FCNF0PP_METHODS,
+            HPA_RMVPE_METHODS,
+        )
 
         if self.f0_method in FCN_METHODS:
             if self.fcn_pitch is None:
@@ -227,6 +248,10 @@ class Realtime_Pipeline:
                     hop_size=self.window,
                 )
             f0 = self.f0_model.get_f0(x, filter_radius=0.03)
+        elif self.f0_method in HPA_RMVPE_METHODS:
+            f0 = self.f0_model.get_f0(
+                x, filter_radius=0.03, aligned=self.hpa_rmvpe_aligned
+            )
         elif self.f0_method == "fcpe":
             if self.f0_model is None:
                 self.f0_model = FCPE(
