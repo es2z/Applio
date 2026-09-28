@@ -36,6 +36,33 @@ HOP = 160
 HOP_SECONDS = 0.01
 
 
+def _windows(values, radius):
+    """Every frame's centred window, NaN beyond the ends so the median of a window that
+    runs off the track is the median of what is there (FCN-993-RVC's finite_median)."""
+    padded = np.pad(np.asarray(values, np.float64), radius, constant_values=np.nan)
+    return np.lib.stride_tricks.sliding_window_view(padded, 2 * radius + 1)
+
+
+def median_gate(pitch, periodicity, threshold, median_frames):
+    """FCN-993-RVC's median_frames rule on FCNF0++'s 10 ms frames.
+
+    Voiced needs the frame's own periodicity and the running median of periodicity both
+    above the threshold. The median keeps a step where it is, so voiced runs keep their
+    onsets and offsets and only runs shorter than radius + 1 frames are dropped; like
+    FCN-993-RVC it never turns an unvoiced frame voiced. Each voiced frame's pitch is
+    then the median, in cents, of the voiced frames in its window.
+    """
+    radius = median_frames // 2
+    smoothed = np.nanmedian(_windows(periodicity, radius), axis=-1)
+    voiced = (periodicity > threshold) & (smoothed > threshold)
+    pitch = np.asarray(pitch, np.float64).copy()
+    if voiced.any():
+        cents = _windows(np.where(voiced, np.log2(np.maximum(pitch, 1e-6)), np.nan), radius)
+        # Every row taken here holds its own finite centre, so no window is all-NaN.
+        pitch[voiced] = 2 ** np.nanmedian(cents[voiced], axis=-1)
+    return voiced, pitch
+
+
 def _penn():
     import penn
 
@@ -188,13 +215,18 @@ class FCNF0PPPredictor:
         raw = pitch[0, :p_len].float().cpu().numpy()
         periodicity = periodicity[0, :p_len].float().cpu().numpy()
         threshold = self.profile.periodicity_threshold
+        pitch_hz = raw
         if threshold is None:
             voiced = np.ones(p_len, dtype=bool)
         else:
             voiced = periodicity > threshold
+            if self.profile.median_frames:
+                voiced, pitch_hz = median_gate(
+                    raw, periodicity, threshold, self.profile.median_frames
+                )
         return FCNF0PPTrack(
             frame_index=np.arange(p_len, dtype=np.int64),
-            pitch_hz=np.where(voiced, raw, 0.0).astype(np.float32),
+            pitch_hz=np.where(voiced, pitch_hz, 0.0).astype(np.float32),
             raw_pitch_hz=raw,
             periodicity=periodicity,
             voiced=voiced,

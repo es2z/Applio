@@ -19,6 +19,9 @@ GATED_METHODS = ("fcnf0++-rvc", "fcnf0++-rvc-aligned")
 ALIGNED_METHODS = ("fcnf0++-aligned", "fcnf0++-rvc-aligned")
 MAX_LAG_COMPENSATION_MS = 30.0
 DECODERS = ("viterbi", "argmax")
+# Running-median window of the -rvc methods, in FCNF0++'s own 10 ms frames: 3 is 30 ms.
+# (FCN-993-RVC's median_frames counts its native 1 ms frames, so its 5 is 5 ms.)
+MEDIAN_FRAMES = (0, 3, 5)
 # "zero" puts frame i at t = i * 10 ms, the grid every other method here uses.
 # "half-hop" (+5 ms) is what the earlier integration used; kept only to reproduce it.
 CENTERS = ("zero", "half-hop")
@@ -38,6 +41,11 @@ class FCNF0PPProfile:
     # pitch of ~11 ms before its window centre on harmonic speech-range signals, so a
     # positive value moves the reported pitch back onto frame i's instant.
     lag_compensation_ms: float = 0.0
+    # FCN-993-RVC's median, on FCNF0++'s 10 ms frames: a frame stays voiced only if both
+    # its periodicity and the running median of periodicity are above the threshold,
+    # and a voiced frame's pitch is the median (in cents) of the voiced frames around it.
+    # 0 is off, which is what every profile recorded before this existed means.
+    median_frames: int = 0
 
     def __post_init__(self):
         if self.method not in DEFAULT_PATHS or self.version != 1:
@@ -60,6 +68,12 @@ class FCNF0PPProfile:
         elif self.lag_compensation_ms != 0:
             raise ValueError(
                 f"{self.method} keeps PENN's framing; use its -aligned method for lag compensation"
+            )
+        if type(self.median_frames) is not int or self.median_frames not in MEDIAN_FRAMES:
+            raise ValueError(f"FCNF0++ median_frames must be one of {MEDIAN_FRAMES} (10 ms frames)")
+        if self.median_frames and self.method not in GATED_METHODS:
+            raise ValueError(
+                f"{self.method} is PENN's pitch untouched; median_frames is for the -rvc methods"
             )
         if self.method not in GATED_METHODS:
             if self.periodicity_threshold is not None:
@@ -84,10 +98,20 @@ class FCNF0PPProfile:
         ).hexdigest()
 
 
+def recorded_profile(profile):
+    """The profile as extraction records it. median_frames is left out while it is 0, so
+    the specification and fingerprint of every run recorded before it existed still
+    match and those pitch files are reused rather than re-extracted."""
+    values = profile.to_dict()
+    if not values["median_frames"]:
+        del values["median_frames"]
+    return values
+
+
 def specification(profile, weight_sha256):
     """Everything that decides the F0 an extraction run writes to disk."""
     return {
-        "profile": profile.to_dict(),
+        "profile": recorded_profile(profile),
         "weight_sha256": weight_sha256,
         "architecture": "penn-fcnf0",
         "implementation": "penn-1.0.0-preprocess-autocast-v1",

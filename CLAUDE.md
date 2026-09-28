@@ -1141,8 +1141,17 @@ ours: one Resample(16000, 8000), one model loaded `weights_only=True`, decoders 
 the 1440 x 1440 transition already on the device.
 
 - `fcnf0++` is PENN's pitch untouched, every frame voiced; `fcnf0++-rvc` differs only in
-  zeroing frames with `periodicity <= periodicity_threshold`. No interpolation, median,
+  zeroing frames with `periodicity <= periodicity_threshold`. No interpolation,
   hysteresis or silence gate - A/B the two to tell a voicing problem from a model one.
+- **`median_frames`** (default 0, -rvc methods only, 0/3/5) is FCN-993-RVC's median rule
+  on FCNF0++'s **10 ms** frames (`median_gate`): voiced needs both the frame's periodicity
+  and its running median above the threshold (drops runs shorter than radius + 1, never
+  fills a hole, keeps step edges), and voiced pitch is the median in cents of the voiced
+  frames in the window. So 3 here is 30 ms where FCN-993-RVC's 5 is 5 ms. 0 is left out of
+  the recorded extraction spec, so older records keep their fingerprint. Measured: 3
+  removes every one-frame voiced spike on real speech (6 -> 0) and moves 0.65% of frames
+  over 50 c, with DTB F1 unchanged; 5 smooths pitch over 50 ms and costs -aligned 1.8
+  points of RPA50. `docs/fcnf0pp.md#median_frames`.
 - Profiles work like FCN's (`profiles.py`, explicit JSON -> matching checkpoint ->
   bundled) and travel through the **same `fcn_profile` field** in the UI, CLI
   (`--fcn_profile`), extract argv[10] and realtime templates; the JSON's `method` picks

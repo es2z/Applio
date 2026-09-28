@@ -17,7 +17,7 @@ FCNF0++ を、PENN 本来の pitch / periodicity / decoder / framing を変え�
 | **fcnf0++-aligned** | fcnf0++ の窓を 11 ms 後ろに置く（モデル自身の話し声での遅れを打ち消す）。それ以外は同じ | 補正の効果の確認 |
 | **fcnf0++-rvc-aligned** | fcnf0++-rvc の補正版。しきい値は補正後に選び直した 0.0425 | 補正版での変換・学習 |
 
-`fcnf0++` と `fcnf0++-rvc` の違い（-aligned 同士も同じ）は、V/UV の判定**だけ**です。聴き比べれば「聴感の問題が voicing 判定から来ているのか、モデルから来ているのか」を 1 回で切り分けられます。median filter、hysteresis、補間、無音ゲートなどは入れていません。
+`fcnf0++` と `fcnf0++-rvc` の違い（-aligned 同士も同じ）は、V/UV の判定**だけ**です。聴き比べれば「聴感の問題が voicing 判定から来ているのか、モデルから来ているのか」を 1 回で切り分けられます。hysteresis、補間、無音ゲートなどは入れていません。-rvc の 2 方式だけは、FCN-993-RVC と同じ規則の median を `median_frames` で任意に有効にできます（既定は OFF。[下記](#median_frames)）。
 
 ## 同梱の既定値
 
@@ -46,6 +46,7 @@ CLI では `--fcn_profile` に JSON を渡します（FCN-993 と FCNF0++ で共
 | decoder | `viterbi` | PENN の既定値。`argmax` も選べます（どちらも local expected value ±9 bin を使います）。periodicity は decoder に依存しません |
 | periodicity_threshold | 0.035 | `periodicity > threshold` を有声とします（`penn.voicing.threshold` と同じ向き）。`fcnf0++` では `null` |
 | center | `zero` | frame i の窓中心を t = i × 10 ms に置きます。`half-hop`（+5 ms）は過去の実装を再現する比較用です |
+| median_frames | 0（OFF） | -rvc の 2 方式だけで使える median の窓長。**単位は FCNF0++ の 10 ms フレーム**で、3 は 30 ms です（FCN-993-RVC の 5 は 1 ms 単位の 5 ms）。0／3／5 を指定できます。推奨は 3（[下記](#median_frames)） |
 | lag_compensation_ms | 0（-aligned は 11） | 窓の中心を t = i × 10 ms からこの分だけ後ろに置きます。-aligned の方式だけで使え、0 より大きく 30 以下です |
 | coarse_min / coarse_max | 50 / 1680 | PENN が復号してよい範囲であり、同時に coarse F0 の量子化範囲でもあります。50–1100 も指定できます |
 
@@ -186,6 +187,49 @@ argmax（frame 独立）でも 71 / 12697 でした。V/UV の反転はどちら
 揺れの大部分は decoder ではなく、窓の端の reflect padding と resample から来ています（RMVPE・CREPE にも同じことが起きます）。
 このため realtime の既定も viterbi です。
 
+## median_frames
+
+FCN-993-RVC の `median_frames` と同じ規則を、FCNF0++ の 10 ms フレームで適用します（`median_gate`）。
+
+1. periodicity の移動中央値（窓の端では、ある分だけの中央値）を取ります。フレーム自身の periodicity と中央値の**両方**がしきい値を超えたときだけ有声にします。
+   中央値は段差の位置を動かさないため、有声区間の立ち上がりと終わりは削られません。消えるのは (窓長 + 1) / 2 フレームより短い有声区間だけです。FCN-993-RVC と同じく、無声を有声にすることはありません（穴は埋めません）。
+2. 有声フレームの音高を、窓内の有声フレームの中央値（cents）にします。無声フレームは票に入りません。
+
+`raw_pitch_hz` と `periodicity`（F0 ツールの CSV の列）は median の前の値のままです。
+0 のときは学習抽出の記録に書かないので、この項目ができる前の抽出記録もそのまま再利用されます。
+
+### 測定（RTX 4090、2026-09-25）
+
+注釈付き 4 例（しきい値は各方式の既定値）：
+
+| method | median | UV→V | V→UV | F1 | V/UV 遷移 | RPA50 | 中央値誤差 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| fcnf0++-rvc | 0 | 7.1% | 3.7% | 0.9603 | 60 | 78.4% | 21.4 c |
+| fcnf0++-rvc | 3 | 7.1% | 3.7% | 0.9603 | 60 | 78.9% | 21.4 c |
+| fcnf0++-rvc | 5 | 6.7% | 3.7% | 0.9615 | 58 | 80.0% | 20.6 c |
+| fcnf0++-rvc-aligned | 0 | 5.8% | 3.9% | 0.9632 | 62 | 92.2% | 12.2 c |
+| fcnf0++-rvc-aligned | 3 | 5.8% | 4.0% | 0.9626 | 60 | 91.7% | 12.0 c |
+| fcnf0++-rvc-aligned | 5 | 5.4% | 4.0% | 0.9638 | 58 | 90.4% | 11.9 c |
+
+どの median でも、F1 が最大になるしきい値は既定値のままでした（0.01〜0.1 を 0.0025 刻みで確認）。
+この 4 例は短く、median 0 でも 1 フレームだけの有声がほとんど出ないので、差が出にくくなっています。
+
+実音声 4 本（reference.wav 34.9 秒と docs の 3 本）では、有声/無声のちらつきに差が出ます：
+
+| method | median | 1 フレームの有声 | 1 フレームの穴 | 20 ms 以下の有声区間 | V/UV 遷移 | 音高が 50 c 以上動いたフレーム |
+| --- | --- | --- | --- | --- | --- | --- |
+| fcnf0++-rvc | 0 | 6 | 7 | 9 | 184 | – |
+| fcnf0++-rvc | **3** | **0** | 4 | 3 | 172 | 0.64% |
+| fcnf0++-rvc | 5 | 0 | 4 | 0 | 168 | 2.81% |
+| fcnf0++-rvc-aligned | 0 | 5 | 10 | 7 | 190 | – |
+| fcnf0++-rvc-aligned | **3** | **0** | 7 | 2 | 180 | 0.65% |
+| fcnf0++-rvc-aligned | 5 | 2 | 7 | 2 | 180 | 2.77% |
+
+- **3 が推奨です。** 1 フレームだけの有声がすべて消えます。音高は中央値では変わらず、50 c 以上動いたフレームは 0.65% でした。
+- 5 は 50 ms の音高平滑化になり、約 3% のフレームの音高が動きます。-aligned では注釈付き 4 例の RPA50 が 1.8 ポイント下がりました（速い音高変化が丸まるため）。
+  短い有声区間の途中に穴があると、その隣の 1 フレームが残ることもあります（-aligned で 2 件）。
+- 既定値は 0 のままです。有効にするときは、プロファイル JSON に `"median_frames": 3` を足してください。変更すると学習抽出はやり直しになります。
+
 ## 聴き比べ
 
 既定では補正なしと補正版の 4 方式に、fcn-993、fcn-993-rvc、mangio-crepe-full-speech、rmvpe を加えた 8 方式を比べます。
@@ -221,6 +265,6 @@ argmax（frame 独立）でも 71 / 12697 でした。V/UV の反転はどちら
 
 ## 今回やっていないこと
 
-octave-jump の補正、posterior を使った裏返り補正、hysteresis による V/UV、median などの時間平滑化、語尾・breath 専用の処理、信号に応じて補正量を変える処理、独自の streaming decoder。
+octave-jump の補正、posterior を使った裏返り補正、hysteresis による V/UV、既定での時間平滑化（median は `median_frames` で任意に有効化できます）、語尾・breath 専用の処理、信号に応じて補正量を変える処理、独自の streaming decoder。
 約 11 ms の遅れの固定量の補正は、比較用に -aligned として別の方式で用意しています（補正なしの 2 方式は PENN のままです）。
 FCNF0++ を正しく統合した状態で聴感を評価してから、必要なら別途検討します。

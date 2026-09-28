@@ -99,6 +99,16 @@ def test_profile_validation():
         FCNF0PPProfile(method="fcnf0++-aligned", lag_compensation_ms=11.0, center="half-hop")
     with pytest.raises(ValueError, match="needs periodicity_threshold"):
         FCNF0PPProfile(method="fcnf0++-rvc-aligned", lag_compensation_ms=11.0)
+    # median_frames: the -rvc methods only, in 10 ms frames.
+    for median in (0, 3, 5):
+        FCNF0PPProfile(method="fcnf0++-rvc", periodicity_threshold=0.035, median_frames=median)
+    for median in (1, 4, 9, 3.0, True):
+        with pytest.raises(ValueError, match="median_frames"):
+            FCNF0PPProfile(method="fcnf0++-rvc", periodicity_threshold=0.035, median_frames=median)
+    with pytest.raises(ValueError, match="-rvc methods"):
+        FCNF0PPProfile(method="fcnf0++", median_frames=3)
+    with pytest.raises(ValueError, match="-rvc methods"):
+        FCNF0PPProfile(method="fcnf0++-aligned", lag_compensation_ms=11.0, median_frames=3)
 
 
 def test_profile_resolution_order(tmp_path):
@@ -134,9 +144,16 @@ def test_extraction_spec_changes_with_every_setting():
         {"decoder": "argmax"},
         {"center": "half-hop"},
         {"coarse_max": 1100.0},
+        {"median_frames": 3},
     ):
         other = extraction_spec("fcnf0++-rvc", profile("fcnf0++-rvc", **change))
         assert other != base and other["fingerprint"] != base["fingerprint"]
+    # median_frames 0 is left out of the record, so runs recorded before it existed
+    # keep their specification and fingerprint and are reused, not re-extracted.
+    assert "median_frames" not in base["profile"]
+    legacy = profile("fcnf0++-rvc")
+    del legacy["median_frames"]
+    assert extraction_spec("fcnf0++-rvc", legacy) == base
     # Without a completed record, profile methods always extract.
     assert not can_reuse(None, base, "signature")
     record = {"complete": True, "specification": base, "input_signature": "signature"}
@@ -268,6 +285,47 @@ def test_rvc_gate_is_only_the_periodicity_threshold():
     # Silence is unvoiced and is not filled in with an interpolated pitch.
     assert not rvc.voiced[5:40].any()
     assert rvc.voiced[70:140].all()
+
+
+def test_median_gate_is_fcn_993_rvcs_rule_on_10_ms_frames():
+    from rvc.lib.predictors.fcnf0pp.predictor import median_gate
+
+    threshold = 0.5
+    #           spike    run of 2  hole in a run          run of 3 at the end
+    voiced = np.array([0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 1], bool)
+    periodicity = np.where(voiced, 0.9, 0.1)
+    pitch = np.full(len(voiced), 200.0)
+    pitch[12] = 400.0  # one octave error inside a voiced run
+    gated, smoothed = median_gate(pitch, periodicity, threshold, 3)
+    # A lone voiced frame goes; a run of two keeps both ends; a hole is never filled.
+    np.testing.assert_array_equal(gated, voiced & ~(np.arange(len(voiced)) == 1))
+    assert not gated[10]
+    # The octave error is outvoted by its voiced neighbours; unvoiced frames never vote.
+    assert smoothed[12] == pytest.approx(np.sqrt(200.0 * 400.0))  # even window at a hole
+    np.testing.assert_allclose(smoothed[[4, 5, 15, 16, 17]], 200.0)
+    # A step keeps its position: runs of radius + 1 frames or more are not trimmed.
+    five_voiced, _ = median_gate(pitch, periodicity, threshold, 5)
+    assert five_voiced[15:].all() and not five_voiced[4:6].any()
+
+
+def test_median_frames_zero_is_the_plain_gate_and_three_removes_spikes():
+    predictor = make("fcnf0++-rvc")
+    rng = np.random.default_rng(0)
+    # Breathy noise with short tone bursts: the kind of input that flickers.
+    audio = (rng.standard_normal(16000 * 3) * 0.02).astype(np.float32)
+    for start in (4000, 20000, 36000):
+        audio[start : start + 480] += harmonic(220, 0.03)
+    audio[8000:24000] += harmonic(180, 1.0)
+    plain = predictor.extract_track(audio)
+    zero = predictor.with_profile("fcnf0++-rvc", profile("fcnf0++-rvc", median_frames=0))
+    np.testing.assert_array_equal(zero.extract_track(audio).pitch_hz, plain.pitch_hz)
+    three = predictor.with_profile("fcnf0++-rvc", profile("fcnf0++-rvc", median_frames=3))
+    track = three.extract_track(audio)
+    v = track.voiced
+    assert not (v[1:-1] & ~v[:-2] & ~v[2:]).any()
+    assert not (v & ~plain.voiced).any()  # it only ever unvoices
+    np.testing.assert_array_equal(track.raw_pitch_hz, plain.raw_pitch_hz)
+    np.testing.assert_array_equal(track.periodicity, plain.periodicity)
 
 
 def test_offline_pipeline_keeps_voicing_through_pitch_shift():
