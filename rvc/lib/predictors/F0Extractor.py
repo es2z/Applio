@@ -51,10 +51,13 @@ class F0Extractor:
     def extract_f0(self):
         f0 = None
         method = self.method
+        from rvc.lib.predictors.f0_gap_fill import fill_unvoiced_gaps
         from rvc.lib.predictors.f0_methods import (
             FCN_METHODS,
             FCNF0PP_METHODS,
+            GAP_FILLED_METHODS,
             HPA_RMVPE_METHODS,
+            gap_filled_base,
             hpa_rmvpe_variant,
         )
 
@@ -113,22 +116,24 @@ class F0Extractor:
                 output_interp_target_length=f0_target_length,
             )
             f0 = f0.squeeze().cpu().numpy()
-        elif method == "rmvpe":
+        elif gap_filled_base(method) == "rmvpe":
             model_rmvpe = RMVPE0Predictor(
                 os.path.join("rvc", "models", "predictors", "rmvpe.pt"),
                 device=config.device,
                 # hop_length=80
             )
             f0 = model_rmvpe.infer_from_audio(self.wav16k, thred=0.03)
-        elif method in HPA_RMVPE_METHODS:
+        elif gap_filled_base(method) in HPA_RMVPE_METHODS:
             from rvc.lib.predictors.hpa_rmvpe import get_offline_predictor
 
-            variant, aligned = hpa_rmvpe_variant(method)
+            variant, aligned = hpa_rmvpe_variant(gap_filled_base(method))
             model = get_offline_predictor(variant, config.device)
             f0 = model.get_f0(self.wav16k, filter_radius=0.03, aligned=aligned)
 
         else:
             raise ValueError(f"Unknown method: {self.method}")
+        if method in GAP_FILLED_METHODS:
+            f0 = fill_unvoiced_gaps(f0)
         return self.hz_to_cents(f0, librosa.midi_to_hz(0))
 
     def extract_track(self):

@@ -10,7 +10,9 @@ import numpy as np
 from rvc.lib.predictors.f0_methods import (
     FCN_METHODS,
     FCNF0PP_METHODS,
+    GAP_FILLED_METHODS,
     HPA_RMVPE_METHODS,
+    gap_filled_base,
     PROFILE_METHODS,
     hpa_rmvpe_variant,
 )
@@ -50,14 +52,14 @@ def extraction_spec(method, profile=None, coarse_max=DEFAULT_COARSE_MAX):
     coarse = {} if coarse_max == DEFAULT_COARSE_MAX else {"coarse_max": coarse_max}
     if method in FCNF0PP_METHODS:
         return fcnf0pp_extraction_spec(method, profile, coarse_max)
-    if method in HPA_RMVPE_METHODS:
+    if gap_filled_base(method) in HPA_RMVPE_METHODS:
         from rvc.lib.predictors.hpa_rmvpe.weights import weight_sha256
 
         # Runs in the parent before any worker starts, so a first use downloads the
         # checkpoint exactly once here rather than once per GPU.
         return {
             "method": method,
-            "weight_sha256": weight_sha256(hpa_rmvpe_variant(method)[0]),
+            "weight_sha256": weight_sha256(hpa_rmvpe_variant(gap_filled_base(method))[0]),
             **coarse,
         }
     if method not in FCN_METHODS:
@@ -113,7 +115,8 @@ def can_reuse(previous, specification, signature):
         # they were quantized at the default coarse range, so they are not reusable at
         # another one either.
         return (
-            specification["method"] not in PROFILE_METHODS + HPA_RMVPE_METHODS
+            specification["method"]
+            not in PROFILE_METHODS + HPA_RMVPE_METHODS + tuple(GAP_FILLED_METHODS)
             and "coarse_max" not in specification
         )
     return bool(

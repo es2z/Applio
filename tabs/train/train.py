@@ -26,6 +26,7 @@ from rvc.lib.predictors.f0_methods import (
     FCN_UI_METHODS,
     FCNF0PP_UI_METHODS,
     HPA_RMVPE_UI_METHODS,
+    GAP_FILLED_UI_METHODS,
 )
 from rvc.lib.predictors.f0_quantization import default_coarse_max, extraction_coarse_maxima
 from rvc.lib.utils import format_title
@@ -591,7 +592,7 @@ def train_tab():
                 ),
                 choices=[
                     *CREPE_UI_METHODS, *FCN_UI_METHODS, *FCNF0PP_UI_METHODS,
-                    *HPA_RMVPE_UI_METHODS,
+                    *HPA_RMVPE_UI_METHODS, *GAP_FILLED_UI_METHODS,
                     "rmvpe",
                     "fcpe",
                 ],

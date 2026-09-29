@@ -33,11 +33,14 @@ from rvc.lib.predictors.crepe_models import (
 )
 from rvc.lib.predictors.f0 import CREPE, FCPE, RMVPE, MANGIO_CREPE
 from rvc.lib.predictors.crepe_decoder import DEFAULT_DECODER
+from rvc.lib.predictors.f0_gap_fill import fill_unvoiced_gaps
 from rvc.lib.predictors.f0_methods import (
     FCN_METHODS,
     FCNF0PP_METHODS,
+    GAP_FILLED_METHODS,
     HPA_RMVPE_METHODS,
     PROFILE_METHODS,
+    gap_filled_base,
     hpa_rmvpe_variant,
 )
 
@@ -110,14 +113,14 @@ class FeatureInput:
                 hop_size=self.hop_size,
                 decoder=TRAINING_MANGIO_CREPE_DECODER,
             )
-        elif f0_method == "rmvpe":
+        elif gap_filled_base(f0_method) == "rmvpe":
             self.model = RMVPE(
                 device=self.device, sample_rate=self.sample_rate, hop_size=self.hop_size
             )
-        elif f0_method in HPA_RMVPE_METHODS:
+        elif gap_filled_base(f0_method) in HPA_RMVPE_METHODS:
             from rvc.lib.predictors.hpa_rmvpe import HPARMVPEPredictor
 
-            variant, self.hpa_rmvpe_aligned = hpa_rmvpe_variant(f0_method)
+            variant, self.hpa_rmvpe_aligned = hpa_rmvpe_variant(gap_filled_base(f0_method))
             # Compiles under the F0 TorchCompile setting, not the extraction one:
             # compile_f0_predictor below leaves it alone.
             self.model = HPARMVPEPredictor(variant, device, compile_profile="offline")
@@ -151,12 +154,14 @@ class FeatureInput:
                 p_len,
                 resolve_crepe_model(self.f0_method),
             )
-        elif self.f0_method == "rmvpe":
+        elif gap_filled_base(self.f0_method) == "rmvpe":
             f0 = self.model.get_f0(x, filter_radius=0.03)
-        elif self.f0_method in HPA_RMVPE_METHODS:
+        elif gap_filled_base(self.f0_method) in HPA_RMVPE_METHODS:
             f0 = self.model.get_f0(x, filter_radius=0.03, aligned=self.hpa_rmvpe_aligned)
         elif self.f0_method == "fcpe":
             f0 = self.model.get_f0(x, p_len, filter_radius=0.006)
+        if self.f0_method in GAP_FILLED_METHODS:
+            f0 = fill_unvoiced_gaps(f0)
         return f0
 
     def coarse_f0(self, f0):

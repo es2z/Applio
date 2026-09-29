@@ -170,6 +170,7 @@ class Realtime_Pipeline:
             FCN_METHODS,
             FCNF0PP_METHODS,
             HPA_RMVPE_METHODS,
+            gap_filled_base,
             hpa_rmvpe_variant,
         )
 
@@ -200,13 +201,13 @@ class Realtime_Pipeline:
             if checkpoint.get("method") and checkpoint["method"] != f0_method:
                 print(f"F0 method differs from checkpoint: {checkpoint['method']} -> {f0_method}")
             self.f0_model = FCNF0PPPredictor(self.device, f0_method, profile)
-        elif f0_method in HPA_RMVPE_METHODS:
+        elif gap_filled_base(f0_method) in HPA_RMVPE_METHODS:
             from rvc.lib.predictors.hpa_rmvpe import HPARMVPEPredictor
 
             # Built eagerly, like FCNF0++, so a first-use download or a bad weight
             # happens before audio starts; its own compile path joins the session so
             # the warm-up compiles it and the status reports it.
-            variant, self.hpa_rmvpe_aligned = hpa_rmvpe_variant(f0_method)
+            variant, self.hpa_rmvpe_aligned = hpa_rmvpe_variant(gap_filled_base(f0_method))
             self.f0_model = HPARMVPEPredictor(
                 variant, self.device, compile_profile="realtime"
             )
@@ -233,10 +234,13 @@ class Realtime_Pipeline:
         Estimates the fundamental frequency (F0) of a given audio signal using various methods.
         """
 
+        from rvc.lib.predictors.f0_gap_fill import fill_unvoiced_gaps
         from rvc.lib.predictors.f0_methods import (
             FCN_METHODS,
             FCNF0PP_METHODS,
+            GAP_FILLED_METHODS,
             HPA_RMVPE_METHODS,
+            gap_filled_base,
         )
 
         if self.f0_method in FCN_METHODS:
@@ -253,7 +257,7 @@ class Realtime_Pipeline:
             # Stateless: the whole window is recomputed each block, as for RMVPE/CREPE.
             f0 = self.f0_model.get_f0(x, x.shape[0] // self.window)
             voiced = f0 > 0
-        elif self.f0_method == "rmvpe":
+        elif gap_filled_base(self.f0_method) == "rmvpe":
             if self.f0_model is None:
                 self.f0_model = RMVPE(
                     device=self.device,
@@ -261,7 +265,7 @@ class Realtime_Pipeline:
                     hop_size=self.window,
                 )
             f0 = self.f0_model.get_f0(x, filter_radius=0.03)
-        elif self.f0_method in HPA_RMVPE_METHODS:
+        elif gap_filled_base(self.f0_method) in HPA_RMVPE_METHODS:
             f0 = self.f0_model.get_f0(
                 x, filter_radius=0.03, aligned=self.hpa_rmvpe_aligned
             )
@@ -321,6 +325,10 @@ class Realtime_Pipeline:
                 x.shape[0] // self.window,
                 model=model_size,
             )
+        if self.f0_method in GAP_FILLED_METHODS:
+            # The whole window is recomputed each block, so this fills the window.
+            f0 = fill_unvoiced_gaps(f0)
+
         # f0 adjustments
         if f0_autotune is True:
             f0 = self.autotune.autotune_f0(f0, f0_autotune_strength)

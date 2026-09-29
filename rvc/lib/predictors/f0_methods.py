@@ -42,6 +42,26 @@ HPA_RMVPE_UI_METHODS = [
 ]
 HPA_RMVPE_LAG_FRAMES = 2
 
+# A method's pitch with every unvoiced frame filled from its voiced neighbours
+# (fill_unvoiced_gaps), so the model never sees F0 = 0 mid-speech. In realtime listening
+# tests this was clearer than the unfilled method on every model tried, including one
+# trained on unfilled F0 (docs/f0-benchmarks.md, section 5). Maps method -> base method.
+GAP_FILLED_METHODS = {
+    "rmvpe-filled": "rmvpe",
+    "hpa-rmvpe-76000-aligned-filled": "hpa-rmvpe-76000-aligned",
+    "hpa-rmvpe-112000-aligned-filled": "hpa-rmvpe-112000-aligned",
+}
+GAP_FILLED_UI_METHODS = [
+    ("RMVPE (gaps filled)", "rmvpe-filled"),
+    ("HPA-RMVPE (76000, aligned, gaps filled)", "hpa-rmvpe-76000-aligned-filled"),
+    ("HPA-RMVPE (112000, aligned, gaps filled)", "hpa-rmvpe-112000-aligned-filled"),
+]
+
+
+def gap_filled_base(method):
+    """The method a gap-filled method runs before filling, else the method itself."""
+    return GAP_FILLED_METHODS.get(method, method)
+
 
 def fcn_variant(method):
     """(architecture id, is_rvc) of an FCN method, e.g. ("fcn-929", True)."""

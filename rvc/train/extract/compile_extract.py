@@ -87,7 +87,9 @@ def compile_f0_predictor(predictor, f0_method, device):
     """
     if predictor is None:
         return
-    if f0_method == "rmvpe":
+    from rvc.lib.predictors.f0_methods import gap_filled_base
+
+    if gap_filled_base(f0_method) == "rmvpe":
         inner = getattr(getattr(predictor, "model", None), "model", None)
         if inner is not None:
             predictor.model.model = compiled_extractor("RMVPE", inner, device)

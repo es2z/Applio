@@ -194,6 +194,13 @@ Applio-3.5.0/
   same code path; `median_frames` counts its 0.5 ms native frames (fork-specific, `docs/fcn-929.md`)
 - `fcnf0++`, `fcnf0++-rvc`, `fcnf0++-aligned`, `fcnf0++-rvc-aligned` - FCNF0++ via penn (fork-specific, see below and `docs/fcnf0pp.md`)
 - `hpa-rmvpe-76000`, `hpa-rmvpe-112000` and their `-aligned` variants - HPA-RMVPE (fork-specific, see below and `docs/hpa-rmvpe.md`)
+- `rmvpe-filled`, `hpa-rmvpe-76000-aligned-filled`, `hpa-rmvpe-112000-aligned-filled` - the
+  base method with every unvoiced frame filled from its voiced neighbours
+  (`f0_gap_fill.fill_unvoiced_gaps`, log-linear, ends held), so no F0 = 0 reaches the model
+  mid-speech. Listened clearer than the unfilled method on every model tried, including
+  one trained on unfilled F0 (`docs/f0-benchmarks.md` section 5). Never reuses the base
+  method's pitch files. Every path dispatches on `gap_filled_base(method)` and fills once
+  afterwards; add a pair to `GAP_FILLED_METHODS` for another base
 - `hybrid[...]` - Averages multiple methods for robustness
 
 ### Embedder Models

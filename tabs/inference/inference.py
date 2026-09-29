@@ -20,6 +20,7 @@ from rvc.lib.predictors.f0_methods import (
     FCN_UI_METHODS,
     FCNF0PP_UI_METHODS,
     HPA_RMVPE_UI_METHODS,
+    GAP_FILLED_UI_METHODS,
 )
 from tabs.settings.sections.restart import stop_infer
 from tabs.settings.sections.filter import get_filter_trigger, load_config_filter
@@ -1120,7 +1121,7 @@ def inference_tab():
                     ),
                     choices=[
                         *CREPE_UI_METHODS, *FCN_UI_METHODS, *FCNF0PP_UI_METHODS,
-                        *HPA_RMVPE_UI_METHODS,
+                        *HPA_RMVPE_UI_METHODS, *GAP_FILLED_UI_METHODS,
                         "rmvpe",
                         "fcpe",
                         "swift",
@@ -1760,7 +1761,7 @@ def inference_tab():
                     ),
                     choices=[
                         *CREPE_UI_METHODS, *FCN_UI_METHODS, *FCNF0PP_UI_METHODS,
-                        *HPA_RMVPE_UI_METHODS,
+                        *HPA_RMVPE_UI_METHODS, *GAP_FILLED_UI_METHODS,
                         "rmvpe",
                         "fcpe",
                         "swift",

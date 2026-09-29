@@ -16,6 +16,7 @@ from rvc.lib.predictors.f0_methods import (
     FCN_UI_METHODS,
     FCNF0PP_UI_METHODS,
     HPA_RMVPE_UI_METHODS,
+    GAP_FILLED_UI_METHODS,
 )
 from tabs.settings.sections.filter import get_filter_trigger, load_config_filter
 from tabs.inference.inference import (
@@ -303,7 +304,7 @@ def tts_tab():
                 ),
                 choices=[
                     *CREPE_UI_METHODS, *FCN_UI_METHODS, *FCNF0PP_UI_METHODS,
-                    *HPA_RMVPE_UI_METHODS,
+                    *HPA_RMVPE_UI_METHODS, *GAP_FILLED_UI_METHODS,
                     "rmvpe",
                     "fcpe",
                     "swift",

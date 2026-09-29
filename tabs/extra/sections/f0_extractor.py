@@ -10,6 +10,7 @@ from rvc.lib.predictors.f0_methods import (
     FCN_UI_METHODS,
     FCNF0PP_UI_METHODS,
     HPA_RMVPE_UI_METHODS,
+    GAP_FILLED_UI_METHODS,
 )
 
 from assets.i18n.i18n import I18nAuto
@@ -60,7 +61,7 @@ def f0_extractor_tab():
         info=i18n(
             "Pitch extraction algorithm to use for the audio conversion. The default algorithm is rmvpe, which is recommended for most cases."
         ),
-        choices=[*CREPE_UI_METHODS, *FCN_UI_METHODS, *FCNF0PP_UI_METHODS, *HPA_RMVPE_UI_METHODS,
+        choices=[*CREPE_UI_METHODS, *FCN_UI_METHODS, *FCNF0PP_UI_METHODS, *HPA_RMVPE_UI_METHODS, *GAP_FILLED_UI_METHODS,
                  "fcpe", "rmvpe"],
         value="rmvpe",
     )

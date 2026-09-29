@@ -23,6 +23,7 @@ from rvc.lib.predictors.f0_methods import (
     FCN_METHODS,
     FCNF0PP_METHODS,
     HPA_RMVPE_METHODS,
+    GAP_FILLED_METHODS,
 )
 
 python = sys.executable
@@ -781,6 +782,7 @@ def parse_arguments():
             *FCN_METHODS,
             *FCNF0PP_METHODS,
             *HPA_RMVPE_METHODS,
+            *GAP_FILLED_METHODS,
             "rmvpe",
             "fcpe",
             "swift",
@@ -1310,6 +1312,7 @@ def parse_arguments():
             *FCN_METHODS,
             *FCNF0PP_METHODS,
             *HPA_RMVPE_METHODS,
+            *GAP_FILLED_METHODS,
             "rmvpe",
             "fcpe",
             "swift",
@@ -1801,6 +1804,7 @@ def parse_arguments():
             *FCN_METHODS,
             *FCNF0PP_METHODS,
             *HPA_RMVPE_METHODS,
+            *GAP_FILLED_METHODS,
             "rmvpe",
             "fcpe",
             "swift",
@@ -2008,6 +2012,7 @@ def parse_arguments():
             *FCN_METHODS,
             *FCNF0PP_METHODS,
             *HPA_RMVPE_METHODS,
+            *GAP_FILLED_METHODS,
             "rmvpe",
             "fcpe",
         ],

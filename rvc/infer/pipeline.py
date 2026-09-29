@@ -291,10 +291,13 @@ class Pipeline:
             proposed_pitch: whether to apply proposed pitch adjustment
             proposed_pitch_threshold: target frequency, 155.0 for male, 255.0 for female
         """
+        from rvc.lib.predictors.f0_gap_fill import fill_unvoiced_gaps
         from rvc.lib.predictors.f0_methods import (
             FCN_METHODS,
             FCNF0PP_METHODS,
+            GAP_FILLED_METHODS,
             HPA_RMVPE_METHODS,
+            gap_filled_base,
             hpa_rmvpe_variant,
         )
 
@@ -336,18 +339,18 @@ class Pipeline:
                 resolve_crepe_model(f0_method),
             )
             del model
-        elif f0_method == "rmvpe":
+        elif gap_filled_base(f0_method) == "rmvpe":
             model = RMVPE(
                 device=self.device, sample_rate=self.sample_rate, hop_size=self.window
             )
             f0 = model.get_f0(x, filter_radius=0.03)
             del model
-        elif f0_method in HPA_RMVPE_METHODS:
+        elif gap_filled_base(f0_method) in HPA_RMVPE_METHODS:
             from rvc.lib.predictors.hpa_rmvpe import get_offline_predictor
 
             # Cached for the process, unlike rmvpe above, so a compiled network is
             # compiled once rather than on every conversion.
-            variant, aligned = hpa_rmvpe_variant(f0_method)
+            variant, aligned = hpa_rmvpe_variant(gap_filled_base(f0_method))
             model = get_offline_predictor(variant, self.device)
             f0 = model.get_f0(x, filter_radius=0.03, aligned=aligned)
         elif f0_method == "fcpe":
@@ -364,6 +367,9 @@ class Pipeline:
                 x, self.f0_min, self.f0_max, p_len, confidence_threshold=0.887
             )
             del model
+
+        if f0_method in GAP_FILLED_METHODS:
+            f0 = fill_unvoiced_gaps(f0)
 
         # f0 adjustments
         if f0_autotune is True:

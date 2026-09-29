@@ -26,6 +26,7 @@ from rvc.lib.predictors.f0_methods import (
     FCN_UI_METHODS,
     FCNF0PP_UI_METHODS,
     HPA_RMVPE_UI_METHODS,
+    GAP_FILLED_UI_METHODS,
 )
 
 from assets.i18n.i18n import I18nAuto
@@ -926,7 +927,7 @@ def realtime_tab():
                             *CREPE_UI_METHODS,
                             *FCN_UI_METHODS,
                             *FCNF0PP_UI_METHODS,
-                            *HPA_RMVPE_UI_METHODS,
+                            *HPA_RMVPE_UI_METHODS, *GAP_FILLED_UI_METHODS,
                         ],
                         value="swift",
                         label=i18n("Pitch extraction algorithm"),
