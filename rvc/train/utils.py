@@ -136,6 +136,15 @@ def describe_architecture_mismatch(checkpoint, current, subject="it"):
         was, now = checkpoint.get(key), current.get(key)
         if was is not None and now is not None and was != now:
             reasons.append(f"{label} {was} -> {now}")
+    # Unlike the keys above, a checkpoint that predates the stamp has a known value:
+    # every extraction since 2025-10-15 quantized coarse F0 up to 1680 Hz.
+    now = current.get("f0_coarse_max")
+    if now is not None:
+        from rvc.lib.predictors.f0_quantization import DEFAULT_COARSE_MAX
+
+        was = float(checkpoint.get("f0_coarse_max", DEFAULT_COARSE_MAX))
+        if was != float(now):
+            reasons.append(f"F0 coarse range {was:g} Hz -> {float(now):g} Hz")
     if not reasons:
         return None
     return f"{subject} was trained with a different architecture ({'; '.join(reasons)})"
@@ -188,6 +197,12 @@ def assert_resumable(experiment_dir, embedder_identity, architecture_identity=No
             "the other architecture. To start this one from those weights, train under a "
             "new model name with them as the custom pretrained G and D."
         )
+        if "F0 coarse range" in architecture_reason:
+            print(
+                "For a coarse range change alone, tick the training reset "
+                "(重みを引き継いで学習をリセット / --reset_training): it re-indexes "
+                "enc_p.emb_pitch to the new range and keeps every other weight."
+            )
     print(
         f"Either train under a new model name, or delete the G_*.pth and D_*.pth in "
         f"{experiment_dir} to start again from the pretrained model."

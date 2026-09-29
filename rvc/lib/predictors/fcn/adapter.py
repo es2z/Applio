@@ -9,14 +9,33 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from .decoder import FCNDecoder
-from .model import ARCHITECTURE, FCNModel
-from .preprocess import FCNPreprocessor, FCNTensorPreprocessor
-from .profiles import resolve_profile
+from rvc.lib.predictors.f0_methods import fcn_variant
 
-DEFAULT_WEIGHT = (
-    Path(__file__).resolve().parents[3] / "models" / "predictors" / "fcn-993.pt"
-)
+from .decoder import FCNDecoder
+from .model import ARCHITECTURES, FCNModel
+from .preprocess import FCNPreprocessor, FCNTensorPreprocessor
+from .profiles import normalization_name, resolve_profile
+
+WEIGHT_DIR = Path(__file__).resolve().parents[3] / "models" / "predictors"
+DEFAULT_WEIGHT = WEIGHT_DIR / "fcn-993.pt"
+
+
+def default_weight(architecture):
+    """rvc/models/predictors/<architecture>.pt, e.g. fcn-929.pt."""
+    if architecture not in ARCHITECTURES:
+        raise ValueError(f"Unknown FCN architecture: {architecture!r}")
+    return WEIGHT_DIR / f"{architecture}.pt"
+
+
+def grid_geometry(method):
+    """(native frames per 10 ms, native hop in 16 kHz samples) of an FCN method.
+
+    FCN-993 steps 8 samples at 8 kHz (1 ms, 10 frames per hop) and FCN-929 steps 4
+    (0.5 ms, 20 frames per hop). Native frame i is centred on 16 kHz sample
+    i * native hop, so 10 ms frame k is centred on native frame k * frames per hop.
+    """
+    stride = ARCHITECTURES[fcn_variant(method)[0]]["stride"]
+    return 160 // (2 * stride), 2 * stride
 
 
 @dataclass
@@ -47,9 +66,11 @@ def tensor_grid(cents, confidence, audio, centers, profile, previous=False):
     """Reduce native tensors to selected 10 ms centers; no waveform CPU copy."""
     import torch.nn.functional as F
 
-    if profile.method == "fcn-993":
+    if not fcn_variant(profile.method)[1]:
         hz = torch.nan_to_num(10 * 2 ** (cents[centers] / 1200), nan=0).float()
         return hz, hz > 0, confidence[centers]
+    frames_per_hop, native_hop = grid_geometry(profile.method)
+    half = frames_per_hop // 2
     radius = profile.median_frames // 2
     smoothed = confidence
     if radius:
@@ -72,7 +93,7 @@ def tensor_grid(cents, confidence, audio, centers, profile, previous=False):
                 0, 2 * radius + 1, 1
             )
         )
-    indices = centers[:, None] + torch.arange(-5, 5, device=cents.device)
+    indices = centers[:, None] + torch.arange(-half, half, device=cents.device)
     exists = (indices >= 0) & (indices < len(cents))
     indices = indices.clamp(0, len(cents) - 1)
     candidates = valid[indices] & exists
@@ -85,7 +106,9 @@ def tensor_grid(cents, confidence, audio, centers, profile, previous=False):
         (weights.cumsum(-1) >= weights.sum(-1, keepdim=True) * 0.5).long().argmax(-1)
     )
     selected_cents = ordered.gather(-1, selected[:, None]).squeeze(-1)
-    samples = centers[:, None] * 16 + torch.arange(-80, 80, device=cents.device)
+    samples = centers[:, None] * native_hop + torch.arange(
+        -80, 80, device=cents.device
+    )
     present = (samples >= 0) & (samples < len(audio))
     audible = ((audio[samples.clamp(0, len(audio) - 1)] != 0) & present).any(-1)
     supported = candidates.any(-1) & audible
@@ -114,6 +137,8 @@ class FCNRVCAdapter:
 
     def __call__(self, cents, confidence, p_len, audio):
         profile = self.profile
+        frames_per_hop, _ = grid_geometry(profile.method)
+        half = frames_per_hop // 2
         smoothed = confidence.copy()
         radius = profile.median_frames // 2
         for i in range(len(confidence)):
@@ -135,7 +160,8 @@ class FCNRVCAdapter:
         voiced = np.zeros(p_len, bool)
         previous = False
         for k in range(p_len):
-            start, stop = max(0, k * 10 - 5), min(len(cents), k * 10 + 5)
+            start = max(0, k * frames_per_hop - half)
+            stop = min(len(cents), k * frames_per_hop + half)
             output_confidence[k] = np.median(smoothed[start:stop])
             candidates = valid[start:stop]
             # Only exact digital silence is gated, with no arbitrary dB floor.
@@ -161,15 +187,21 @@ class FCNPredictor:
         device="cpu",
         method="fcn-993",
         profile=None,
-        weight_path=DEFAULT_WEIGHT,
+        weight_path=None,
         block_frames=256,
     ):
         self.profile = resolve_profile(method, profile)
+        self.architecture_id = fcn_variant(method)[0]
+        self.architecture = ARCHITECTURES[self.architecture_id]
+        self.frames_per_hop, self.native_hop = grid_geometry(method)
         self.device = torch.device(device)
-        self.weight_path = Path(weight_path)
+        self.weight_path = Path(
+            default_weight(self.architecture_id) if weight_path is None else weight_path
+        )
         if not self.weight_path.is_file():
+            upstream = self.architecture_id.replace("fcn-", "FCN_")
             raise FileNotFoundError(
-                f"FCN weight missing: {self.weight_path}. Run tools/convert_fcn993.py with original FCN_993/weights.h5 first."
+                f"FCN weight missing: {self.weight_path}. Run tools/convert_fcn993.py --architecture {self.architecture_id} with original {upstream}/weights.h5 first."
             )
         manifest_path = self.weight_path.with_suffix(".manifest.json")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -180,15 +212,18 @@ class FCNPredictor:
         stat = self.weight_path.stat()
         self.asset_signature = (stat.st_size, stat.st_mtime_ns)
         checkpoint = torch.load(self.weight_path, map_location="cpu", weights_only=True)
-        if checkpoint["metadata"]["architecture"] != ARCHITECTURE:
-            raise ValueError("Unexpected FCN architecture")
-        self.model = FCNModel().to(self.device)
+        if checkpoint["metadata"]["architecture"] != self.architecture:
+            raise ValueError(
+                f"Unexpected FCN architecture in {self.weight_path}; expected {self.architecture_id}"
+            )
+        self.model = FCNModel(self.architecture_id).to(self.device)
         self.model.load_state_dict(checkpoint["state_dict"], strict=True)
+        input_size = self.architecture["receptive_field"]
         self.preprocessor = FCNPreprocessor(
-            "wrap" if method == "fcn-993" else "constant"
+            "constant" if fcn_variant(method)[1] else "wrap", input_size
         )
         self.tensor_preprocessor = (
-            FCNTensorPreprocessor(self.device, self.preprocessor.boundary)
+            FCNTensorPreprocessor(self.device, self.preprocessor.boundary, input_size)
             if self.device.type == "cuda"
             else None
         )
@@ -208,10 +243,15 @@ class FCNPredictor:
 
     def with_profile(self, method, profile=None):
         """Session-owned adapter sharing the same immutable network/weights."""
+        architecture, is_rvc = fcn_variant(method)
+        if architecture != self.architecture_id:
+            raise ValueError(
+                f"{method} needs the {architecture} network; this predictor holds {self.architecture_id}"
+            )
         other = copy.copy(self)
         other.profile = resolve_profile(method, profile)
         other.preprocessor = FCNPreprocessor(
-            "wrap" if method == "fcn-993" else "constant"
+            "constant" if is_rvc else "wrap", self.architecture["receptive_field"]
         )
         if self.tensor_preprocessor is not None:
             other.tensor_preprocessor = copy.copy(self.tensor_preprocessor)
@@ -235,12 +275,10 @@ class FCNPredictor:
             "profile": self.profile.to_dict(),
             "fingerprint": self.fingerprint,
             "weight_sha256": self.weight_sha256,
-            "architecture": "fcn-993",
+            "architecture": self.architecture_id,
             "resampler": "resampy-0.4.3-kaiser_best-cuda-ordered-v1",
             "implementation": "fcn-cuda-v1-fp32-tf32-off",
-            "normalization": "994-population-wrap"
-            if self.profile.method == "fcn-993"
-            else "994-population-zero",
+            "normalization": normalization_name(self.profile.method),
             "decoder": "local-average-cents-9",
             "grid": {"sample_rate": 16000, "origin": 0, "hop": 160},
             "coarse": {
@@ -264,7 +302,9 @@ class FCNPredictor:
                 )
         else:
             normalized = self.preprocessor(audio)
-        frames = max(0, (len(normalized) - 993) // 8 + 1)
+        receptive_field = self.architecture["receptive_field"]
+        stride = self.architecture["stride"]
+        frames = max(0, (len(normalized) - receptive_field) // stride + 1)
         decoded, activations = [], []
         with (
             torch.inference_mode(),
@@ -274,7 +314,8 @@ class FCNPredictor:
             for start in range(0, frames, self.block_frames):
                 stop = min(start + self.block_frames, frames)
                 chunk = torch.as_tensor(
-                    normalized[start * 8 : (stop - 1) * 8 + 993], device=self.device
+                    normalized[start * stride : (stop - 1) * stride + receptive_field],
+                    device=self.device,
                 )
                 activation = self.forward(chunk[None, None])[0]
                 decoded.append(self.decoder(activation))
@@ -318,7 +359,7 @@ class FCNPredictor:
                 )
             if p_len:
                 cents, _, confidence = self.native_tensor(audio)
-                centers = torch.arange(p_len, device=self.device) * 10
+                centers = torch.arange(p_len, device=self.device) * self.frames_per_hop
                 hz, voiced, confidence = tensor_grid(
                     cents, confidence, audio, centers, self.profile
                 )
@@ -353,9 +394,9 @@ class FCNPredictor:
                 np.empty(0, np.float32),
             )
         cents, hz, confidence = self.native(audio)
-        if self.profile.method == "fcn-993-rvc":
+        if fcn_variant(self.profile.method)[1]:
             return FCNRVCAdapter(self.profile)(cents, confidence, p_len, audio)
-        indices = np.arange(p_len) * 10
+        indices = np.arange(p_len) * self.frames_per_hop
         return FCNTrack(
             np.arange(p_len, dtype=np.int64),
             hz[indices],

@@ -16,6 +16,12 @@ from rvc.realtime.compile_session import CompileSession, load_settings
 from rvc.configs.config import Config
 from rvc.infer.pipeline import Autotune, AudioProcessor
 from rvc.lib.algorithm.synthesizers import Synthesizer
+from rvc.lib.predictors.f0_quantization import (
+    COARSE_MIN,
+    align_profile_coarse,
+    quantize_f0,
+    recorded_coarse_max,
+)
 from rvc.lib.predictors.crepe_models import (
     CREPE_METHOD_TO_MODEL,
     MANGIO_CREPE_METHOD_TO_MODEL,
@@ -149,9 +155,10 @@ class Realtime_Pipeline:
         self.tgt_sr = vc.tgt_sr
         self.window = 160
         self.model_window = self.tgt_sr // 100
-        self.f0_min = 50.0
-        self.f0_max = 1680.0
-        # self.f0_max = 1100.0
+        # The model's coarse F0 range: what the pitch embedding is indexed by, and the
+        # search range of the predictors that take one, exactly as during extraction.
+        self.f0_min = COARSE_MIN
+        self.f0_max = recorded_coarse_max(vc.cpt)
         self.device = vc.config.device
         self.sid = torch.tensor([sid], device=self.device, dtype=torch.int64)
         self.autotune = Autotune()
@@ -173,7 +180,10 @@ class Realtime_Pipeline:
             if torch.device(self.device).type != "cuda":
                 raise ValueError("FCN realtime requires CUDA")
             checkpoint = (vc.cpt or {}).get("f0_extraction", {})
-            profile = resolve_profile(f0_method, fcn_profile, checkpoint.get("profile"))
+            profile = align_profile_coarse(
+                resolve_profile(f0_method, fcn_profile, checkpoint.get("profile")),
+                self.f0_max,
+            )
             if checkpoint.get("method") and checkpoint["method"] != f0_method:
                 print(f"FCN method differs from checkpoint: {checkpoint['method']} -> {f0_method}")
             self.f0_model = FCNPredictor(self.device, f0_method, profile)
@@ -183,7 +193,10 @@ class Realtime_Pipeline:
             # Built eagerly so a bad profile or a missing weight fails before audio
             # starts, and so the model is warm for the first block.
             checkpoint = (vc.cpt or {}).get("f0_extraction", {})
-            profile = resolve_profile(f0_method, fcn_profile, checkpoint.get("profile"))
+            profile = align_profile_coarse(
+                resolve_profile(f0_method, fcn_profile, checkpoint.get("profile")),
+                self.f0_max,
+            )
             if checkpoint.get("method") and checkpoint["method"] != f0_method:
                 print(f"F0 method differs from checkpoint: {checkpoint['method']} -> {f0_method}")
             self.f0_model = FCNF0PPPredictor(self.device, f0_method, profile)
@@ -345,29 +358,15 @@ class Realtime_Pipeline:
             f0 *= pow(2, f0_up_key / 12)
 
         if voiced is not None:
-            from rvc.lib.predictors.f0_quantization import quantize_f0
-
-            # The same mel quantization as training and offline conversion. The formula
-            # below mixes Hz bounds into mel values; it stays as is for the other methods.
             f0[~voiced] = 0
-            profile = self.f0_model.profile
-            f0_coarse = torch.from_numpy(
-                quantize_f0(f0, profile.coarse_min, profile.coarse_max)
-            ).to(self.device)
-            f0 = torch.from_numpy(f0).to(self.device).float()
-        else:
-            # Convert to Tensor for computational use
-            f0 = torch.from_numpy(f0).to(self.device).float()
-
-            # quantizing f0 to 255 buckets to make coarse f0
-            f0_mel = 1127.0 * torch.log(1.0 + f0 / 700.0)
-            f0_mel = torch.clip(
-                (f0_mel - self.f0_min) * 254 / (self.f0_max - self.f0_min) + 1,
-                1,
-                255,
-                out=f0_mel,
-            )
-            f0_coarse = torch.round(f0_mel, out=f0_mel).long()
+        # The same mel quantization as training extraction and offline conversion, over
+        # the model's range. (This used to subtract the Hz bounds from mel values for
+        # every method but FCNF0++, which put 200 Hz on bin 37 instead of the 41 it was
+        # trained on at 1680 Hz.)
+        f0_coarse = torch.from_numpy(quantize_f0(f0, self.f0_min, self.f0_max)).to(
+            self.device
+        )
+        f0 = torch.from_numpy(f0).to(self.device).float()
 
         if pitch is not None and pitchf is not None:
             circular_write(f0_coarse, pitch)
@@ -379,8 +378,6 @@ class Realtime_Pipeline:
         return pitch.unsqueeze(0), pitchf.unsqueeze(0)
 
     def _fcn_adjusted_pitch(self, shift, autotune, strength, proposed, target):
-        from rvc.lib.predictors.f0_quantization import quantize_f0
-
         # Only the finalized 100 Hz vector crosses to NumPy for existing pitch
         # correction. Capture, normalization, network and stream stay on CUDA.
         f0 = self.fcn_pitch.cpu().numpy().copy()
@@ -398,8 +395,7 @@ class Realtime_Pipeline:
         else:
             f0 *= 2 ** (shift / 12)
         f0[~voiced] = 0
-        profile = self.f0_model.profile
-        coarse = quantize_f0(f0, profile.coarse_min, profile.coarse_max)
+        coarse = quantize_f0(f0, self.f0_min, self.f0_max)
         return torch.from_numpy(coarse).to(self.device)[None], torch.from_numpy(f0).to(self.device)[None]
 
     def voice_conversion(

@@ -10,6 +10,7 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from rvc.lib.predictors.f0_methods import FCN_METHODS
 from rvc.lib.predictors.fcn import FCNPredictor
 from rvc.lib.predictors.fcn.streaming import FCNStream
 
@@ -92,7 +93,7 @@ def benchmark(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--method", choices=("fcn-993", "fcn-993-rvc"), default="fcn-993"
+        "--method", choices=FCN_METHODS, default="fcn-993"
     )
     parser.add_argument("--fcn_profile")
     parser.add_argument("--duration", type=float, default=30)

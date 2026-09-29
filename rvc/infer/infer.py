@@ -552,5 +552,8 @@ class VoiceConverter:
         Sets up the voice conversion pipeline instance based on the target sampling rate and configuration.
         """
         if self.cpt is not None:
-            self.vc = VC(self.tgt_sr, self.config)
+            from rvc.lib.predictors.f0_quantization import recorded_coarse_max
+
+            # Quantize coarse F0 over the range this model was trained on.
+            self.vc = VC(self.tgt_sr, self.config, coarse_max=recorded_coarse_max(self.cpt))
             self.n_spk = self.cpt["config"][-3]

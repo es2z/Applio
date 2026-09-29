@@ -17,7 +17,8 @@ import soundfile as sf
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rvc.lib.predictors.fcn import FCNPredictor, FCNProfile
-from rvc.lib.predictors.fcn.adapter import FCNRVCAdapter
+from rvc.lib.predictors.fcn.adapter import FCNRVCAdapter, grid_geometry
+from rvc.lib.predictors.fcn.profiles import default_profile
 from tools.calibrate_fcn993 import counts, prepare
 
 
@@ -57,18 +58,22 @@ def read_reference(path):
     return result[:, 0], result[:, 1]
 
 
-def evaluate(root, output):
+def evaluate(root, output, method="fcn-993-rvc"):
     from rvc.lib.predictors.f0 import MANGIO_CREPE
 
     root = Path(root)
+    # The bundled median window (FCN-993: 5 native frames = 5 ms; FCN-929: 9 native
+    # frames = 4.5 ms) is held fixed; only the thresholds are compared.
+    median_frames = default_profile(method).median_frames
+    frames_per_hop, _ = grid_geometry(method)
     predictor = FCNPredictor(
         "cuda",
-        "fcn-993-rvc",
+        method,
         FCNProfile(
-            method="fcn-993-rvc",
+            method=method,
             enter_threshold=0.6,
             exit_threshold=0.4,
-            median_frames=5,
+            median_frames=median_frames,
         ),
     )
     tracks = []
@@ -109,7 +114,9 @@ def evaluate(root, output):
         }
         tracks.append(track)
     # Explore on examples 4/5; all four examples inform the final preset review.
-    conf, support, ref, weak, resets, _ = prepare(tracks[:2], 5)
+    conf, support, ref, weak, resets, _ = prepare(
+        tracks[:2], median_frames, frames_per_hop
+    )
     best = []
     for enter in range(1, 100):
         for exit_threshold in range(1, enter + 1):
@@ -132,13 +139,20 @@ def evaluate(root, output):
         ("balanced-050-040", 0.5, 0.4),
         ("balanced-030-020", 0.3, 0.2),
     ]
+    bundled = default_profile(method)
+    if (bundled.enter_threshold, bundled.exit_threshold) not in {
+        (enter, exit_threshold) for _, enter, exit_threshold in candidates
+    }:
+        candidates.append(
+            ("bundled-default", bundled.enter_threshold, bundled.exit_threshold)
+        )
     reports = {}
     for label, enter, exit_threshold in candidates:
         profile = FCNProfile(
-            method="fcn-993-rvc",
+            method=method,
             enter_threshold=enter,
             exit_threshold=exit_threshold,
-            median_frames=5,
+            median_frames=median_frames,
         )
         results = []
         for track in tracks:
@@ -173,6 +187,9 @@ def evaluate(root, output):
             )
         reports[label] = {"profile": profile.to_dict(), "examples": results}
     report = {
+        "method": method,
+        # The candidate labels date from FCN-993's review; this names which one ships.
+        "bundled_default": default_profile(method).to_dict(),
         "source_commit": "8a2b530af821319b6badca93c8a0ed1f14bfee3c",
         "weight_sha256": predictor.weight_sha256,
         "scope": "four upstream manually corrected development examples; exploratory search on 4/5; all four inform preset review; not a speaker-disjoint or independent held-out evaluation",
@@ -191,5 +208,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("upstream", type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument(
+        "--method", choices=("fcn-993-rvc", "fcn-929-rvc"), default="fcn-993-rvc"
+    )
     args = parser.parse_args()
-    evaluate(args.upstream, args.output)
+    evaluate(args.upstream, args.output, args.method)

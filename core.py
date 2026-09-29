@@ -473,8 +473,19 @@ def run_extract_script(
     include_mutes: int = 2,
     embedder_output_layer: int = 0,
     fcn_profile=None,
+    f0_coarse_max=None,
 ):
+    from rvc.lib.predictors.f0_quantization import (
+        align_profile_coarse,
+        default_coarse_max,
+        validate_extraction_coarse_max,
+    )
 
+    # None / "" means the method's default (FCN: 1000 Hz, everything else: 1680 Hz).
+    f0_coarse_max = validate_extraction_coarse_max(
+        default_coarse_max(f0_method) if f0_coarse_max in (None, "") else f0_coarse_max,
+        f0_method,
+    )
     model_path = os.path.join(logs_path, model_name)
     extract = os.path.join("rvc", "train", "extract", "extract.py")
 
@@ -500,20 +511,28 @@ def run_extract_script(
     if f0_method in FCN_METHODS:
         from rvc.lib.predictors.fcn.profiles import resolve_profile
 
-        profile = resolve_profile(f0_method, fcn_profile)
+        profile = align_profile_coarse(resolve_profile(f0_method, fcn_profile), f0_coarse_max)
         command_1.append(json.dumps(profile.to_dict()))
     elif f0_method in FCNF0PP_METHODS:
         # Resolved here so a bad profile fails before the subprocess starts.
         from rvc.lib.predictors.fcnf0pp.profiles import resolve_profile
 
-        profile = resolve_profile(f0_method, fcn_profile)
+        profile = align_profile_coarse(resolve_profile(f0_method, fcn_profile), f0_coarse_max)
         command_1.append(json.dumps(profile.to_dict()))
+    else:
+        command_1.append("")
+    command_1.append(f"{f0_coarse_max:g}")
     subprocess.run(command_1, check=True)
 
     return f"Model {model_name} extracted successfully."
 
 
 # Train
+# Returned rather than raised so the Training tab can show it; the CLI turns it into a
+# non-zero exit status.
+TRAINING_FAILED = "Training failed for {model_name}. See the console for details."
+
+
 def run_train_script(
     model_name: str,
     save_every_epoch: int,
@@ -635,7 +654,7 @@ def run_train_script(
     ]
     result = subprocess.run(command)
     if result.returncode:
-        return f"Training failed for {model_name}. See the console for details."
+        return TRAINING_FAILED.format(model_name=model_name)
     run_index_script(model_name, index_algorithm)
     return f"Model {model_name} trained successfully."
 
@@ -2058,6 +2077,18 @@ def parse_arguments():
         ),
         default=0,
     )
+    extract_parser.add_argument(
+        "--f0_coarse_max",
+        type=float,
+        choices=(750.0, 1000.0, 1100.0, 1680.0),
+        default=None,
+        help=(
+            "Upper end (Hz) of the coarse pitch range the model is trained on. Omit for "
+            "the method's default: 1000 for FCN (its output ends at 1000 Hz), 1680 for "
+            "everything else. 750 and 1000 are offered for FCN only. "
+            "Recorded in the model; conversion and realtime read it back."
+        ),
+    )
 
     # Parser for 'train' mode
     train_parser = subparsers.add_parser("train", help="Train an RVC model.")
@@ -2148,8 +2179,8 @@ def parse_arguments():
         help=(
             "SiFi-GAN only: initial value of the learnable per-stage gain on the source "
             "network's contribution to the filter network. The paper is equivalent to "
-            "1.0, but that warm starts 51% worse than scratch from a HiFi-GAN model "
-            "while 0.03 warm starts 48% better. The gain is learnable and settles on "
+            "1.0, but that warm starts 51%% worse than scratch from a HiFi-GAN model "
+            "while 0.03 warm starts 48%% better. The gain is learnable and settles on "
             "its own within a few hundred epochs, so this only affects early training."
         ),
         default=0.03,
@@ -2383,7 +2414,7 @@ def parse_arguments():
     for fcn_parser in (infer_parser, batch_infer_parser, tts_parser, extract_parser):
         fcn_parser.add_argument(
             "--fcn_profile", default=None,
-            help="Optional F0 profile JSON (file or inline) for FCN-993 and FCNF0++ methods; its \"method\" must match --f0_method. Omit to use a matching checkpoint profile or bundled defaults (FCN-993-RVC: Balanced v1; FCNF0++-RVC: periodicity 0.035; FCNF0++-RVC aligned: 0.0425 with 11 ms lag compensation).",
+            help="Optional F0 profile JSON (file or inline) for FCN-993, FCN-929 and FCNF0++ methods; its \"method\" must match --f0_method. Omit to use a matching checkpoint profile or bundled defaults (FCN-993-RVC and FCN-929-RVC: Balanced v1; FCNF0++-RVC: periodicity 0.035; FCNF0++-RVC aligned: 0.0425 with 11 ms lag compensation).",
         )
     return parser.parse_args()
 
@@ -2575,9 +2606,10 @@ def main():
                 embedder_model_custom=args.embedder_model_custom,
                 include_mutes=args.include_mutes,
                 embedder_output_layer=args.embedder_output_layer,
+                f0_coarse_max=args.f0_coarse_max,
             )
         elif args.mode == "train":
-            run_train_script(
+            message = run_train_script(
                 model_name=args.model_name,
                 save_every_epoch=args.save_every_epoch,
                 save_only_latest=args.save_only_latest,
@@ -2606,6 +2638,8 @@ def main():
                 g_lr_boost_multiplier=args.g_lr_boost_multiplier,
                 g_lr_boost_epochs=args.g_lr_boost_epochs,
             )
+            if message == TRAINING_FAILED.format(model_name=args.model_name):
+                raise RuntimeError(message)
         elif args.mode == "index":
             run_index_script(
                 model_name=args.model_name,

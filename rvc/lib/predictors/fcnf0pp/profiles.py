@@ -5,6 +5,8 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from rvc.lib.predictors.f0_quantization import COARSE_MAXIMA
+
 PROFILE_DIR = Path(__file__).with_name("profiles")
 DEFAULT_PATHS = {
     "fcnf0++": PROFILE_DIR / "baseline-v1.json",
@@ -54,8 +56,8 @@ class FCNF0PPProfile:
             raise ValueError(f"FCNF0++ decoder must be one of {DECODERS}")
         if self.center not in CENTERS:
             raise ValueError(f"FCNF0++ center must be one of {CENTERS}")
-        if (self.coarse_min, self.coarse_max) not in ((50.0, 1680.0), (50.0, 1100.0)):
-            raise ValueError("FCNF0++ F0 range must be 50–1680 or 50–1100 Hz")
+        if self.coarse_min != 50.0 or self.coarse_max not in COARSE_MAXIMA:
+            raise ValueError("FCNF0++ F0 range must be 50–750, 50–1000, 50–1100 or 50–1680 Hz")
         if type(self.calibrated) is not bool:
             raise ValueError("calibrated must be true or false")
         if self.method in ALIGNED_METHODS:

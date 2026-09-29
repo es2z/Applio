@@ -29,6 +29,17 @@ def model_blender(name, path1, path2, ratio):
             )
             return "The sample rates of the two models are not the same."
 
+        from rvc.lib.predictors.f0_quantization import recorded_coarse_max
+
+        # enc_p.emb_pitch rows stand for different pitches under different coarse
+        # ranges, so averaging them across a range change would blend unrelated pitches.
+        coarse1, coarse2 = recorded_coarse_max(ckpt1), recorded_coarse_max(ckpt2)
+        if coarse1 != coarse2:
+            print(
+                f"F0 coarse range of {path1} ({coarse1:g} Hz) does not match {path2} ({coarse2:g} Hz)."
+            )
+            return "The F0 coarse ranges of the two models are not the same."
+
         cfg = ckpt1["config"]
         cfg_f0 = ckpt1["f0"]
         cfg_version = ckpt1["version"]
@@ -67,6 +78,7 @@ def model_blender(name, path1, path2, ratio):
         opt["version"] = cfg_version
         opt["info"] = message
         opt["vocoder"] = vocoder
+        opt["f0_coarse_max"] = coarse1
 
         torch.save(opt, os.path.join("logs", f"{name}.pth"))
         print(message)

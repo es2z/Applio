@@ -20,6 +20,13 @@ from rvc.lib.predictors.crepe_models import (
 )
 from rvc.lib.predictors.f0 import CREPE, FCPE, MANGIO_CREPE, RMVPE, SWIFT
 from rvc.lib.utils import embedder_forward
+from rvc.lib.predictors.f0_quantization import (
+    COARSE_MIN,
+    DEFAULT_COARSE_MAX,
+    align_profile_coarse,
+    quantize_f0,
+    validate_coarse_max,
+)
 
 import logging
 
@@ -174,13 +181,15 @@ class Pipeline:
     voice conversion using a model, and post-processing.
     """
 
-    def __init__(self, tgt_sr, config):
+    def __init__(self, tgt_sr, config, coarse_max=None):
         """
         Initializes the Pipeline class with target sampling rate and configuration parameters.
 
         Args:
             tgt_sr: The target sampling rate for the output audio.
             config: A configuration object containing various parameters for the pipeline.
+            coarse_max: The coarse F0 range (Hz) the model was trained on, from
+                recorded_coarse_max(checkpoint); None means a model that recorded none.
         """
         self.x_pad = config.x_pad
         self.x_query = config.x_query
@@ -196,10 +205,12 @@ class Pipeline:
         self.t_center = self.sample_rate * self.x_center
         self.t_max = self.sample_rate * self.x_max
         self.time_step = self.window / self.sample_rate * 1000
-        self.f0_min = 50
-        self.f0_max = 1100
-        self.f0_mel_min = 1127 * np.log(1 + self.f0_min / 700)
-        self.f0_mel_max = 1127 * np.log(1 + self.f0_max / 700)
+        # The model's coarse F0 range: what the pitch embedding is indexed by, and the
+        # search range of the predictors that take one, exactly as during extraction.
+        self.f0_min = COARSE_MIN
+        self.f0_max = validate_coarse_max(
+            DEFAULT_COARSE_MAX if coarse_max is None else coarse_max
+        )
         self.device = config.device
         self.autotune = Autotune()
         self.fcn_predictor = None
@@ -210,7 +221,10 @@ class Pipeline:
         from rvc.lib.predictors.fcnf0pp import FCNF0PPPredictor, resolve_profile
 
         checkpoint = checkpoint or {}
-        profile = resolve_profile(method, explicit_profile, checkpoint.get("profile"))
+        profile = align_profile_coarse(
+            resolve_profile(method, explicit_profile, checkpoint.get("profile")),
+            self.f0_max,
+        )
         if checkpoint.get("method") and checkpoint["method"] != method:
             print(f"F0 method differs from checkpoint: {checkpoint['method']} -> {method}")
         predictor = self.fcnf0pp_predictor
@@ -229,12 +243,22 @@ class Pipeline:
         from rvc.lib.predictors.fcn import FCNPredictor, resolve_profile
 
         if torch.device(self.device).type != "cuda":
-            raise ValueError("FCN-993 application inference requires a CUDA device")
+            raise ValueError("FCN application inference requires a CUDA device")
+        from rvc.lib.predictors.f0_methods import fcn_variant
+
         checkpoint = checkpoint or {}
-        profile = resolve_profile(method, explicit_profile, checkpoint.get("profile"))
+        profile = align_profile_coarse(
+            resolve_profile(method, explicit_profile, checkpoint.get("profile")),
+            self.f0_max,
+        )
         if checkpoint.get("method") and checkpoint["method"] != method:
             print(f"FCN method differs from checkpoint: {checkpoint['method']} -> {method}")
-        reload_weight = self.fcn_predictor is None
+        # FCN-993 and FCN-929 are different networks; only a profile change within one
+        # architecture may share the loaded weights.
+        reload_weight = (
+            self.fcn_predictor is None
+            or self.fcn_predictor.architecture_id != fcn_variant(method)[0]
+        )
         if not reload_weight:
             stat = self.fcn_predictor.weight_path.stat()
             reload_weight = self.fcn_predictor.asset_signature != (stat.st_size, stat.st_mtime_ns)
@@ -375,24 +399,9 @@ class Pipeline:
         else:
             f0 *= pow(2, pitch / 12)
         if f0_method in FCN_METHODS or f0_method in FCNF0PP_METHODS:
-            from rvc.lib.predictors.f0_quantization import quantize_f0
-
             f0[~fcn_voiced] = 0
-            profile = (
-                self.fcn_predictor if f0_method in FCN_METHODS else self.fcnf0pp_predictor
-            ).profile
-            return quantize_f0(f0, profile.coarse_min, profile.coarse_max), f0.copy()
-        # quantizing f0 to 255 buckets to make coarse f0
-        f0bak = f0.copy()
-        f0_mel = 1127 * np.log(1 + f0 / 700)
-        f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - self.f0_mel_min) * 254 / (
-            self.f0_mel_max - self.f0_mel_min
-        ) + 1
-        f0_mel[f0_mel <= 1] = 1
-        f0_mel[f0_mel > 255] = 255
-        f0_coarse = np.rint(f0_mel).astype(int)
-
-        return f0_coarse, f0bak
+        # The same quantization as training extraction, over the model's range.
+        return quantize_f0(f0, self.f0_min, self.f0_max), f0.copy()
 
     def voice_conversion(
         self,

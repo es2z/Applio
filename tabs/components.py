@@ -14,11 +14,13 @@ i18n = I18nAuto()
 
 
 FCN_PROFILE_HELP = (
-    "**FCN (CUDA)** — FCN-993 reproduces the original predictor without a voicing threshold. "
-    "For voice conversion with FCN, use **FCN-993-RVC**. No JSON is required: leave the profile blank to use a matching checkpoint profile or the bundled **Balanced v1** settings (enter 0.50, exit 0.40, median 5 ms). "
-    'Settings are fixed when processing starts. Optional network compilation: add `"compile_model": true` to the profile (default OFF).'
+    "**FCN (CUDA)** — FCN-993 and FCN-929 reproduce the original predictors without a voicing threshold. "
+    "For voice conversion with FCN, use **FCN-993-RVC** or **FCN-929-RVC**. No JSON is required: leave the profile blank to use a matching checkpoint profile or the bundled **Balanced v1** settings "
+    "(FCN-993-RVC: enter 0.50, exit 0.40, median 5 ms; FCN-929-RVC: enter 0.60, exit 0.35, median 4.5 ms). "
+    "`median_frames` counts native frames: 1 ms for FCN-993, 0.5 ms for FCN-929. "
+    'Settings are fixed when processing starts. Optional network compilation: add `"compile_model": true` to the profile (default OFF). Details: docs/fcn-993.md, docs/fcn-929.md'
 )
-FCN_REALTIME_HELP = "FCN delays audio and F0 together by 140–150 ms, plus capture filtering and up to 10 ms of grid alignment. Device, chunk and queue latency are additional."
+FCN_REALTIME_HELP = "FCN delays audio and F0 together by 140–150 ms (FCN-929: 130–140 ms), plus capture filtering and up to 10 ms of grid alignment. Device, chunk and queue latency are additional."
 FCNF0PP_PROFILE_HELP = (
     "**FCNF0++ (PENN)** — FCNF0++ passes PENN's pitch through unchanged, with every frame voiced: use it to judge the model itself. "
     "**FCNF0++-RVC** is the same pitch with frames whose PENN periodicity is at or below `periodicity_threshold` set to unvoiced, and nothing else. "
@@ -51,14 +53,14 @@ def recommended_f0_profile_json(method):
 
 
 def fcn_profile_controls(f0_method, realtime=False):
-    """The profile box shared by FCN-993 and FCNF0++; the JSON's method picks the family."""
+    """The profile box shared by FCN-993, FCN-929 and FCNF0++; the JSON's method picks the family."""
     from rvc.lib.predictors.f0_methods import PROFILE_METHODS
 
     with gr.Group(visible=f0_method.value in PROFILE_METHODS) as group:
         help_text = gr.Markdown(_f0_profile_help(f0_method.value, realtime))
         profile = gr.Textbox(
             label="F0 profile JSON or local JSON path (optional)",
-            info="Normally leave blank. To explicitly use the recommended settings instead of checkpoint settings, press the button below. Edit the JSON only to customize. Details: docs/fcn-993.md, docs/fcnf0pp.md",
+            info="Normally leave blank. To explicitly use the recommended settings instead of checkpoint settings, press the button below. Edit the JSON only to customize. Details: docs/fcn-993.md, docs/fcn-929.md, docs/fcnf0pp.md",
             value="",
             lines=3,
         )

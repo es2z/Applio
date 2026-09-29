@@ -13,10 +13,12 @@ class FCNTensorPreprocessor:
 
     filter_radius = 99
 
-    def __init__(self, device, boundary="wrap"):
+    def __init__(self, device, boundary="wrap", input_size=993):
         import torch
 
         self.boundary = boundary
+        self.input_size = input_size
+        self.window = input_size + input_size % 2
         window, precision, _ = resampy.filters.get_filter("kaiser_best")
         step = int(precision // 2)
         wing = (window[::step][:100] * 0.5).astype(np.float32)
@@ -56,23 +58,27 @@ class FCNTensorPreprocessor:
 
         if not len(audio):
             return audio
+        window = self.window
+        half = window // 2
         if self.boundary == "wrap":
-            indices = torch.arange(-497, len(audio) + 497, device=audio.device) % len(
+            indices = torch.arange(-half, len(audio) + half, device=audio.device) % len(
                 audio
             )
             padded = audio[indices]
         else:
-            padded = F.pad(audio, (497, 497))
-        windows = padded.unfold(0, 994, 1)
+            padded = F.pad(audio, (half, half))
+        windows = padded.unfold(0, window, 1)
         blocks = []
         for start in range(0, len(audio), 8192):
             stop = min(start + 8192, len(audio))
             frames = windows[start:stop]
             # PyTorch scalar division otherwise multiplies by a rounded FP32
             # reciprocal; NumPy's division rounds the quotient instead.
-            mean = (numpy_pairwise_sum(frames).double() / 994).float()
+            mean = (numpy_pairwise_sum(frames).double() / window).float()
             centered = frames - mean[:, None]
-            variance = (numpy_pairwise_sum(centered * centered).double() / 994).float()
+            variance = (
+                numpy_pairwise_sum(centered * centered).double() / window
+            ).float()
             std = torch.sqrt(variance)
             std = torch.where(std == 0, torch.finfo(torch.float32).eps, std)
             blocks.append((audio[start:stop] - mean) / std)
@@ -81,7 +87,8 @@ class FCNTensorPreprocessor:
     def __call__(self, audio):
         import torch.nn.functional as F
 
-        return self.normalize(F.pad(self.resample(audio), (496, 496)))
+        pad = self.input_size // 2
+        return self.normalize(F.pad(self.resample(audio), (pad, pad)))
 
 
 def numpy_pairwise_sum(values):
@@ -109,14 +116,14 @@ def numpy_pairwise_sum(values):
     )
 
 
-def sliding_norm(audio, boundary="wrap", block_samples=8192):
+def sliding_norm(audio, boundary="wrap", block_samples=8192, window=994):
     audio = np.asarray(audio, dtype=np.float32)
     if audio.ndim != 1 or not np.isfinite(audio).all():
         raise ValueError("FCN requires finite mono audio")
     if not len(audio):
         return audio.copy()
-    padded = np.pad(audio, 497, mode=boundary)
-    windows = np.lib.stride_tricks.sliding_window_view(padded, 994)
+    padded = np.pad(audio, window // 2, mode=boundary)
+    windows = np.lib.stride_tricks.sliding_window_view(padded, window)
     result = np.empty_like(audio)
     for start in range(0, len(audio), block_samples):
         stop = min(start + block_samples, len(audio))
@@ -129,8 +136,9 @@ def sliding_norm(audio, boundary="wrap", block_samples=8192):
 
 
 class FCNPreprocessor:
-    def __init__(self, boundary="wrap"):
+    def __init__(self, boundary="wrap", input_size=993):
         self.boundary = boundary
+        self.input_size = input_size
 
     def __call__(self, audio):
         audio = np.asarray(audio, dtype=np.float32)
@@ -139,4 +147,8 @@ class FCNPreprocessor:
         if len(audio) < 2:
             return np.empty(0, np.float32)
         audio = resampy.resample(audio, 16000, 8000, filter="kaiser_best")
-        return sliding_norm(np.pad(audio, 496), self.boundary)
+        return sliding_norm(
+            np.pad(audio, self.input_size // 2),
+            self.boundary,
+            window=self.input_size + self.input_size % 2,
+        )

@@ -1,7 +1,14 @@
 """F0 method registration without importing any inference runtime."""
 
-FCN_METHODS = ("fcn-993", "fcn-993-rvc")
-FCN_UI_METHODS = [("FCN-993", "fcn-993"), ("FCN-993-RVC", "fcn-993-rvc")]
+# Two of ardaillon/FCN-f0's networks, each as the original predictor and as an -rvc
+# variant that adds voicing (docs/fcn-993.md, docs/fcn-929.md).
+FCN_METHODS = ("fcn-993", "fcn-993-rvc", "fcn-929", "fcn-929-rvc")
+FCN_UI_METHODS = [
+    ("FCN-993", "fcn-993"),
+    ("FCN-993-RVC", "fcn-993-rvc"),
+    ("FCN-929", "fcn-929"),
+    ("FCN-929-RVC", "fcn-929-rvc"),
+]
 
 # The -aligned methods place each window 11 ms later to cancel the model's own lag on
 # speech (docs/fcnf0pp.md); the others are PENN's framing unchanged.
@@ -34,6 +41,13 @@ HPA_RMVPE_UI_METHODS = [
     ("HPA-RMVPE (112000, aligned)", "hpa-rmvpe-112000-aligned"),
 ]
 HPA_RMVPE_LAG_FRAMES = 2
+
+
+def fcn_variant(method):
+    """(architecture id, is_rvc) of an FCN method, e.g. ("fcn-929", True)."""
+    if method not in FCN_METHODS:
+        raise ValueError(f"Not an FCN method: {method!r}")
+    return method.removesuffix("-rvc"), method.endswith("-rvc")
 
 
 def hpa_rmvpe_variant(method):

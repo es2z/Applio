@@ -48,7 +48,7 @@ CLI では `--fcn_profile` に JSON を渡します（FCN-993 と FCNF0++ で共
 | center | `zero` | frame i の窓中心を t = i × 10 ms に置きます。`half-hop`（+5 ms）は過去の実装を再現する比較用です |
 | median_frames | 0（OFF） | -rvc の 2 方式だけで使える median の窓長。**単位は FCNF0++ の 10 ms フレーム**で、3 は 30 ms です（FCN-993-RVC の 5 は 1 ms 単位の 5 ms）。0／3／5 を指定できます。推奨は 3（[下記](#median_frames)） |
 | lag_compensation_ms | 0（-aligned は 11） | 窓の中心を t = i × 10 ms からこの分だけ後ろに置きます。-aligned の方式だけで使え、0 より大きく 30 以下です |
-| coarse_min / coarse_max | 50 / 1680 | PENN が復号してよい範囲であり、同時に coarse F0 の量子化範囲でもあります。50–1100 も指定できます |
+| coarse_min / coarse_max | 50 / 1680 | PENN が復号してよい範囲であり、同時に coarse F0 の量子化範囲でもあります。**値はモデルの範囲設定（学習抽出の「F0 Coarse Range」）で上書きされます**（FCNF0++ で選べるのは 1100 / 1680） |
 
 設定を変えると学習抽出はやり直しになります（`model_info.json` の `f0_extraction` に記録されます）。
 FCNF0++ で学習したモデルは checkpoint に設定が引き継がれ、推論と realtime でも同じ設定が使われます。
@@ -75,7 +75,7 @@ FCNF0++ で学習したモデルは checkpoint に設定が引き継がれ、推
 | --- | --- | --- | --- |
 | 1 | `center="half-hop"` | `center="zero"` | 窓の位置は `half-hop` だと 5 ms 早くなります（純音のグライドで実測 +5.1 ms） |
 | 2 | 単一しきい値 0.065。F0 範囲が offline 50–1100、学習・realtime 50–1680 で別々 | 3 経路すべて 50–1680、しきい値は 0.035 | entropy periodicity の無声の床は `1 − log(K)/log(1440)`（K は許可 bin 数）で、1100 Hz なら 0.0407、1680 Hz なら 0.0230 です。同じ 0.065 が経路ごとに違う意味を持っていました |
-| 3 | realtime の coarse 量子化が Hz と mel の混在式 | `quantize_f0`（学習・offline と同じ式） | 旧式では 900 Hz が約 30 bin 低くなります。**他方式の realtime は互換性のため旧式のまま**です |
+| 3 | realtime の coarse 量子化が Hz と mel の混在式 | `quantize_f0`（学習・offline と同じ式） | 旧式では 900 Hz が約 30 bin 低くなります。現在は全方式の realtime がこの式です |
 
 ## 測定結果（RTX 4090、2026-09-23）
 

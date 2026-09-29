@@ -14,13 +14,18 @@ from rvc.lib.predictors.f0_methods import (
     PROFILE_METHODS,
     hpa_rmvpe_variant,
 )
+from rvc.lib.predictors.f0_quantization import (
+    DEFAULT_COARSE_MAX,
+    align_profile_coarse,
+    validate_coarse_max,
+)
 
 
-def fcnf0pp_extraction_spec(method, profile=None):
+def fcnf0pp_extraction_spec(method, profile=None, coarse_max=DEFAULT_COARSE_MAX):
     from rvc.lib.predictors.fcnf0pp.profiles import resolve_profile, specification
     from rvc.lib.predictors.fcnf0pp.weights import weight_sha256
 
-    profile = resolve_profile(method, profile)
+    profile = align_profile_coarse(resolve_profile(method, profile), coarse_max)
     weight_hash = weight_sha256()
     return {
         "method": method,
@@ -34,27 +39,42 @@ def fcnf0pp_extraction_spec(method, profile=None):
     }
 
 
-def extraction_spec(method, profile=None):
+def extraction_spec(method, profile=None, coarse_max=DEFAULT_COARSE_MAX):
+    """What this extraction depends on; any change here re-extracts every F0 file.
+
+    The profile methods carry the coarse range inside their profile. For the others it
+    is added only when it is not the default, so a spec recorded before the range was
+    selectable, which was always extracted at 1680 Hz, still compares equal.
+    """
+    coarse_max = validate_coarse_max(coarse_max)
+    coarse = {} if coarse_max == DEFAULT_COARSE_MAX else {"coarse_max": coarse_max}
     if method in FCNF0PP_METHODS:
-        return fcnf0pp_extraction_spec(method, profile)
+        return fcnf0pp_extraction_spec(method, profile, coarse_max)
     if method in HPA_RMVPE_METHODS:
         from rvc.lib.predictors.hpa_rmvpe.weights import weight_sha256
 
         # Runs in the parent before any worker starts, so a first use downloads the
         # checkpoint exactly once here rather than once per GPU.
-        return {"method": method, "weight_sha256": weight_sha256(hpa_rmvpe_variant(method)[0])}
+        return {
+            "method": method,
+            "weight_sha256": weight_sha256(hpa_rmvpe_variant(method)[0]),
+            **coarse,
+        }
     if method not in FCN_METHODS:
-        return {"method": method}
-    from rvc.lib.predictors.fcn.adapter import DEFAULT_WEIGHT
-    from rvc.lib.predictors.fcn.profiles import resolve_profile
+        return {"method": method, **coarse}
+    from rvc.lib.predictors.f0_methods import fcn_variant
+    from rvc.lib.predictors.fcn.adapter import default_weight
+    from rvc.lib.predictors.fcn.profiles import normalization_name, resolve_profile
 
-    profile = resolve_profile(method, profile)
-    if not DEFAULT_WEIGHT.is_file():
+    profile = align_profile_coarse(resolve_profile(method, profile), coarse_max)
+    architecture = fcn_variant(method)[0]
+    weight = default_weight(architecture)
+    if not weight.is_file():
         raise FileNotFoundError(
-            f"FCN weight missing: {DEFAULT_WEIGHT}; run tools/convert_fcn993.py first"
+            f"FCN weight missing: {weight}; run tools/convert_fcn993.py --architecture {architecture} first"
         )
-    manifest = json.loads(DEFAULT_WEIGHT.with_suffix(".manifest.json").read_text())
-    with DEFAULT_WEIGHT.open("rb") as stream:
+    manifest = json.loads(weight.with_suffix(".manifest.json").read_text())
+    with weight.open("rb") as stream:
         weight_hash = hashlib.file_digest(stream, "sha256").hexdigest()
     if manifest["weight_sha256"] != weight_hash:
         raise ValueError("FCN weight checksum differs from conversion manifest")
@@ -63,12 +83,10 @@ def extraction_spec(method, profile=None):
         "profile": profile.to_dict(),
         "fingerprint": profile.fingerprint(weight_hash),
         "weight_sha256": weight_hash,
-        "architecture": "fcn-993",
+        "architecture": architecture,
         "resampler": "resampy-0.4.3-kaiser_best-cuda-ordered-v1",
         "implementation": "fcn-cuda-v1-fp32-tf32-off",
-        "normalization": "994-population-wrap"
-        if method == "fcn-993"
-        else "994-population-zero",
+        "normalization": normalization_name(method),
         "decoder": "local-average-cents-9",
         "grid": {"sample_rate": 16000, "origin": 0, "hop": 160},
         "coarse": {
@@ -91,8 +109,13 @@ def input_signature(files):
 
 def can_reuse(previous, specification, signature):
     if not previous:
-        # Unrecorded pitch files predate these methods, so they cannot be theirs.
-        return specification["method"] not in PROFILE_METHODS + HPA_RMVPE_METHODS
+        # Unrecorded pitch files predate these methods, so they cannot be theirs; and
+        # they were quantized at the default coarse range, so they are not reusable at
+        # another one either.
+        return (
+            specification["method"] not in PROFILE_METHODS + HPA_RMVPE_METHODS
+            and "coarse_max" not in specification
+        )
     return bool(
         previous.get("complete")
         and previous.get("specification") == specification

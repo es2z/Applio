@@ -1,0 +1,12 @@
+{
+  "method": "fcn-929-rvc",
+  "version": 1,
+  "enter_threshold": 0.6,
+  "exit_threshold": 0.35,
+  "median_frames": 9,
+  "coarse_min": 50.0,
+  "coarse_max": 1680.0,
+  "calibrated": false,
+  "compile_model": false,
+  "compile_mode": "default"
+}

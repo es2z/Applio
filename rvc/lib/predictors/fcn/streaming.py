@@ -32,12 +32,22 @@ class FCNStream:
         self.predictor.tensor_preprocessor = copy.copy(predictor.tensor_preprocessor)
         self.predictor.tensor_preprocessor.boundary = "constant"
         radius = predictor.profile.median_frames // 2
+        hop = predictor.native_hop
+        # The 10 ms window reaches frames_per_hop // 2 - 1 native frames ahead, and
+        # the two chained medians another 2 * radius (FCN-993: (4 + 2r) * 16).
         temporal = (
-            (4 + 2 * radius) * 16 if predictor.profile.method == "fcn-993-rvc" else 0
+            (predictor.frames_per_hop // 2 - 1 + 2 * radius) * hop
+            if predictor.profile.method.endswith("-rvc")
+            else 0
         )
+        # Half the receptive field plus half the normalization window, both at
+        # 8 kHz, in 16 kHz samples (FCN-993: 2 * 496 + 2 * 497 = 1986).
+        input_size = predictor.architecture["receptive_field"]
+        window = input_size + input_size % 2
+        raw = 2 * (input_size // 2) + 2 * (window // 2)
         # Original raw support + FIR wing + temporal support. Round to the RVC
         # grid and reserve 16 samples for capture-resampler lookahead.
-        self.holdback_samples = ((1986 + 99 + temporal + 16 + 159) // 160) * 160
+        self.holdback_samples = ((raw + 99 + temporal + 16 + 159) // 160) * 160
         self.context_samples = self.holdback_samples + 160
         self.reset()
 
@@ -77,7 +87,7 @@ class FCNStream:
             self.closed = final
             return self._empty()
         indices = torch.arange(self.next_frame, stop, device=self.predictor.device)
-        centers = (indices * 160 - self.buffer_start) // 16
+        centers = (indices * 160 - self.buffer_start) // self.predictor.native_hop
         cents, _, confidence = self.predictor.native_tensor(self.buffer)
         hz, voiced, confidence = tensor_grid(
             cents,

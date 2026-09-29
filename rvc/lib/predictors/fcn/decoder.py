@@ -6,7 +6,7 @@ import torch
 class FCNDecoder:
     def __call__(self, activation, centers=None):
         if activation.shape[-1] != 486:
-            raise ValueError("FCN-993 requires 486 pitch bins")
+            raise ValueError("FCN requires 486 pitch bins")
         confidence, peak = activation.max(dim=-1)
         if centers is None:
             centers = peak

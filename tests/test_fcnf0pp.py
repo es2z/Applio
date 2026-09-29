@@ -143,11 +143,16 @@ def test_extraction_spec_changes_with_every_setting():
         {"periodicity_threshold": 0.2},
         {"decoder": "argmax"},
         {"center": "half-hop"},
-        {"coarse_max": 1100.0},
         {"median_frames": 3},
     ):
         other = extraction_spec("fcnf0++-rvc", profile("fcnf0++-rvc", **change))
         assert other != base and other["fingerprint"] != base["fingerprint"]
+    # The coarse range is the extraction's setting, not the profile's: the profile
+    # follows it, and a profile that says otherwise is overridden.
+    other = extraction_spec("fcnf0++-rvc", None, 1100.0)
+    assert other["profile"]["coarse_max"] == 1100.0
+    assert other != base and other["fingerprint"] != base["fingerprint"]
+    assert extraction_spec("fcnf0++-rvc", profile("fcnf0++-rvc", coarse_max=1100.0)) == base
     # median_frames 0 is left out of the record, so runs recorded before it existed
     # keep their specification and fingerprint and are reused, not re-extracted.
     assert "median_frames" not in base["profile"]

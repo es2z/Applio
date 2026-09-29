@@ -91,6 +91,8 @@ def test_inference_uv_survives_autotune_and_shift(monkeypatch):
         get_f0=lambda x, n: np.array([0, 220, 900], np.float32),
     )
     pipeline.autotune = Autotune()
+    # The coarse range belongs to the model (Pipeline(..., coarse_max=...)).
+    pipeline.f0_min, pipeline.f0_max = 50.0, 1680.0
     coarse, hz = pipeline.get_f0(np.zeros(480), 3, "fcn-993-rvc", pitch=12)
     np.testing.assert_array_equal(hz, [0, 440, 1800])
     assert coarse[-1] == 255

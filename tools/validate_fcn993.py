@@ -3,7 +3,12 @@
 Run `oracle weights.h5 inputs.npy oracle.npz` in the TF environment, then
 `compare fcn-993.pt inputs.npy oracle.npz` in the application environment.
 The oracle preserves upstream Conv2D layout/order; only the obsolete optimizer
-and training-only reshape/flatten are omitted.
+and training-only reshape/flatten are omitted. Every mode takes
+`--architecture fcn-929` for FCN_929.
+
+For the whole 16 kHz path, `preprocess waves16k.npy inputs.npy` (TF environment)
+applies upstream's get_audio + sliding_norm, `oracle` runs on its output, and
+`waveform fcn-929.pt waves16k.npy oracle.npz` compares the application predictor.
 """
 
 import argparse
@@ -14,8 +19,38 @@ from pathlib import Path
 
 import numpy as np
 
+# Transcribed from upstream models/FCN_*/core.py rather than imported from the
+# port, so the oracle stays independent of the code it checks:
+# (filters, widths, number of leading conv layers followed by a 2x max-pool).
+ORACLE_LAYERS = {
+    "fcn-993": ((256, 32, 32, 128, 256, 512), (32, 32, 32, 32, 32, 32), 3),
+    "fcn-929": ((256, 32, 128, 256, 512), (32, 64, 64, 64, 64), 2),
+}
+INPUT_SIZES = {"fcn-993": 993, "fcn-929": 929}
 
-def oracle(weights, inputs, output, precision="float32"):
+
+def upstream_preprocess(audio, input_size):
+    """prediction.py get_audio (after reading) + sliding_norm, 16 kHz input."""
+    import resampy
+
+    audio = resampy.resample(np.asarray(audio, np.float32), 16000, 8000.0)
+    audio = np.pad(audio, int(input_size // 2), mode="constant", constant_values=0)
+    frame_sizes = input_size + (input_size % 2)
+    n_frames = len(audio)
+    audio = np.pad(audio, frame_sizes // 2, mode="wrap")
+    frames = np.lib.stride_tricks.as_strided(
+        audio, shape=(frame_sizes, n_frames), strides=(audio.itemsize, audio.itemsize)
+    ).T
+    mean = np.mean(frames, axis=1)
+    std = np.std(frames, axis=1)
+    audio = audio[frame_sizes // 2 : -frame_sizes // 2]
+    std[np.where(std == 0.0)[0]] = np.finfo(np.float32).eps
+    audio -= mean
+    audio /= std
+    return np.array(audio)
+
+
+def oracle(weights, inputs, output, precision="float32", architecture="fcn-993"):
     os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
     import h5py
     import tensorflow as tf
@@ -24,14 +59,15 @@ def oracle(weights, inputs, output, precision="float32"):
     x = tf.keras.Input(shape=(None, 1, 1), dtype=precision)
     y = x
     layers, outputs = [], {}
-    for i, channels in enumerate((256, 32, 32, 128, 256, 512), 1):
+    filters, widths, pooled = ORACLE_LAYERS[architecture]
+    for i, (channels, width) in enumerate(zip(filters, widths), 1):
         conv = tf.keras.layers.Conv2D(
-            channels, (32, 1), activation="relu", name=f"conv{i}", dtype=precision
+            channels, (width, 1), activation="relu", name=f"conv{i}", dtype=precision
         )
         y = conv(y)
         layers.append(conv)
         outputs[f"conv{i}"] = y
-        if i < 4:
+        if i <= pooled:
             y = tf.keras.layers.MaxPool2D((2, 1), dtype=precision)(y)
             outputs[f"pool{i}"] = y
         bn = tf.keras.layers.BatchNormalization(
@@ -72,6 +108,7 @@ def compare(
     report=None,
     precision="float32",
     output_gate=False,
+    architecture="fcn-993",
 ):
     import torch
 
@@ -83,7 +120,7 @@ def compare(
     torch.backends.cudnn.allow_tf32 = False
     torch.set_num_threads(4)
     dtype = torch.float64 if precision == "float64" else torch.float32
-    model = FCNModel().to(device=device, dtype=dtype)
+    model = FCNModel(architecture).to(device=device, dtype=dtype)
     model.load_state_dict(
         torch.load(weights, map_location=device, weights_only=True)["state_dict"],
         strict=True,
@@ -92,10 +129,10 @@ def compare(
     x = torch.from_numpy(np.load(inputs)).to(device=device, dtype=dtype)[:, None, :]
     values = {}
     with torch.inference_mode():
-        for i in range(1, 7):
+        for i in range(1, model.depth + 1):
             x = torch.relu(getattr(model, f"conv{i}")(x))
             values[f"conv{i}"] = x
-            if i < 4:
+            if i <= model.pooled:
                 x = torch.nn.functional.max_pool1d(x, 2, 2)
                 values[f"pool{i}"] = x
             x = getattr(model, f"bn{i}")(x)
@@ -104,6 +141,7 @@ def compare(
         values["sigmoid"] = torch.sigmoid(values["classifier"])
     failures = []
     metrics = {
+        "architecture": architecture,
         "device": device,
         "torch": torch.__version__,
         "precision": precision,
@@ -149,14 +187,14 @@ def compare(
         raise AssertionError(f"Parity failed: {failures}; cents={difference}")
 
 
-def compare_waveforms(weights, inputs, reference, report=None):
+def compare_waveforms(weights, inputs, reference, report=None, architecture="fcn-993"):
     """Compare the entire CUDA preprocessing/blocking/decoder path to the oracle."""
     import torch
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from rvc.lib.predictors.fcn import FCNPredictor
 
-    predictor = FCNPredictor("cuda", weight_path=weights)
+    predictor = FCNPredictor("cuda", architecture, weight_path=weights)
     ref = np.load(reference)["sigmoid"]
     mapping = np.linspace(1200 * np.log2(3), 1200 * np.log2(100), 486)
     results = []
@@ -188,6 +226,7 @@ def compare_waveforms(weights, inputs, reference, report=None):
             }
         )
     result = {
+        "architecture": architecture,
         "torch": torch.__version__,
         "device": torch.cuda.get_device_name(),
         "waveforms": results,
@@ -208,6 +247,13 @@ if __name__ == "__main__":
     )
     generate.add_argument("output")
     generate.add_argument("--samples", type=int, default=1001)
+    generate.add_argument("--architecture", choices=tuple(INPUT_SIZES), default="fcn-993")
+    prepare = subparsers.add_parser(
+        "preprocess", help="Upstream get_audio + sliding_norm of 16 kHz waveforms"
+    )
+    prepare.add_argument("inputs")
+    prepare.add_argument("output")
+    prepare.add_argument("--architecture", choices=tuple(INPUT_SIZES), default="fcn-993")
     for mode in ("oracle", "compare", "waveform"):
         command = subparsers.add_parser(mode)
         command.add_argument("weights")
@@ -223,10 +269,21 @@ if __name__ == "__main__":
             action="store_true",
             help="Keep hidden-layer discrepancies as diagnostics; require original output tolerances. Use only after float64 layer audit.",
         )
+        command.add_argument(
+            "--architecture", choices=tuple(INPUT_SIZES), default="fcn-993"
+        )
     args = parser.parse_args()
-    if args.mode == "fixtures":
-        if args.samples < 993:
-            parser.error("Network inputs require at least 993 samples")
+    if args.mode == "preprocess":
+        size = INPUT_SIZES[args.architecture]
+        np.save(
+            args.output,
+            np.stack([upstream_preprocess(x, size) for x in np.load(args.inputs)]),
+        )
+    elif args.mode == "fixtures":
+        if args.samples < INPUT_SIZES[args.architecture]:
+            parser.error(
+                f"Network inputs require at least {INPUT_SIZES[args.architecture]} samples"
+            )
         t = np.arange(args.samples) / 8000
         rng = np.random.default_rng(993)
         sine = np.sin(2 * np.pi * 220 * t)
@@ -243,9 +300,11 @@ if __name__ == "__main__":
         ).astype(np.float32)
         np.save(args.output, inputs)
     elif args.mode == "oracle":
-        oracle(args.weights, args.inputs, args.output, args.precision)
+        oracle(args.weights, args.inputs, args.output, args.precision, args.architecture)
     elif args.mode == "waveform":
-        compare_waveforms(args.weights, args.inputs, args.output, args.report)
+        compare_waveforms(
+            args.weights, args.inputs, args.output, args.report, args.architecture
+        )
     else:
         compare(
             args.weights,
@@ -255,4 +314,5 @@ if __name__ == "__main__":
             args.report,
             args.precision,
             args.output_gate,
+            args.architecture,
         )

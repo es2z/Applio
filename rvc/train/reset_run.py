@@ -94,6 +94,47 @@ def _retarget_embedder(checkpoint, target_embedder, text_enc_hidden_dim):
     return message
 
 
+def _target_coarse_max(root):
+    """The coarse F0 range the pitch in this folder was extracted with."""
+    from rvc.lib.predictors.f0_quantization import recorded_coarse_max
+
+    path = root / "model_info.json"
+    return recorded_coarse_max(
+        json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    )
+
+
+def _retarget_coarse(checkpoint, target_coarse_max):
+    """Re-index enc_p.emb_pitch.weight when the folder was re-extracted at another range.
+
+    Row b of the pitch embedding stands for a different pitch under another coarse
+    range, but the mapping is exact arithmetic, so each row is moved to the bin that now
+    stands for the same pitch rather than thrown away. A checkpoint that predates the
+    stamp was trained at 1680 Hz. Returns what it did, or None when nothing moved.
+    """
+    from rvc.lib.predictors.f0_quantization import (
+        DEFAULT_COARSE_MAX,
+        remap_pitch_embedding,
+    )
+    from rvc.train.warm_start import PITCH_EMBEDDING_KEY
+
+    source = float(checkpoint.get("f0_coarse_max", DEFAULT_COARSE_MAX))
+    checkpoint["f0_coarse_max"] = target_coarse_max
+    weight = checkpoint["model"].get(PITCH_EMBEDDING_KEY)
+    if source == target_coarse_max or weight is None:
+        return None
+    checkpoint["model"][PITCH_EMBEDDING_KEY] = remap_pitch_embedding(
+        weight, source, target_coarse_max
+    )
+    message = (
+        f"Reset (G): the F0 was re-extracted at a {target_coarse_max:g} Hz coarse range "
+        f"and this checkpoint was trained at {source:g} Hz; {PITCH_EMBEDDING_KEY} is "
+        "re-indexed so every pitch keeps its embedding. The rest of the generator is kept."
+    )
+    print(message)
+    return message
+
+
 def _retarget_vocoder(
     source, checkpoint, config, target_vocoder, target_embedder, synthesizer_kwargs
 ):
@@ -223,6 +264,8 @@ def reset_training_run(
     target_disc_version = None
     discriminator_transfer = None
     target_embedder = _target_embedder(root)
+    target_coarse_max = _target_coarse_max(root)
+    coarse_transfer = None
     embedder_transfer = None
     generator_transfer = None
     # Only SiFi-GAN reads these, and they are only consulted when the vocoder changes.
@@ -261,6 +304,9 @@ def reset_training_run(
                     # moved too, so only the discriminator is left to follow.
                     target_disc_version = discriminator_version(vocoder)
                     checkpoint["disc_version"] = target_disc_version
+                # After any vocoder rebuild, which carries emb_pitch across unchanged
+                # and leaves the source's stamp on the checkpoint.
+                coarse_transfer = _retarget_coarse(checkpoint, target_coarse_max)
             elif target_disc_version is not None:
                 # A new run may combine a G and D from different architectures.
                 # Match D components by meaning, and create optimizer groups for
@@ -285,6 +331,9 @@ def reset_training_run(
                 # metadata only - but leaving the previous embedder's name on it would
                 # misdescribe what the next run trains it on.
                 checkpoint.update(target_embedder)
+            if tag == "D":
+                # Likewise metadata only for D.
+                checkpoint["f0_coarse_max"] = target_coarse_max
             checkpoint["iteration"] = 0
             checkpoint["scaler"] = {}
             checkpoint["learning_rate"] = config["train"]["learning_rate"]
@@ -312,6 +361,7 @@ def reset_training_run(
             "source_epochs": dict(zip(("G", "D"), epochs)),
             "discriminator_transfer": discriminator_transfer,
             "embedder_transfer": embedder_transfer,
+            "coarse_transfer": coarse_transfer,
             "generator_transfer": generator_transfer,
             "new_epoch": 1,
             "new_global_step": 0,

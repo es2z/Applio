@@ -10,6 +10,8 @@ import torch
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 
+from rvc.lib.predictors.f0_quantization import recorded_coarse_max
+
 
 def replace_keys_in_dict(d, old_key_part, new_key_part):
     if isinstance(d, OrderedDict):
@@ -45,9 +47,11 @@ def extract_model(
         embedder_output_layer = None
         embedder_input_std_floor = None
         f0_extraction = None
+        model_info = {}
         if os.path.exists(os.path.join(model_dir, "model_info.json")):
             with open(os.path.join(model_dir, "model_info.json"), "r") as f:
                 data = json.load(f)
+                model_info = data
                 if data.get("pitch_extraction_run", {}).get("complete") is False:
                     raise ValueError("Cannot export a checkpoint from an incomplete F0 extraction run")
                 f0_extraction = data.get("f0_extraction")
@@ -112,6 +116,9 @@ def extract_model(
         opt["embedder_input_std_floor"] = embedder_input_std_floor
         if f0_extraction is not None:
             opt["f0_extraction"] = f0_extraction
+        # Conversion and realtime quantize coarse F0 with this, so a pitch lands on the
+        # enc_p.emb_pitch row it was trained on. A folder that recorded none is 1680 Hz.
+        opt["f0_coarse_max"] = recorded_coarse_max(model_info)
         # opt["config"] is a positional argument list for Synthesizer, so the feature
         # width goes in as its own key. Inference reads it off enc_p.emb_phone anyway;
         # this is for anything that wants the number without loading the weights.

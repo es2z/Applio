@@ -28,7 +28,8 @@ sys.path.insert(0, str(ROOT))
 
 DEFAULT_METHODS = (
     "fcnf0++", "fcnf0++-rvc", "fcnf0++-aligned", "fcnf0++-rvc-aligned",
-    "fcn-993", "fcn-993-rvc", "hpa-rmvpe-76000", "hpa-rmvpe-76000-aligned",
+    "fcn-993", "fcn-993-rvc", "fcn-929", "fcn-929-rvc",
+    "hpa-rmvpe-76000", "hpa-rmvpe-76000-aligned",
     "hpa-rmvpe-112000", "hpa-rmvpe-112000-aligned", "mangio-crepe-full-speech", "rmvpe",
 )
 

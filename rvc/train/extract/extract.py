@@ -42,6 +42,15 @@ from rvc.lib.predictors.f0_methods import (
 )
 
 TRAINING_MANGIO_CREPE_DECODER = DEFAULT_DECODER  # viterbi
+from rvc.lib.predictors.f0_quantization import (
+    COARSE_MIN,
+    DEFAULT_COARSE_MAX,
+    align_profile_coarse,
+    default_coarse_max,
+    quantize_f0,
+    validate_coarse_max,
+    validate_extraction_coarse_max,
+)
 from rvc.configs.config import Config
 
 # Load config
@@ -50,36 +59,43 @@ mp.set_start_method("spawn", force=True)
 
 
 class FeatureInput:
-    def __init__(self, f0_method="rmvpe", device="cpu", fcn_profile=None, overwrite=False, expected_weight=None):
+    def __init__(
+        self,
+        f0_method="rmvpe",
+        device="cpu",
+        fcn_profile=None,
+        overwrite=False,
+        expected_weight=None,
+        coarse_max=DEFAULT_COARSE_MAX,
+    ):
         self.hop_size = 160  # default
         self.sample_rate = 16000  # default
-        self.f0_bin = 256
-        self.f0_max = 1680.0
-        self.f0_min = 50.0
-        self.f0_mel_min = 1127 * np.log(1 + self.f0_min / 700)
-        self.f0_mel_max = 1127 * np.log(1 + self.f0_max / 700)
+        # The coarse range is both what the pitch embedding spans and the F0 search
+        # range of the predictors that take one; inference reads it back from the model.
+        self.f0_min = COARSE_MIN
+        self.f0_max = validate_coarse_max(coarse_max)
         self.device = device
         self.overwrite = overwrite
         if f0_method in FCN_METHODS:
             from rvc.lib.predictors.fcn import FCNPredictor
+            from rvc.lib.predictors.fcn.profiles import resolve_profile
 
             if torch.device(device).type != "cuda":
                 raise ValueError("FCN extraction requires CUDA; select a GPU (CLI: --gpu 0)")
-            self.model = FCNPredictor(device=device, method=f0_method, profile=fcn_profile)
+            profile = align_profile_coarse(resolve_profile(f0_method, fcn_profile), self.f0_max)
+            self.model = FCNPredictor(device=device, method=f0_method, profile=profile)
             if expected_weight and self.model.weight_sha256 != expected_weight:
                 raise ValueError("FCN weights changed after extraction settings were frozen")
-            self.f0_min = self.model.profile.coarse_min
-            self.f0_max = self.model.profile.coarse_max
         elif f0_method in FCNF0PP_METHODS:
             from rvc.lib.predictors.fcnf0pp import FCNF0PPPredictor
+            from rvc.lib.predictors.fcnf0pp.profiles import resolve_profile
 
-            # One network per worker process, reused for every file it extracts.
-            self.model = FCNF0PPPredictor(device=device, method=f0_method, profile=fcn_profile)
+            # One network per worker process, reused for every file it extracts. The
+            # profile's range is both what PENN may decode and what coarse F0 spans.
+            profile = align_profile_coarse(resolve_profile(f0_method, fcn_profile), self.f0_max)
+            self.model = FCNF0PPPredictor(device=device, method=f0_method, profile=profile)
             if expected_weight and self.model.weight_sha256 != expected_weight:
                 raise ValueError("FCNF0++ weights changed after extraction settings were frozen")
-            # The profile's range is both what PENN may decode and what coarse F0 spans.
-            self.f0_min = self.model.profile.coarse_min
-            self.f0_max = self.model.profile.coarse_max
         elif f0_method in CREPE_METHOD_TO_MODEL:
             self.model = CREPE(
                 device=self.device, sample_rate=self.sample_rate, hop_size=self.hop_size
@@ -144,20 +160,7 @@ class FeatureInput:
         return f0
 
     def coarse_f0(self, f0):
-        if self.f0_method in PROFILE_METHODS:
-            from rvc.lib.predictors.f0_quantization import quantize_f0
-
-            return quantize_f0(f0, self.f0_min, self.f0_max)
-        f0_mel = 1127.0 * np.log(1.0 + f0 / 700.0)
-        f0_mel = np.clip(
-            (f0_mel - self.f0_mel_min)
-            * (self.f0_bin - 2)
-            / (self.f0_mel_max - self.f0_mel_min)
-            + 1,
-            1,
-            self.f0_bin - 1,
-        )
-        return np.rint(f0_mel).astype(int)
+        return quantize_f0(f0, self.f0_min, self.f0_max)
 
     def process_file(self, file_info):
         inp_path, opt_path_coarse, opt_path_full, _ = file_info
@@ -177,15 +180,15 @@ class FeatureInput:
             raise
 
 
-def process_files(files, f0_method, device, threads, fcn_profile=None, overwrite=False, expected_weight=None):
-    fe = FeatureInput(f0_method=f0_method, device=device, fcn_profile=fcn_profile, overwrite=overwrite, expected_weight=expected_weight)
+def process_files(files, f0_method, device, threads, fcn_profile=None, overwrite=False, expected_weight=None, coarse_max=DEFAULT_COARSE_MAX):
+    fe = FeatureInput(f0_method=f0_method, device=device, fcn_profile=fcn_profile, overwrite=overwrite, expected_weight=expected_weight, coarse_max=coarse_max)
     with tqdm.tqdm(total=len(files), leave=True) as pbar:
         for file_info in files:
             fe.process_file(file_info)
             pbar.update(1)
 
 
-def run_pitch_extraction(files, devices, f0_method, threads, fcn_profile=None, overwrite=False, expected_weight=None):
+def run_pitch_extraction(files, devices, f0_method, threads, fcn_profile=None, overwrite=False, expected_weight=None, coarse_max=DEFAULT_COARSE_MAX):
     devices_str = ", ".join(devices)
     print(f"Starting pitch extraction on {devices_str} using {f0_method}...")
     start_time = time.time()
@@ -201,6 +204,7 @@ def run_pitch_extraction(files, devices, f0_method, threads, fcn_profile=None, o
                 fcn_profile,
                 overwrite,
                 expected_weight,
+                coarse_max,
             )
             for i in range(len(devices))
         ]
@@ -380,7 +384,15 @@ if __name__ == "__main__":
     # 0 means the last layer, which is what every embedder used before this was settable.
     embedder_output_layer = int(sys.argv[9]) if len(sys.argv) > 9 else 0
     output_layer = embedder_output_layer or None
-    fcn_profile = sys.argv[10] if len(sys.argv) > 10 else None
+    fcn_profile = (sys.argv[10] or None) if len(sys.argv) > 10 else None
+    # The coarse F0 range this model is trained on; an empty argument means the method's
+    # default (FCN: 1000 Hz, everything else: 1680 Hz).
+    f0_coarse_max = validate_extraction_coarse_max(
+        sys.argv[11]
+        if len(sys.argv) > 11 and sys.argv[11]
+        else default_coarse_max(f0_method),
+        f0_method,
+    )
 
     wav_path = os.path.join(exp_dir, "sliced_audios_16k")
     os.makedirs(os.path.join(exp_dir, "f0"), exist_ok=True)
@@ -431,7 +443,8 @@ if __name__ == "__main__":
         extraction_spec, input_signature, can_reuse, validate_pitch_files, write_metadata,
     )
 
-    specification = extraction_spec(f0_method, fcn_profile)
+    specification = extraction_spec(f0_method, fcn_profile, f0_coarse_max)
+    print(f"F0 coarse range: {COARSE_MIN:g}-{f0_coarse_max:g} Hz")
     signature = input_signature(files)
     reuse_pitch = can_reuse(data.get("pitch_extraction_run"), specification, signature)
     if f0_method in FCN_METHODS and any(
@@ -446,14 +459,18 @@ if __name__ == "__main__":
                 reuse_pitch = False
     data["pitch_extraction_run"] = {"complete": False, "specification": specification, "input_signature": signature}
     data.pop("f0_extraction", None)
+    data.pop("f0_coarse_max", None)
     write_metadata(file_path, data)
     run_pitch_extraction(
         files, devices, f0_method, num_processes,
         specification.get("profile"), not reuse_pitch, specification.get("weight_sha256"),
+        f0_coarse_max,
     )
     if f0_method in PROFILE_METHODS:
         validate_pitch_files(files)
         data["f0_extraction"] = specification
+    # Read back by training (stamped onto G/D), export and every conversion path.
+    data["f0_coarse_max"] = f0_coarse_max
     data["pitch_extraction_run"]["complete"] = True
     write_metadata(file_path, data)
 

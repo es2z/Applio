@@ -10,17 +10,19 @@ from rvc.lib.predictors.fcn.model import FCNModel
 from tools.convert_fcn993 import convert, sha256
 
 
-def write_hdf5(path):
-    state = FCNModel().state_dict()
+def write_hdf5(path, architecture="fcn-993"):
+    model = FCNModel(architecture)
+    state = model.state_dict()
+    depth = model.depth
     with h5py.File(path, "w") as handle:
-        for i in range(1, 8):
-            layer = f"conv{i}" if i < 7 else "classifier"
+        for i in range(1, depth + 2):
+            layer = f"conv{i}" if i <= depth else "classifier"
             kernel = state[f"{layer}.weight"].numpy().transpose(2, 1, 0)[:, None]
             handle.create_dataset(f"{layer}/{layer}/kernel:0", data=kernel)
             handle.create_dataset(
                 f"{layer}/{layer}/bias:0", data=state[f"{layer}.bias"].numpy()
             )
-            if i < 7:
+            if i <= depth:
                 for name, key in (
                     ("gamma", "weight"),
                     ("beta", "bias"),
@@ -34,13 +36,15 @@ def write_hdf5(path):
     return state
 
 
-def test_roundtrip_parameters_and_manifest(tmp_path):
+@pytest.mark.parametrize("architecture", ["fcn-993", "fcn-929"])
+def test_roundtrip_parameters_and_manifest(tmp_path, architecture):
     source, output = tmp_path / "weights.h5", tmp_path / "converted.pt"
-    expected = write_hdf5(source)
-    manifest = convert(source, output)
+    expected = write_hdf5(source, architecture)
+    manifest = convert(source, output, architecture=architecture)
     checkpoint = torch.load(output, weights_only=True)
     for key, value in expected.items():
         torch.testing.assert_close(checkpoint["state_dict"][key], value, rtol=0, atol=0)
+    assert manifest["architecture"]["id"] == architecture
     assert manifest["source_sha256"] == sha256(source)
     assert manifest["weight_sha256"] == sha256(output)
     assert json.loads(output.with_suffix(".manifest.json").read_text()) == manifest
@@ -73,4 +77,12 @@ def test_reject_corrupt_hdf5(tmp_path, corruption):
             handle["conv1-BN/conv1-BN/moving_variance:0"][0] = -1
     with pytest.raises(ValueError):
         convert(source, output)
+    assert not output.exists()
+
+
+def test_reject_hdf5_of_the_other_architecture(tmp_path):
+    source, output = tmp_path / "weights.h5", tmp_path / "converted.pt"
+    write_hdf5(source, "fcn-993")
+    with pytest.raises(ValueError, match="mismatch"):
+        convert(source, output, architecture="fcn-929")
     assert not output.exists()

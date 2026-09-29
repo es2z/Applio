@@ -1,0 +1,394 @@
+{
+  "method": "fcn-929-rvc",
+  "bundled_default": {
+    "method": "fcn-929-rvc",
+    "version": 1,
+    "enter_threshold": 0.6,
+    "exit_threshold": 0.35,
+    "median_frames": 9,
+    "coarse_min": 50.0,
+    "coarse_max": 1680.0,
+    "calibrated": false,
+    "compile_model": false,
+    "compile_mode": "default"
+  },
+  "source_commit": "8a2b530af821319b6badca93c8a0ed1f14bfee3c",
+  "weight_sha256": "e05f2cdc22762decaf50e3024beb6e0e785c67037c0cfd6219080bb7e23185cd",
+  "scope": "four upstream manually corrected development examples; exploratory search on 4/5; all four inform preset review; not a speaker-disjoint or independent held-out evaluation",
+  "files": [
+    {
+      "name": "4",
+      "audio_sha256": "24e4abbbf423cb355da4ad99e011918f36a9277965d02b416ba77b50ab070297",
+      "reference_sha256": "9da76307a99fd9945ad70b1959ea9ebed480dc20b0101c9f5355dcfd86137af7"
+    },
+    {
+      "name": "5",
+      "audio_sha256": "a22139d38e7037ab2795f07e136e413a50b0499fe060c2e2e31425e0cd758099",
+      "reference_sha256": "4b50707e478d1c577fa7bd375844e0af795177b2f7452a8349a31560a03956f8"
+    },
+    {
+      "name": "11",
+      "audio_sha256": "9d5c603338307929ca19a005c7c5742d2eb49ff816666f384569c08bfad51866",
+      "reference_sha256": "d63d030f14e908c8caec2f56db5e8096244b18cf87fa0ce774b0859b0431f3fe"
+    },
+    {
+      "name": "28",
+      "audio_sha256": "e505ae48cc1a849c71bc903449fac280078111da3777711a88523c9148300d7c",
+      "reference_sha256": "d6470b9ab8b81a622dd47a4531737f8a419af7cb57f7ff55b3f3ee8b8e09a5ef"
+    }
+  ],
+  "selection_top5": [
+    [
+      0.045916938053717125,
+      11,
+      0.67,
+      0.56
+    ],
+    [
+      0.045916938053717125,
+      12,
+      0.68,
+      0.56
+    ],
+    [
+      0.045916938053717125,
+      23,
+      0.73,
+      0.5
+    ],
+    [
+      0.045916938053717125,
+      24,
+      0.73,
+      0.49
+    ],
+    [
+      0.045916938053717125,
+      24,
+      0.74,
+      0.5
+    ]
+  ],
+  "candidates": {
+    "candidate": {
+      "profile": {
+        "method": "fcn-929-rvc",
+        "version": 1,
+        "enter_threshold": 0.67,
+        "exit_threshold": 0.56,
+        "median_frames": 9,
+        "coarse_min": 50.0,
+        "coarse_max": 1680.0,
+        "calibrated": false,
+        "compile_model": false,
+        "compile_mode": "default"
+      },
+      "examples": [
+        {
+          "example": "4",
+          "frames": 248,
+          "voiced_frames": 163,
+          "unvoiced_frames": 85,
+          "false_voiced": 4,
+          "false_unvoiced": 7,
+          "mangio_false_voiced": 17,
+          "mangio_false_unvoiced": 3,
+          "median_cents_on_joint_voiced": 6.180799827162318,
+          "p90_cents_on_joint_voiced": 32.113699549551825
+        },
+        {
+          "example": "5",
+          "frames": 253,
+          "voiced_frames": 169,
+          "unvoiced_frames": 84,
+          "false_voiced": 3,
+          "false_unvoiced": 8,
+          "mangio_false_voiced": 20,
+          "mangio_false_unvoiced": 5,
+          "median_cents_on_joint_voiced": 10.157896993815406,
+          "p90_cents_on_joint_voiced": 24.915520886961218
+        },
+        {
+          "example": "11",
+          "frames": 462,
+          "voiced_frames": 277,
+          "unvoiced_frames": 185,
+          "false_voiced": 6,
+          "false_unvoiced": 24,
+          "mangio_false_voiced": 26,
+          "mangio_false_unvoiced": 6,
+          "median_cents_on_joint_voiced": 10.24450776099726,
+          "p90_cents_on_joint_voiced": 39.27211714234378
+        },
+        {
+          "example": "28",
+          "frames": 320,
+          "voiced_frames": 195,
+          "unvoiced_frames": 125,
+          "false_voiced": 3,
+          "false_unvoiced": 20,
+          "mangio_false_voiced": 20,
+          "mangio_false_unvoiced": 4,
+          "median_cents_on_joint_voiced": 10.822958010423848,
+          "p90_cents_on_joint_voiced": 35.07110556072243
+        }
+      ]
+    },
+    "previous-smoke": {
+      "profile": {
+        "method": "fcn-929-rvc",
+        "version": 1,
+        "enter_threshold": 0.6,
+        "exit_threshold": 0.4,
+        "median_frames": 9,
+        "coarse_min": 50.0,
+        "coarse_max": 1680.0,
+        "calibrated": false,
+        "compile_model": false,
+        "compile_mode": "default"
+      },
+      "examples": [
+        {
+          "example": "4",
+          "frames": 248,
+          "voiced_frames": 163,
+          "unvoiced_frames": 85,
+          "false_voiced": 11,
+          "false_unvoiced": 5,
+          "mangio_false_voiced": 17,
+          "mangio_false_unvoiced": 3,
+          "median_cents_on_joint_voiced": 6.269835651583517,
+          "p90_cents_on_joint_voiced": 32.87591476002011
+        },
+        {
+          "example": "5",
+          "frames": 253,
+          "voiced_frames": 169,
+          "unvoiced_frames": 84,
+          "false_voiced": 11,
+          "false_unvoiced": 5,
+          "mangio_false_voiced": 20,
+          "mangio_false_unvoiced": 5,
+          "median_cents_on_joint_voiced": 10.115093126675724,
+          "p90_cents_on_joint_voiced": 24.66255534825593
+        },
+        {
+          "example": "11",
+          "frames": 462,
+          "voiced_frames": 277,
+          "unvoiced_frames": 185,
+          "false_voiced": 17,
+          "false_unvoiced": 10,
+          "mangio_false_voiced": 26,
+          "mangio_false_unvoiced": 6,
+          "median_cents_on_joint_voiced": 11.037234637716528,
+          "p90_cents_on_joint_voiced": 42.810448181776806
+        },
+        {
+          "example": "28",
+          "frames": 320,
+          "voiced_frames": 195,
+          "unvoiced_frames": 125,
+          "false_voiced": 11,
+          "false_unvoiced": 9,
+          "mangio_false_voiced": 20,
+          "mangio_false_unvoiced": 4,
+          "median_cents_on_joint_voiced": 11.947257956238337,
+          "p90_cents_on_joint_voiced": 39.78498398706772
+        }
+      ]
+    },
+    "balanced-050-040": {
+      "profile": {
+        "method": "fcn-929-rvc",
+        "version": 1,
+        "enter_threshold": 0.5,
+        "exit_threshold": 0.4,
+        "median_frames": 9,
+        "coarse_min": 50.0,
+        "coarse_max": 1680.0,
+        "calibrated": false,
+        "compile_model": false,
+        "compile_mode": "default"
+      },
+      "examples": [
+        {
+          "example": "4",
+          "frames": 248,
+          "voiced_frames": 163,
+          "unvoiced_frames": 85,
+          "false_voiced": 17,
+          "false_unvoiced": 4,
+          "mangio_false_voiced": 17,
+          "mangio_false_unvoiced": 3,
+          "median_cents_on_joint_voiced": 6.260945815947677,
+          "p90_cents_on_joint_voiced": 32.70973046923628
+        },
+        {
+          "example": "5",
+          "frames": 253,
+          "voiced_frames": 169,
+          "unvoiced_frames": 84,
+          "false_voiced": 12,
+          "false_unvoiced": 4,
+          "mangio_false_voiced": 20,
+          "mangio_false_unvoiced": 5,
+          "median_cents_on_joint_voiced": 10.157896993815406,
+          "p90_cents_on_joint_voiced": 25.141822469249128
+        },
+        {
+          "example": "11",
+          "frames": 462,
+          "voiced_frames": 277,
+          "unvoiced_frames": 185,
+          "false_voiced": 28,
+          "false_unvoiced": 10,
+          "mangio_false_voiced": 26,
+          "mangio_false_unvoiced": 6,
+          "median_cents_on_joint_voiced": 11.037234637716528,
+          "p90_cents_on_joint_voiced": 42.810448181776806
+        },
+        {
+          "example": "28",
+          "frames": 320,
+          "voiced_frames": 195,
+          "unvoiced_frames": 125,
+          "false_voiced": 15,
+          "false_unvoiced": 7,
+          "mangio_false_voiced": 20,
+          "mangio_false_unvoiced": 4,
+          "median_cents_on_joint_voiced": 11.996048492143608,
+          "p90_cents_on_joint_voiced": 41.079942297830385
+        }
+      ]
+    },
+    "balanced-030-020": {
+      "profile": {
+        "method": "fcn-929-rvc",
+        "version": 1,
+        "enter_threshold": 0.3,
+        "exit_threshold": 0.2,
+        "median_frames": 9,
+        "coarse_min": 50.0,
+        "coarse_max": 1680.0,
+        "calibrated": false,
+        "compile_model": false,
+        "compile_mode": "default"
+      },
+      "examples": [
+        {
+          "example": "4",
+          "frames": 248,
+          "voiced_frames": 163,
+          "unvoiced_frames": 85,
+          "false_voiced": 39,
+          "false_unvoiced": 2,
+          "mangio_false_voiced": 17,
+          "mangio_false_unvoiced": 3,
+          "median_cents_on_joint_voiced": 6.278725487219358,
+          "p90_cents_on_joint_voiced": 34.03920479550695
+        },
+        {
+          "example": "5",
+          "frames": 253,
+          "voiced_frames": 169,
+          "unvoiced_frames": 84,
+          "false_voiced": 25,
+          "false_unvoiced": 2,
+          "mangio_false_voiced": 20,
+          "mangio_false_unvoiced": 5,
+          "median_cents_on_joint_voiced": 10.168302267805775,
+          "p90_cents_on_joint_voiced": 26.16798296629742
+        },
+        {
+          "example": "11",
+          "frames": 462,
+          "voiced_frames": 277,
+          "unvoiced_frames": 185,
+          "false_voiced": 51,
+          "false_unvoiced": 3,
+          "mangio_false_voiced": 26,
+          "mangio_false_unvoiced": 6,
+          "median_cents_on_joint_voiced": 11.447516721078266,
+          "p90_cents_on_joint_voiced": 47.86404172899685
+        },
+        {
+          "example": "28",
+          "frames": 320,
+          "voiced_frames": 195,
+          "unvoiced_frames": 125,
+          "false_voiced": 31,
+          "false_unvoiced": 2,
+          "mangio_false_voiced": 20,
+          "mangio_false_unvoiced": 4,
+          "median_cents_on_joint_voiced": 12.22924638245148,
+          "p90_cents_on_joint_voiced": 42.13839020177018
+        }
+      ]
+    },
+    "bundled-default": {
+      "profile": {
+        "method": "fcn-929-rvc",
+        "version": 1,
+        "enter_threshold": 0.6,
+        "exit_threshold": 0.35,
+        "median_frames": 9,
+        "coarse_min": 50.0,
+        "coarse_max": 1680.0,
+        "calibrated": false,
+        "compile_model": false,
+        "compile_mode": "default"
+      },
+      "examples": [
+        {
+          "example": "4",
+          "frames": 248,
+          "voiced_frames": 163,
+          "unvoiced_frames": 85,
+          "false_voiced": 14,
+          "false_unvoiced": 4,
+          "mangio_false_voiced": 17,
+          "mangio_false_unvoiced": 3,
+          "median_cents_on_joint_voiced": 6.278725487219358,
+          "p90_cents_on_joint_voiced": 34.30334852733234
+        },
+        {
+          "example": "5",
+          "frames": 253,
+          "voiced_frames": 169,
+          "unvoiced_frames": 84,
+          "false_voiced": 11,
+          "false_unvoiced": 5,
+          "mangio_false_voiced": 20,
+          "mangio_false_unvoiced": 5,
+          "median_cents_on_joint_voiced": 10.115093126675724,
+          "p90_cents_on_joint_voiced": 24.66255534825593
+        },
+        {
+          "example": "11",
+          "frames": 462,
+          "voiced_frames": 277,
+          "unvoiced_frames": 185,
+          "false_voiced": 21,
+          "false_unvoiced": 10,
+          "mangio_false_voiced": 26,
+          "mangio_false_unvoiced": 6,
+          "median_cents_on_joint_voiced": 11.037234637716528,
+          "p90_cents_on_joint_voiced": 42.810448181776806
+        },
+        {
+          "example": "28",
+          "frames": 320,
+          "voiced_frames": 195,
+          "unvoiced_frames": 125,
+          "false_voiced": 12,
+          "false_unvoiced": 9,
+          "mangio_false_voiced": 20,
+          "mangio_false_unvoiced": 4,
+          "median_cents_on_joint_voiced": 11.947257956238337,
+          "p90_cents_on_joint_voiced": 39.78498398706772
+        }
+      ]
+    }
+  }
+}

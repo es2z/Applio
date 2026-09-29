@@ -27,6 +27,7 @@ from rvc.lib.predictors.f0_methods import (
     FCNF0PP_UI_METHODS,
     HPA_RMVPE_UI_METHODS,
 )
+from rvc.lib.predictors.f0_quantization import default_coarse_max, extraction_coarse_maxima
 from rvc.lib.utils import format_title
 from tabs.settings.sections.restart import stop_train
 
@@ -642,6 +643,23 @@ def train_tab():
             value=True,
             interactive=True,
         )
+        f0_coarse_max = gr.Radio(
+            label=i18n("F0 Coarse Range (Hz)"),
+            info=i18n(
+                "Upper end of the coarse pitch range the model is trained on. FCN only: 1000 (recommended), where FCN's output ends, or 750, where it is still accurate - anything higher, including an upward pitch shift, lands on the top bin. Every other method: 1680 (default) or upstream RVC's 1100. Recorded in the model, and conversion and realtime read it back. Changing it re-extracts the F0."
+            ),
+            choices=[f"{v:g}" for v in extraction_coarse_maxima("rmvpe")],
+            value=f"{default_coarse_max('rmvpe'):g}",
+            interactive=True,
+        )
+        f0_method.change(
+            fn=lambda method: gr.update(
+                choices=[f"{v:g}" for v in extraction_coarse_maxima(method)],
+                value=f"{default_coarse_max(method):g}",
+            ),
+            inputs=[f0_method],
+            outputs=[f0_coarse_max],
+        )
         with gr.Row(visible=False) as embedder_custom:
             with gr.Accordion(i18n("Custom Embedder"), open=True):
                 with gr.Row():
@@ -687,6 +705,7 @@ def train_tab():
                 include_mutes,
                 embedder_output_layer,
                 fcn_profile,
+                f0_coarse_max,
             ],
             outputs=[extract_output_info],
         )

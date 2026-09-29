@@ -1,0 +1,36 @@
+{
+  "fcn-929-rvc": {
+    "blocks": 19,
+    "block_ms": 512.0,
+    "holdback_ms": 140.46,
+    "processing_ms_first": 10379.0,
+    "processing_ms_warm_median": 55.7,
+    "processing_ms_warm_max": 182.7,
+    "output_rms": 0.0129,
+    "finite": true,
+    "window_end": 153280
+  },
+  "fcn-929": {
+    "blocks": 19,
+    "block_ms": 512.0,
+    "holdback_ms": 130.46,
+    "processing_ms_first": 3580.5,
+    "processing_ms_warm_median": 53.4,
+    "processing_ms_warm_max": 72.9,
+    "output_rms": 0.0128,
+    "finite": true,
+    "window_end": 153440
+  },
+  "fcn-993-rvc": {
+    "blocks": 19,
+    "block_ms": 512.0,
+    "holdback_ms": 140.46,
+    "processing_ms_first": 2934.4,
+    "processing_ms_warm_median": 52.6,
+    "processing_ms_warm_max": 67.3,
+    "output_rms": 0.0129,
+    "finite": true,
+    "window_end": 153280
+  },
+  "_note": "VoiceChanger over the first 10 s of logs/reference/reference.wav, 512 ms blocks, bundled profiles (eager FCN), MRF HiFi-GAN / kushinada-hubert-large model trained on fcn-993-rvc. The first method run also paid the session's embedder TorchCompile warm-up."
+}

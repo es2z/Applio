@@ -1118,6 +1118,33 @@ def _plan_generator(
         },
         target_module,
     )
+    _plan_pitch_embedding(transfer, checkpoint, target_identity)
+
+
+PITCH_EMBEDDING_KEY = "enc_p.emb_pitch.weight"
+
+
+def _plan_pitch_embedding(transfer, checkpoint, target_identity):
+    """Re-index enc_p.emb_pitch when the pretrain was trained on another coarse range.
+
+    Only a pretrain that recorded its range is re-indexed. The stock pretrains record
+    nothing (upstream trained them at 1100 Hz) and have always been inherited as they
+    are, which is left unchanged.
+    """
+    from rvc.lib.predictors.f0_quantization import remap_pitch_embedding
+
+    source, target = checkpoint.get("f0_coarse_max"), target_identity.get("f0_coarse_max")
+    if source is None or target is None or float(source) == float(target):
+        return
+    if PITCH_EMBEDDING_KEY not in transfer.loaded:
+        return
+    transfer.loaded[PITCH_EMBEDDING_KEY] = remap_pitch_embedding(
+        transfer.loaded[PITCH_EMBEDDING_KEY], source, target
+    )
+    transfer.notes.append(
+        f"{PITCH_EMBEDDING_KEY} re-indexed from the pretrained model's "
+        f"{float(source):g} Hz coarse F0 range to this run's {float(target):g} Hz"
+    )
 
 
 def _discriminator_kind(weight):

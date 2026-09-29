@@ -1,4 +1,4 @@
-"""Convert the original FCN_993 weights.h5; never downloads model assets."""
+"""Convert an original FCN_993 or FCN_929 weights.h5; never downloads model assets."""
 
 import argparse
 import hashlib
@@ -11,7 +11,7 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from rvc.lib.predictors.fcn.model import ARCHITECTURE, FCNModel
+from rvc.lib.predictors.fcn.model import ARCHITECTURES, FCNModel
 
 SOURCE_COMMIT = "8a2b530af821319b6badca93c8a0ed1f14bfee3c"
 CONVERTER_VERSION = 1
@@ -22,15 +22,16 @@ def sha256(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def convert(source, output, source_commit=SOURCE_COMMIT):
-    model = FCNModel()
+def convert(source, output, source_commit=SOURCE_COMMIT, architecture="fcn-993"):
+    model = FCNModel(architecture)
     state = model.state_dict()
+    depth = model.depth
     expected = {}
-    for i in range(1, 8):
-        layer = f"conv{i}" if i < 7 else "classifier"
+    for i in range(1, depth + 2):
+        layer = f"conv{i}" if i <= depth else "classifier"
         for original, target in (("kernel", "weight"), ("bias", "bias")):
             expected[f"{layer}/{layer}/{original}:0"] = f"{layer}.{target}"
-        if i < 7:
+        if i <= depth:
             for original, target in (
                 ("gamma", "weight"),
                 ("beta", "bias"),
@@ -68,7 +69,7 @@ def convert(source, output, source_commit=SOURCE_COMMIT):
         state[key] = torch.from_numpy(value.copy())
     model.load_state_dict(state, strict=True)
     manifest = {
-        "architecture": ARCHITECTURE,
+        "architecture": ARCHITECTURES[architecture],
         "source_commit": source_commit,
         "source_url": "https://github.com/ardaillon/FCN-f0",
         "source_sha256": sha256(source),
@@ -90,5 +91,13 @@ if __name__ == "__main__":
     parser.add_argument("source", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--source-commit", default=SOURCE_COMMIT)
+    parser.add_argument(
+        "--architecture", choices=tuple(ARCHITECTURES), default="fcn-993"
+    )
     args = parser.parse_args()
-    print(json.dumps(convert(args.source, args.output, args.source_commit), indent=2))
+    print(
+        json.dumps(
+            convert(args.source, args.output, args.source_commit, args.architecture),
+            indent=2,
+        )
+    )

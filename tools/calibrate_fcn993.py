@@ -37,9 +37,11 @@ def counts(confidence, support, reference, weak, resets, enter, exit_threshold):
     return fp, fn, weak_fn
 
 
-def prepare(tracks, window):
+def prepare(tracks, window, frames_per_hop=10):
+    """frames_per_hop: native frames per 10 ms (FCN-993: 10, FCN-929: 20)."""
     confidence, support, reference, weak, resets, comparator = [], [], [], [], [], []
     radius = window // 2
+    half = frames_per_hop // 2
     for track in tracks:
         raw = track["confidence"]
         smooth = raw.copy()
@@ -52,7 +54,8 @@ def prepare(tracks, window):
             )
         n = len(track["voiced"])
         for k in range(n):
-            lo, hi = max(0, 10 * k - 5), min(len(raw), 10 * k + 5)
+            lo = max(0, frames_per_hop * k - half)
+            hi = min(len(raw), frames_per_hop * k + half)
             valid = np.isfinite(track["cents"][lo:hi])
             audible = np.any(track["audio"][max(0, k * 160 - 80) : k * 160 + 80])
             weights = np.minimum(raw[lo:hi], smooth[lo:hi])

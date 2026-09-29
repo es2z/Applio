@@ -13,6 +13,8 @@ def prettify_date(date_str):
 
 
 def model_information(path):
+    from rvc.lib.predictors.f0_quantization import recorded_coarse_max
+
     model_data = torch.load(path, map_location="cpu", weights_only=True)
 
     print(f"Loaded model from {path}")
@@ -30,6 +32,7 @@ def model_information(path):
     model_author = model_data.get("author", "None")
     embedder_model = model_data.get("embedder_model", "None")
     speakers_id = model_data.get("speakers_id", 0)
+    f0_coarse_max = recorded_coarse_max(model_data)
 
     creation_date_str = prettify_date(creation_date) if creation_date else "None"
 
@@ -44,6 +47,7 @@ def model_information(path):
         f"Creation Date: {creation_date_str}\n"
         f"Overtrain Info: {overtrain_info}\n"
         f"Embedder Model: {embedder_model}\n"
-        f"Max Speakers ID: {speakers_id}"
+        f"F0 Coarse Range: 50-{f0_coarse_max:g} Hz\n"
+        f"Max Speakers ID: {speakers_id}\n"
         f"Hash: {model_hash}\n"
     )

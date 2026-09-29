@@ -51,6 +51,7 @@ from lr_boost import (
 import rvc.lib.zluda
 from rvc.lib.algorithm import commons
 from rvc.lib.utils import embedder_identity_from_model_info
+from rvc.lib.predictors.f0_quantization import recorded_coarse_max
 from rvc.train.process.extract_model import extract_model
 
 # Parse command line arguments
@@ -155,6 +156,14 @@ if vocoder == "SiFi-GAN":
     # a resume must not continue into the other one. Only stamped for SiFi-GAN so that
     # the other vocoders' checkpoints are unchanged.
     architecture_identity["sifigan_filter_resblock"] = sifigan_filter_resblock
+# The coarse F0 range the extracted pitch was quantized with. enc_p.emb_pitch's rows
+# mean different pitches under another range, so a resume must not continue across a
+# change, and a warm start from these files re-indexes that one tensor instead.
+try:
+    with open(model_info_path, "r") as f:
+        architecture_identity["f0_coarse_max"] = recorded_coarse_max(json.load(f))
+except (FileNotFoundError, json.JSONDecodeError):
+    architecture_identity["f0_coarse_max"] = recorded_coarse_max({})
 
 try:
     g_lr_boost_multiplier, g_lr_boost_epochs = read_generator_lr_boost(config.train)
@@ -164,6 +173,12 @@ except ValueError as error:
 
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = True
+
+# A worker that finished training - the last epoch, or the overtraining detector - exits
+# with upstream Applio's 2333333, which start() must count as success rather than as the
+# failure any other non-zero status is. POSIX keeps only the low 8 bits of it.
+TRAINING_DONE_EXIT = 2333333
+TRAINING_DONE_EXITCODES = {0, TRAINING_DONE_EXIT, TRAINING_DONE_EXIT & 0xFF}
 
 global_step = 0
 # Which embedder produced the features this run is training on. Stamped onto every
@@ -295,7 +310,7 @@ def main():
 
         for i in range(n_gpus):
             children[i].join()
-        if any(child.exitcode != 0 for child in children):
+        if any(child.exitcode not in TRAINING_DONE_EXITCODES for child in children):
             raise RuntimeError("Training worker failed; see the traceback above.")
 
     def load_from_json(file_path):
@@ -446,7 +461,7 @@ def run(
         print(
             "Not enough data present in the training set. Perhaps you forgot to slice the audio files in preprocess?"
         )
-        os._exit(2333333)
+        os._exit(1)
 
     # defaults
     global embedder_identity
@@ -1258,7 +1273,7 @@ def train_and_evaluate(
             with open(pid_file_path, "w") as pid_file:
                 pid_data.pop("process_pids", None)
                 json.dump(pid_data, pid_file, indent=4)
-            os._exit(2333333)
+            os._exit(TRAINING_DONE_EXIT)
 
         with torch.no_grad():
             torch.cuda.empty_cache()

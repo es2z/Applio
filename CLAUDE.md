@@ -190,6 +190,8 @@ Applio-3.5.0/
 - `fcpe` - Fastest, good for real-time
 - `crepe` - Highest quality, slowest
 - `fcn-993`, `fcn-993-rvc` - FCN-993 (fork-specific, `docs/fcn-993.md`)
+- `fcn-929`, `fcn-929-rvc` - FCN-929, the same upstream's 5-layer / 0.5 ms network on the
+  same code path; `median_frames` counts its 0.5 ms native frames (fork-specific, `docs/fcn-929.md`)
 - `fcnf0++`, `fcnf0++-rvc`, `fcnf0++-aligned`, `fcnf0++-rvc-aligned` - FCNF0++ via penn (fork-specific, see below and `docs/fcnf0pp.md`)
 - `hpa-rmvpe-76000`, `hpa-rmvpe-112000` and their `-aligned` variants - HPA-RMVPE (fork-specific, see below and `docs/hpa-rmvpe.md`)
 - `hybrid[...]` - Averages multiple methods for robustness
@@ -1098,6 +1100,40 @@ RNG and a second session that reuses torchcrepe's cache would otherwise diverge.
 Repeating the same input in one process: rmvpe, fcpe and crepe-full are bit-identical,
 while mangio-crepe-full-speech drifts 25.9 cents and mangio-crepe-full 26.7 cents. The
 cause is the decoder - see below. Numbers are in `TORCHCOMPILE_ACCURACY_REPORT.md`.
+
+### The coarse F0 range is a per-model setting
+`enc_p.emb_pitch` has 256 rows indexed by a mel bin of F0 between 50 Hz and a maximum.
+That maximum used to differ by path: training extraction and realtime used 1680 Hz
+(since `d877ce3a`, 2025-10-15) while offline conversion still used 1100 Hz, so a 200 Hz
+voice trained on bin 41 was converted on bin 54 (~255 Hz in training terms). Realtime
+also subtracted the Hz bounds from mel values for every method but FCNF0++, putting
+200 Hz on bin 37. Measured on one model, fixing the offline range alone moved the output
+by a mel L1 of 0.196, over half of what swapping RMVPE for FCN moves it.
+
+Now there is one quantizer (`quantize_f0`, `rvc/lib/predictors/f0_quantization.py`) and
+one range per model:
+- Chosen at extraction: Training tab > `F0 Coarse Range (Hz)` / `--f0_coarse_max`.
+  FCN-993 / FCN-929 offer 750 / 1000 / 1100 / 1680 with **1000 the default** (their
+  output ends at 1000 Hz; measured on harmonic tones they are accurate to ~750 Hz and
+  pin to ~800 Hz above). Every other method offers 1100 / 1680 with 1680 the default.
+  It also bounds the search range of the predictors that take one, as before.
+- Recorded as `f0_coarse_max` in `model_info.json`, every `G_*.pth` / `D_*.pth`
+  (through `architecture_identity`) and the exported `.pth`. `recorded_coarse_max` reads
+  it back: the key, else an FCN/FCNF0++ `f0_extraction.coarse.maximum`, else **1680**.
+- Offline (`Pipeline(..., coarse_max=...)`) and realtime quantize with the model's
+  value whatever F0 method converts, so a 750 Hz FCN model converted with RMVPE is still
+  quantized at 750. An FCN / FCNF0++ profile's `coarse_max` is overridden by it
+  (`align_profile_coarse`); for FCNF0++ that also sets how high PENN may decode.
+- The extraction spec gains `coarse_max` only when it is not 1680 (profile methods carry
+  it in the profile), so folders recorded before this are still reused, and a change
+  re-extracts every F0 file.
+- Changing it on a folder that already has `G_*.pth` stops the resume
+  (`describe_architecture_mismatch`; an unstamped checkpoint counts as 1680). The
+  training reset re-indexes `enc_p.emb_pitch` to the new range (`remap_pitch_embedding`,
+  row b takes the source row for the pitch b stands for) and keeps every other weight.
+  A warm start re-indexes it too, but only from a pretrain that recorded its range; the
+  stock pretrains record nothing and are loaded as they always were.
+- The model blender refuses two models with different ranges.
 
 ### Mangio-CREPE decoder
 `mangio_crepe_decoder` (`assets/config.json`, default `viterbi`) picks how mangio-crepe

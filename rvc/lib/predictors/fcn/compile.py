@@ -12,7 +12,7 @@ class FCNForward:
         self.model = model
         self.profile = profile
         self.path = CompiledPath(
-            "FCN-993",
+            profile.method.removesuffix("-rvc").upper(),
             model,
             True,
             profile.compile_mode,
@@ -35,7 +35,7 @@ class FCNForward:
                 torch.all((actual_cents - expected_cents).abs() <= 0.1)
             )
             close = close and torch.equal(activation.argmax(-1), eager.argmax(-1))
-            if self.profile.method == "fcn-993-rvc":
+            if self.profile.method.endswith("-rvc"):
                 for threshold in (
                     self.profile.enter_threshold,
                     self.profile.exit_threshold,
