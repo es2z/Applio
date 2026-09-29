@@ -15,7 +15,8 @@ Windows11でしか確認しておりません｡
 
 学習&リアルタイム推論共通
 - vocoderにMRF HiFi-GAN,RefineGan,SiFi-GAN,Codename RingFormerを追加  
-- F0にCrepe系モデルを10種類追加､通常使えるtiny,fullの他にsmall,medium,largeに加え､crepe speachニ対応またそれに対してmangio crepe実装を追加  
+- F0にCrepe系モデルを10種類追加､通常使えるtiny,fullの他にsmall,medium,largeに加え､crepe speachに対応またそれに対してmangio crepe実装を追加  
+- 他にもF0をいくつも追加しているが実験的
 - 1024次元を含む追加のEmbedder Modelにいくつか対応､japanese-hubert-base-k2(768次元),japanese-hubert-large(1024次元),kushinada-hubert-large(1024次元)  
 - 画面上部にtorch compile設定を追加
 
@@ -38,8 +39,9 @@ Windows11でしか確認しておりません｡
 
 > [!NOTE]
 > 個人的感想ですが､推奨は以下になります｡ かなり重いですがF0で軽いものを使えばそこまでは変わらないと思います  
-> vocoder: MRF HiFi-GAN  ･･･  HiFi-GAN学習モデルがほぼ引き継げるのが最大のメリット､収束は遅めで数値上のmelやklの天井は低めに見えますが､他の実装だと長く学習してると高音の癖が大きくでたり耳障りな付帯音や急峻な音量変化が途中から出てきがちですがこれはそういうった問題が少なく､HiFi-GANよりは全体的に良いという若干保守的な評価です(私のソースが悪い可能性は高いですが･･･)  
-> pitch extraction algrithm(F0): mangio-crepe-full-speach   ･･･ 響きなどを含めた聴覚上の音質が高いです(品質向上に大して非常に重い為､次点で mangio-crepe系の軽いものも候補です)  
+> vocoder: HiFi-GAN か MRF HiFi-GAN  ･･･  MRF HiFi-GANは学習モデルがほぼ(数値的には99.4%?)引き継げるのが最大のメリット､収束は遅めで数値上のmelやklの天井は低めに見えますが､他の実装だと長く学習してると高音の癖が大きくでたり耳障りな付帯音や急峻な音量変化が途中から出てきがちですがこれはそういうった問題が少なく､HiFi-GANよりは全体的に良いという若干保守的な評価です(私のソースが悪い可能性は高いですが･･･)  
+> そもそもHiFiGAN系以外長時間学習安定していないのは調整不足感あるのでｳｰﾝ感はあります(独自実装でないものもあまり芳しくないのですが)  
+> pitch extraction algrithm(F0): rmvpe/mangio-crepe-full-speech/HPA-RMVPE (112000, aligned, gaps filled) 辺りで聞こえが良さそうなのが推奨です｡  crepe-full系列は重いです｡  
 > embedder Model: kushinada-hubert-large   ･･･ 品質と話者性の両方が高いです､同じ1024次元モデルのjapanese-hubert-largeより声の再現力が高くおすすめです｡手動ダウンロードと配置が必要です  
 
 
