@@ -417,6 +417,22 @@ class MelSpectrogram(torch.nn.Module):
         return log_mel_spec
 
 
+def _reflect_pad_right(mel, n_pad):
+    """Reflect-pad the last axis by n_pad frames, even past the input's own length.
+
+    torch's reflect mode needs the pad to be shorter than the input, which a clip under
+    ~0.16 s (16 frames) padded up to 32 is not. Such a clip is reflected repeatedly
+    instead; everything longer takes the single reflection it always has, bit for bit.
+    """
+    while n_pad > 0:
+        step = min(n_pad, mel.shape[-1] - 1)
+        if step <= 0:  # a single frame has nothing to reflect
+            return F.pad(mel, (0, n_pad), mode="replicate")
+        mel = F.pad(mel, (0, step), mode="reflect")
+        n_pad -= step
+    return mel
+
+
 class RMVPE0Predictor:
     """
     A predictor for fundamental frequency (F0) based on the RMVPE0 model.
@@ -453,9 +469,7 @@ class RMVPE0Predictor:
             n_frames = mel.shape[-1]
             # print('n_frames', n_frames)
             # print('mel shape before padding', mel.shape)
-            mel = F.pad(
-                mel, (0, 32 * ((n_frames - 1) // 32 + 1) - n_frames), mode="reflect"
-            )
+            mel = _reflect_pad_right(mel, 32 * ((n_frames - 1) // 32 + 1) - n_frames)
             # print('mel shape after padding', mel.shape)
 
             output_chunks = []
