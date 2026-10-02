@@ -92,7 +92,13 @@ def load_checkpoint(checkpoint_path, model, optimizer=None, load_opt=1):
 
 
 def load_pretrained(
-    net, checkpoint_path, tag, verbose=True, target_identity=None, target_embedder=None
+    net,
+    checkpoint_path,
+    tag,
+    verbose=True,
+    target_identity=None,
+    target_embedder=None,
+    mrf_harmonics_from_hifigan=False,
 ):
     """Load a pretrained G or D, inheriting only what means the same thing in this model.
 
@@ -103,7 +109,8 @@ def load_pretrained(
     target_identity is {"vocoder", "sample_rate"} of the model being trained; without it a
     decoder is only inherited from the same vocoder. target_embedder is which embedder
     produced this run's features; without it enc_p.emb_phone.weight is only rebuilt when
-    the width differs.
+    the width differs. mrf_harmonics_from_hifigan starts an MRF HiFi-GAN generator as the
+    HiFi-GAN one it is warm started from.
     """
     return warm_start(
         net,
@@ -112,6 +119,7 @@ def load_pretrained(
         target_identity=target_identity,
         target_embedder=target_embedder,
         verbose=verbose,
+        mrf_harmonics_from_hifigan=mrf_harmonics_from_hifigan,
     )
 
 
@@ -202,6 +210,16 @@ def assert_resumable(experiment_dir, embedder_identity, architecture_identity=No
                 "For a coarse range change alone, tick the training reset "
                 "(重みを引き継いで学習をリセット / --reset_training): it re-indexes "
                 "enc_p.emb_pitch to the new range and keeps every other weight."
+            )
+        if (
+            "discriminator version" in architecture_reason
+            and "vocoder" not in architecture_reason
+        ):
+            print(
+                "For a discriminator change alone (e.g. SiFi-GAN <-> SiFi-GAN+), tick the "
+                "training reset (重みを引き継いで学習をリセット / --reset_training): it "
+                "keeps the generator and rebuilds the discriminator in the new layout, "
+                "inheriting every sub-discriminator the two layouts share."
             )
     print(
         f"Either train under a new model name, or delete the G_*.pth and D_*.pth in "

@@ -37,6 +37,7 @@ import sys
 import torch
 
 from rvc.lib.algorithm.discriminators import (
+    DEFAULT_RESOLUTION_WINDOW,
     DISCRIMINATOR_VERSIONS,
     describe_discriminator,
     discriminator_layout,
@@ -794,6 +795,60 @@ def _port_hifigan_to_mrf_hifigan(source, target, source_sample_rate, target_deco
     return _fitting_entries(entries, source, target), None
 
 
+MRF_HARMONIC_MERGE_WEIGHT = "dec.m_source.l_linear.weight"
+MRF_HARMONIC_MERGE_BIAS = "dec.m_source.l_linear.bias"
+MRF_CONV_POST_BIAS = "dec.conv_post.bias"
+
+
+def _seed_mrf_harmonics_from_hifigan(transfer):
+    """Start an MRF decoder as the HiFi-GAN decoder it was just ported from.
+
+    Opt-in on top of _port_hifigan_to_mrf_hifigan, which leaves the harmonic merge and
+    conv_post's bias fresh. Both sine generators produce the same fundamental (the same
+    per-sample phase accumulation from the same f0, the same voiced/unvoiced noise), so
+    with the fundamental's weight and bias taken from HiFi-GAN's Linear(1, 1), the eight
+    harmonics weighted 0 and conv_post's bias 0 (HiFi-GAN's has none), the MRF decoder
+    computes HiFi-GAN's function up to the random noise. The harmonics are not frozen:
+    their gradient is sine_k * tanh' * upstream, so they grow as far as training wants.
+
+    Measured on 16 real 48 kHz clips before any optimizer step, from a 1024-dim HiFi-GAN
+    G_2333333.pth: mel L1 1.081 with the merge fresh against 0.368 seeded this way, next
+    to the HiFi-GAN control's 0.325 (that measurement left conv_post's bias fresh).
+
+    Returns a note, or None when the shapes are not the HiFi-GAN / MRF ones.
+    """
+    source, target = transfer.source, transfer.target
+    source_weight = source.get(MRF_HARMONIC_MERGE_WEIGHT)
+    source_bias = source.get(MRF_HARMONIC_MERGE_BIAS)
+    target_weight = target.get(MRF_HARMONIC_MERGE_WEIGHT)
+    if (
+        source_weight is None
+        or source_bias is None
+        or target_weight is None
+        or MRF_HARMONIC_MERGE_BIAS not in target
+        or MRF_CONV_POST_BIAS not in target
+        or _shape(source_weight) != (1, 1)
+        or target_weight.dim() != 2
+        or target_weight.shape[0] != 1
+        or _shape(source_bias) != _shape(target[MRF_HARMONIC_MERGE_BIAS])
+    ):
+        return None
+    weight = torch.zeros_like(target_weight)
+    weight[:, :1] = source_weight.to(weight.dtype)
+    transfer.loaded[MRF_HARMONIC_MERGE_WEIGHT] = weight
+    transfer.loaded[MRF_HARMONIC_MERGE_BIAS] = source_bias.to(
+        target[MRF_HARMONIC_MERGE_BIAS].dtype
+    ).clone()
+    transfer.loaded[MRF_CONV_POST_BIAS] = torch.zeros_like(target[MRF_CONV_POST_BIAS])
+    transfer.consumed.update((MRF_HARMONIC_MERGE_WEIGHT, MRF_HARMONIC_MERGE_BIAS))
+    return (
+        f"harmonic merge seeded from HiFi-GAN: the fundamental keeps the pretrained "
+        f"weight and bias, the {target_weight.shape[1] - 1} harmonics start at 0 and "
+        "dec.conv_post.bias at 0, so this MRF decoder starts as the same function as the "
+        "pretrained HiFi-GAN one"
+    )
+
+
 def _port_mrf_hifigan_to_hifigan(source, target, source_sample_rate, target_decoder):
     if _hifigan_config_dilations(
         source_sample_rate, len(_hifigan_resblock_prefixes(target))
@@ -948,7 +1003,13 @@ CROSS_VOCODER_DECODER_PORTS = {
 }
 
 
-def _plan_decoder(transfer, source_identity, target_identity, target_module):
+def _plan_decoder(
+    transfer,
+    source_identity,
+    target_identity,
+    target_module,
+    mrf_harmonics_from_hifigan=False,
+):
     source, target = transfer.source, transfer.target
     source_vocoder, target_vocoder = (
         source_identity["vocoder"],
@@ -1032,6 +1093,16 @@ def _plan_decoder(transfer, source_identity, target_identity, target_module):
                     "identical function (the blocks can sit behind a different LeakyReLU "
                     "slope and freshly initialised input convolutions)."
                 )
+                if mrf_harmonics_from_hifigan and (source_vocoder, target_vocoder) == (
+                    HIFIGAN,
+                    MRF_HIFIGAN,
+                ):
+                    note = _seed_mrf_harmonics_from_hifigan(transfer)
+                    transfer.notes.append(
+                        note
+                        or "harmonic merge not seeded from HiFi-GAN: its shapes are not "
+                        "Linear(1, 1) -> Linear(n, 1), so it starts from scratch"
+                    )
 
     if reason is not None:
         transfer.notes.append(
@@ -1071,7 +1142,12 @@ def _embedder_projection_reason(key, value, source, embedder_reason):
 
 
 def _plan_generator(
-    transfer, checkpoint, target_identity, target_module, target_embedder=None
+    transfer,
+    checkpoint,
+    target_identity,
+    target_module,
+    target_embedder=None,
+    mrf_harmonics_from_hifigan=False,
 ):
     source, target = transfer.source, transfer.target
     embedder_reason = (
@@ -1117,6 +1193,7 @@ def _plan_generator(
             "sample_rate": target_identity.get("sample_rate"),
         },
         target_module,
+        mrf_harmonics_from_hifigan=mrf_harmonics_from_hifigan,
     )
     _plan_pitch_embedding(transfer, checkpoint, target_identity)
 
@@ -1163,7 +1240,15 @@ def _describe_discriminator_descriptor(descriptor):
     if descriptor[0] == "P":
         return f"period {descriptor[1]} discriminator"
     if descriptor[0] == "R":
-        return f"STFT resolution {list(descriptor[1])} discriminator"
+        # The same resolution can appear under two windows (v3 and v3-48k both have
+        # [2048, 240, 1200]), and without the window a summary would list it as both
+        # starting from scratch and not used.
+        window = (
+            ""
+            if descriptor[2] == DEFAULT_RESOLUTION_WINDOW
+            else f" ({descriptor[2]} window)"
+        )
+        return f"STFT resolution {list(descriptor[1])}{window} discriminator"
     return "scale discriminator"
 
 
@@ -1173,6 +1258,11 @@ def _source_discriminator_layout(transfer, checkpoint):
     Periods cannot be read off the weights (every period's layers are the same shape),
     so the layout is recognised as one of the known versions from the kind and number of
     sub-discriminators, and cross-checked against what the checkpoint recorded.
+
+    Neither can resolutions or windows, so two versions can share a layout of kinds (v3
+    and v3-48k differ only in what their resolution discriminators look at). A recorded
+    version picks between them. A checkpoint that records none predates the stamp, and so
+    every version marked always_recorded, which was added after it.
     """
     source = transfer.source
     kinds = []
@@ -1190,16 +1280,24 @@ def _source_discriminator_layout(transfer, checkpoint):
         if [descriptor[0] for descriptor in discriminator_layout(version)] == kinds
     ]
     recorded = checkpoint.get("disc_version")
+    if recorded is not None and matches and recorded not in matches:
+        transfer.errors.append(
+            f"the pretrained discriminator records version '{recorded}' but its weights "
+            f"are laid out as {' or '.join(repr(version) for version in matches)}"
+        )
+        return None
+    if recorded is not None:
+        matches = [recorded] if recorded in matches else []
+    else:
+        matches = [
+            version
+            for version in matches
+            if not DISCRIMINATOR_VERSIONS[version].get("always_recorded", False)
+        ]
     if len(matches) != 1:
         transfer.errors.append(
             f"the pretrained discriminator's layout ({len(kinds)} sub-discriminators: "
             f"{kinds}) is not one of the known versions {list(DISCRIMINATOR_VERSIONS)}"
-        )
-        return None
-    if recorded is not None and recorded != matches[0]:
-        transfer.errors.append(
-            f"the pretrained discriminator records version '{recorded}' but its weights "
-            f"are laid out as '{matches[0]}'"
         )
         return None
     return discriminator_layout(matches[0])
@@ -1245,6 +1343,7 @@ def warm_start(
     target_identity=None,
     target_embedder=None,
     verbose=True,
+    mrf_harmonics_from_hifigan=False,
 ):
     """Load a pretrained G or D into `net`, inheriting only what is compatible.
 
@@ -1257,6 +1356,9 @@ def warm_start(
         target_embedder: the embedder identity of the features this run trains on. Without
             it enc_p.emb_phone.weight is only rebuilt when the width differs.
         verbose: Print what was inherited, converted, started from scratch and left out.
+        mrf_harmonics_from_hifigan: when a HiFi-GAN generator is ported into an MRF
+            HiFi-GAN one, seed the harmonic merge so the decoder starts as the HiFi-GAN
+            function (see _seed_mrf_harmonics_from_hifigan). Ignored for any other pair.
 
     Returns the Transfer describing what happened. Exits the process instead when the
     checkpoint does not fit.
@@ -1284,7 +1386,12 @@ def warm_start(
         _plan_discriminator(transfer, checkpoint, module)
     else:
         _plan_generator(
-            transfer, checkpoint, target_identity, module, target_embedder
+            transfer,
+            checkpoint,
+            target_identity,
+            module,
+            target_embedder,
+            mrf_harmonics_from_hifigan=mrf_harmonics_from_hifigan,
         )
     transfer.check_complete()
 

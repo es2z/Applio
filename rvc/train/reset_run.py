@@ -16,7 +16,7 @@ from rvc.lib.utils import (
     embedder_identity_from_model_info,
 )
 from rvc.train.warm_start import EMBEDDER_PROJECTION_PREFIX, checkpoint_vocoder
-from rvc.train.vocoder_recipe import discriminator_version
+from rvc.train.vocoder_recipe import discriminator_version, generator_vocoder
 
 
 def _pid_running(pid):
@@ -136,7 +136,13 @@ def _retarget_coarse(checkpoint, target_coarse_max):
 
 
 def _retarget_vocoder(
-    source, checkpoint, config, target_vocoder, target_embedder, synthesizer_kwargs
+    source,
+    checkpoint,
+    config,
+    target_recipe,
+    target_embedder,
+    synthesizer_kwargs,
+    mrf_harmonics_from_hifigan=False,
 ):
     """Rebuild the generator for another vocoder, through the common warm start.
 
@@ -146,6 +152,10 @@ def _retarget_vocoder(
     be for a pretrained model: the encoders, flow and speaker embedding whole, the decoder
     parts that mean the same thing in both, and the rest from scratch. Optimizer state
     never survives a reset anyway.
+
+    target_recipe is what the run that follows is started with; the generator is built
+    and recorded as the vocoder that recipe trains (generator_vocoder), so SiFi-GAN and
+    SiFi-GAN+ count as the same vocoder here.
 
     Returns what it did, or None when the vocoder is unchanged.
     """
@@ -157,6 +167,7 @@ def _retarget_vocoder(
     from rvc.train.utils import replace_keys_in_dict
     from rvc.train.warm_start import warm_start
 
+    target_vocoder = generator_vocoder(target_recipe) if target_recipe else None
     source_vocoder = checkpoint_vocoder(checkpoint)
     if not target_vocoder or not source_vocoder or target_vocoder == source_vocoder:
         return None
@@ -193,9 +204,10 @@ def _retarget_vocoder(
         target_identity={
             "vocoder": target_vocoder,
             "sample_rate": sample_rate,
-            "disc_version": discriminator_version(target_vocoder),
+            "disc_version": discriminator_version(target_recipe),
         },
         target_embedder=target_embedder,
+        mrf_harmonics_from_hifigan=mrf_harmonics_from_hifigan,
     )
     # Written under the legacy weight_g / weight_v names, which is what save_checkpoint
     # puts on disk and therefore what every other G_*.pth in a model folder looks like.
@@ -225,6 +237,7 @@ def reset_training_run(
     vocoder=None,
     sifigan_filter_resblock=None,
     sifigan_source_scale_init=None,
+    mrf_harmonics_from_hifigan=False,
 ):
     """Archive local outputs and install epoch-zero checkpoints, with rollback.
 
@@ -236,7 +249,9 @@ def reset_training_run(
     enc_p.emb_phone.weight is rebuilt and both files are re-stamped, so the run that
     follows is not refused by assert_resumable for weights it no longer carries. If the
     run that follows uses a different vocoder, G is rebuilt for it through the same warm
-    start a pretrained model would go through, and D into that vocoder's layout.
+    start a pretrained model would go through, and D into that vocoder's layout. If only
+    the discriminator differs (SiFi-GAN <-> SiFi-GAN+), G is kept and D is rebuilt into
+    the recipe's layout.
     """
     root = Path(experiment_dir).resolve()
     config = json.loads((root / "config.json").read_text(encoding="utf-8"))
@@ -291,9 +306,27 @@ def reset_training_run(
                     vocoder,
                     target_embedder,
                     synthesizer_kwargs,
+                    mrf_harmonics_from_hifigan=mrf_harmonics_from_hifigan,
                 )
                 if generator_transfer is None:
                     target_disc_version = checkpoint.get("disc_version")
+                    # A recipe can keep the generator and change the discriminator
+                    # (SiFi-GAN <-> SiFi-GAN+). The run that follows refuses a G stamped
+                    # with the other layout, so D follows the recipe here as well.
+                    wanted_disc_version = discriminator_version(vocoder)
+                    if (
+                        vocoder
+                        and target_disc_version is not None
+                        and target_disc_version != wanted_disc_version
+                    ):
+                        print(
+                            f"Reset (D): the folder's discriminator is "
+                            f"{target_disc_version} and {vocoder} trains against "
+                            f"{wanted_disc_version}; rebuilding it through the common "
+                            "warm start. The generator is kept."
+                        )
+                        target_disc_version = wanted_disc_version
+                        checkpoint["disc_version"] = target_disc_version
                     embedder_transfer = _retarget_embedder(
                         checkpoint,
                         target_embedder,

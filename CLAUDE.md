@@ -694,6 +694,99 @@ warm started run moved it to `[0.013, 0.022, 0.032, 0.012]` and the scratch run 
 `[0.035, 0.028, 0.027, 0.022]` - the model with inherited blocks pushes the source term
 *down* rather than opening the gate, and neither runs away towards the paper's 1.0.
 
+### SiFi-GAN+ (48k only)
+The SiFi-GAN generator - same decoder, same `sifigan_filter_resblock` / source gain
+options, same losses (multi-scale mel, `c_reg`) - trained against a different
+discriminator, so the two can be A/B compared. v3's three resolution discriminators,
+`[[1024,120,600],[2048,240,1200],[512,50,240]]` through a rectangular window, are UnivNet's
+24 kHz values; at 48 kHz each sees half the time span it was designed for. SiFi-GAN+ trains
+against **`v3-48k`**: v3's scale discriminator and periods 2, 3, 5, 7, 11, with the
+resolutions doubled to `[[2048,240,1200],[4096,480,2400],[1024,100,480]]` (the ones
+`codename-ringformer` already uses) and the Hann window the official SiFi-GAN
+discriminator config uses. Not called "v4", for the reason codename-ringformer is not.
+
+**It is a training recipe, not a vocoder.** `rvc/train/vocoder_recipe.py` is the one place
+that knows: `generator_vocoder("SiFi-GAN+")` is `"SiFi-GAN"`, `discriminator_version` is
+`"v3-48k"`, `sample_rate_error` allows 48000 only, `pretrained_dir_name` is
+`sifi-gan-plus` (no `+` in a folder name). train.py takes the recipe from `sys.argv[15]` and
+normalises it before anything builds or records a generator, so every `G_*.pth`, `D_*.pth`
+and exported `.pth` says `vocoder: "SiFi-GAN"` and inference, realtime, export and the
+blender needed no change. Only `disc_version` tells the two recipes' checkpoints apart.
+**The normalisation is load bearing**: `Synthesizer` builds a HiFi-GAN decoder for any
+vocoder name it does not know, without a word, so `"SiFi-GAN+"` reaching it would train
+HiFi-GAN against v3-48k (pinned by `tests/test_sifigan_plus.py`).
+
+**48 kHz only, refused in three places that all call `sample_rate_error`:**
+`core.run_train_script` before it writes the folder's config or resets it (judging by
+`logs/<model>/config.json`'s rate, not the GUI radio), the Training tab, which now shows a
+`ValueError` from `run_train_script` in Output Information instead of Gradio's bare
+"Error" (this also surfaces the existing cleanup/reset and incomplete-F0 refusals), and
+train.py itself against `config.data.sample_rate`.
+
+**v3 and v3-48k are indistinguishable by their weights.** A `DiscriminatorR`'s shapes
+depend on neither its resolution nor its window, so both are `S, P x5, R x3` with identical
+names and shapes - and the same seed even initialises them bit for bit identically. Adding
+the layout naively broke *every* v3 warm start, recorded or not, because
+`_source_discriminator_layout` found two matching versions. So the recorded `disc_version`
+now picks among layouts that share a shape, and v3-48k carries `always_recorded: True`: it
+was added long after `save_checkpoint` started stamping (b9df8cb6, 2026-09-15), so a
+checkpoint that records nothing is v3. Upstream's unstamped RefineGAN pretrains still load
+as v3, whole.
+
+**Resume and reset.** A SiFi-GAN `G_*.pth` always records `disc_version` (SiFi-GAN
+postdates the stamp), so `assert_resumable` refuses SiFi-GAN <-> SiFi-GAN+ as
+"discriminator version v3 -> v3-48k" with nothing new recorded, and now suggests the reset
+for a discriminator-only change. The reset used to keep a folder's discriminator layout
+whenever the generator's vocoder was unchanged, which would have installed a v3 `D_0` the
+next run refuses; it now rebuilds D in the recipe's layout through the common warm start
+and re-stamps G, keeping G's weights untouched.
+
+Warm starts, measured at 48k/768 (`tests/test_sifigan_plus.py` pins each one):
+
+| from -> SiFi-GAN+ | G | D |
+|---|---|---|
+| HiFi-GAN (v2) | 75.5%, as for SiFi-GAN: only `dec.sn.*`, `dec.fn.downsamples` and `source_scales` fresh | 99.4%: S + P2..P11; the three R fresh; P17/23/37 dropped |
+| SiFi-GAN (v3) | 100% | 99.4%: S + P2..P11; the three R fresh; v3's three R dropped |
+| CodenameRingFormer | 44.0%: `enc_p` / `enc_q` / `flow` / `emb_g` only, no decoder port is registered | **100%**: the three R match by resolution *and* window; P17/23/37 dropped |
+| SiFi-GAN+ -> SiFi-GAN | 100% | 99.4%: S + P2..P11; v3's three R fresh |
+
+`[2048, 240, 1200]` is in both v3 and v3-48k but through different windows, so it is not
+inherited across them, the same policy as codename-ringformer. Warm start summaries now
+print the window of a non-rectangular resolution discriminator so that one does not show
+up as both "starts from scratch" and "not used".
+
+At 48k and 17280 samples, reflect padding is 904 / 1808 / 462 samples and the
+spectrograms are 1025 x 72, 2049 x 36 and 513 x 172 (v3: 513 x 144, 1025 x 72, 257 x 345).
+The discriminator alone on an RTX 4090, batch 24, real and fake forward + backward: fp16
+84.1 -> 85.5 ms, bf16 91.2 -> 90.9 ms, fp32 153.1 -> 150.6 ms, and peak memory +0.6 to
++0.9 GiB (fp16 6.54 -> 7.10 GiB). A whole training step does not show that extra memory,
+because the generator's peak dominates: fp16, batch 24, kushinada-hubert-large 1024-dim,
+the 1366-clip `naru_20260917_sifi_rvc_1024_kushinada2` cached on the GPU (3.05 GiB),
+300 steps after 20 of warm-up, alternating runs - SiFi-GAN 565.5 / 571.8 ms median and
+19.39 GiB peak allocated (21.0 reserved), SiFi-GAN+ 565.7 ms and 19.38 GiB (20.8). Two
+later SiFi-GAN+ runs measured 693 and 921 ms at the same memory and were not chased: the
+card showed 23.0 of 24.5 GiB in use during them, so allocator or WDDM pressure at batch 24
+is the first suspect, not the discriminator.
+
+Verified end to end through `core.py train` on a scratch folder: SiFi-GAN+ warm starts from
+the stock HiFi-GAN 48k G/D with the numbers above, writes `vocoder: SiFi-GAN` /
+`disc_version: v3-48k` into `G_*`/`D_*` and `vocoder: SiFi-GAN` into the exported model;
+switching the folder to SiFi-GAN is refused with the reset hint; and the reset then
+installs a `G_0` bit-identical to the old generator with a v3 `D_0`, and the next run
+trains from them.
+
+**Removing one of the two later.** To drop SiFi-GAN+: its Training tab choice and help
+entry (and the en_US / ja_JA keys), the `--vocoder` choice, and `SIFIGAN_PLUS` with its
+four table rows in `vocoder_recipe.py`. Keep `v3-48k` in `DISCRIMINATOR_VERSIONS` for as
+long as any SiFi-GAN+ D may be warm started from or reset: without it such a D stops the
+run as "records 'v3-48k' but laid out as 'v3'". The disambiguation, the reset's
+discriminator follow, the resume hint and the `sample_rate_error` calls are generic and can
+stay. To drop the v3 SiFi-GAN recipe instead: its tab choice, help entry and `--vocoder`
+choice; then either keep the name SiFi-GAN+, or point `SIFIGAN` at v3-48k in
+`_DISCRIMINATOR_VERSIONS` and remove the `+` (v3 folders are then refused on resume and
+move over with the reset). Keep v3 itself (RefineGAN), the generator and SiFi-GAN's warm
+start rules, and move `TrainingStepTest` in `tests/test_sifigan.py` off v3.
+
 ### CodenameRingFormer at 32k / 40k / 48k
 A fourth vocoder, from the [Codename RVC fork](https://github.com/duringleaves/codename-rvc-fork-4)
 (`rvc/lib/algorithm/generators/ringformer.py` and `rvc/lib/algorithm/conformer/`). The name
@@ -928,9 +1021,23 @@ from the same RNG state, warm started from a 1024-dim HiFi-GAN `G_2333333.pth`:
 So the warm start is worth 45%, and the remaining gap against the HiFi-GAN control is
 **entirely the harmonic merge**. Giving the MRF decoder the HiFi-GAN excitation exactly -
 the trained fundamental weight in column 0 and the eight harmonics zeroed - takes it from
-1.081 to **0.368**, next to the control's 0.325. That is a diagnostic, not a shipped
-behaviour: zero-padding a `Linear(1, 1)` into a `Linear(9, 1)` is forcing a weight across
-a shape it does not fit, which is exactly what this warm start framework refuses to do.
+1.081 to **0.368**, next to the control's 0.325.
+
+That is now an opt-in: Training tab > `引き継ぎ元がHiFi-GANの場合、MRFの倍音合成をHiFi-GANと同じ動作から開始`
+(shown only for MRF with Pretrained or the reset ticked, default on;
+`--mrf_harmonics_from_hifigan` on the CLI, `sys.argv[19]` for train.py, and a keyword on
+`reset_training_run`). `_seed_mrf_harmonics_from_hifigan` in `rvc/train/warm_start.py`
+sets the merge to `[w_hifigan, 0 x 8]`, keeps HiFi-GAN's bias and zeroes `conv_post.bias`.
+It is not a shape being forced: both sine generators produce the same fundamental, so the
+zero harmonics make the MRF decoder **the same function** as the HiFi-GAN one up to the
+random noise (`test_seeding_starts_mrf_as_the_hifigan_function`: max difference under
+1e-4 with the noise off). The harmonics are not frozen and grow from zero in training. It
+only acts on a HiFi-GAN -> MRF port; any other source is inherited as before.
+
+Why it exists: every vocoder but HiFi-GAN developed high-frequency ringing and abrupt
+changes as epochs went on, MRF included. MRF differs from HiFi-GAN only in the merge, and
+a fresh merge knocks the whole inherited decoder away from the pretrain at step 0. Whether
+seeding actually prevents the late artifacts is **unmeasured**.
 
 And it is **not a magnitude problem**, which is the SiFi-GAN failure this looks like at
 first glance. On a real f0 contour the excitation's rms is 0.0435 from the trained
@@ -1013,7 +1120,10 @@ contribute. It works from meaning, not from shape equality:
   v2 -> `codename-ringformer` is the happiest case: the scale discriminator and **all eight
   periods** match by descriptor, so only the three resolution discriminators start fresh and
   nothing from the pretrain is dropped. The resolution descriptor carries its window, so
-  v3's `[2048, 240, 1200]` and this layout's are not confused for one another.
+  v3's `[2048, 240, 1200]` and this layout's are not confused for one another. The weights
+  carry neither resolution nor window, so layouts that differ only there (v3 and v3-48k)
+  are told apart by the recorded `disc_version`; a D that records none is never a layout
+  marked `always_recorded`.
 - **Always weights only.** Optimizer and scaler state never cross a warm start.
 - **Resume guard.** `assert_resumable` now also refuses a `G_*.pth` whose vocoder (from its
   keys) or recorded sample rate / discriminator version differs from the run. And

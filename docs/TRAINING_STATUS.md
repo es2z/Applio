@@ -39,7 +39,9 @@ env\python.exe -X utf8 tools\training_status.py <run> [<run> ...] [--fine [N]]
 **vocoder が違う学習どうしで `mel` と `fm` を比べてはいけない。** `train.py` は RefineGAN と
 SiFi-GAN にはマルチスケール mel 損失（さらに 3.0 で割る）を、HiFi-GAN にはシングルスケールを使う。
 表示は同じ `loss_avg_50/g/mel` でも中身が別の関数なので、大小に意味がない。`fm` も判別器の版
-（HiFi-GAN は v2、RefineGAN / SiFi-GAN は v3）が違うと比較できない。
+（HiFi-GAN は v2、RefineGAN / SiFi-GAN は v3、SiFi-GAN+ は v3-48k）が違うと比較できない。
+SiFi-GAN と SiFi-GAN+ は mel 損失が同じ関数なので `mel` は比べてよいが、判別器が違うので
+`fm` / `g_adv` / `d_adv` は比べられない。
 
 - **`kl` は比較できる**。vocoder に依らず `kl_loss × c_kl` で、`c_kl` は全 config で 1.0。
 - `mel` を跨いで比べたいときは、両方のモデルを読み込んで**同じクリップに同じ指標**を当てる。

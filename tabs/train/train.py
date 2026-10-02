@@ -12,6 +12,7 @@ from rvc.train.extract.preparing_files import (
     read_train_settings,
 )
 from rvc.train.lr_boost import DEFAULT_G_LR_BOOST_EPOCHS, DEFAULT_G_LR_BOOST_MULTIPLIER
+from rvc.train.vocoder_recipe import generator_vocoder
 
 from core import (
     run_extract_script,
@@ -380,13 +381,14 @@ def train_tab():
                 vocoder = gr.Radio(
                     label=i18n("Vocoder"),
                     info=i18n(
-                        "Choose the vocoder for audio synthesis:\n- **HiFi-GAN**: Default option, compatible with all clients.\n- **MRF HiFi-GAN**: Applio-only. The HiFi-GAN decoder with multi-receptive-field blocks and an eight-harmonic excitation in place of the single sine, trained against exactly the same discriminator and the same losses as HiFi-GAN, so the two are directly comparable. Warm start it from a **HiFi-GAN** model (the stock pretrained one will do): every tensor but the harmonic merge carries over. Measured on 16 clips before any optimizer step, mel L1 is 1.08 warm started against 1.98 from scratch, while the same pretrain into HiFi-GAN itself reaches 0.33 - all of that remaining gap is the harmonic merge, eleven parameters that cannot come across because HiFi-GAN mixes one harmonic and this mixes nine. Use the Initial Generator LR Boost.\n- **RefineGAN**: Applio-only, trained against an extra multi-resolution discriminator with a multi-scale mel loss. Without a RefineGAN pretrained model for the sample rate it warm starts from the HiFi-GAN one (or from a custom HiFi-GAN G/D): the encoders, flow and residual blocks are inherited and the rest of the decoder starts from scratch, so consider the Initial Generator LR Boost.\n- **SiFi-GAN**: Applio-only source-filter vocoder whose convolutions follow the pitch, trained against the same multi-resolution discriminator plus a loss that supervises its excitation signal. Its filter network is the HiFi-GAN decoder, so warm start it from a **HiFi-GAN** model (the stock pretrained one will do): measured over 50 epochs that is about 22% better on the mel loss than training from scratch. A RefineGAN model is not a useful starting point for it even at the same sample rate and embedder width, because only its residual blocks carry over. Only the source network starts from scratch either way, so consider the Initial Generator LR Boost.\n- **CodenameRingFormer**: from the Codename RVC fork. A Conformer decoder that predicts a magnitude and a phase spectrum and inverts them with an iSTFT instead of upsampling all the way to samples, trained against its own discriminator (a scale discriminator, eight periods and three STFT resolutions) and an extra magnitude and phase loss. Only conv_pre and the speaker conditioning mean the same thing in a HiFi-GAN decoder, so most of this one starts from scratch whatever you warm start from: consider the Initial Generator LR Boost."
+                        "Choose the vocoder for audio synthesis:\n- **HiFi-GAN**: Default option, compatible with all clients.\n- **MRF HiFi-GAN**: Applio-only. The HiFi-GAN decoder with multi-receptive-field blocks and an eight-harmonic excitation in place of the single sine, trained against exactly the same discriminator and the same losses as HiFi-GAN, so the two are directly comparable. Warm start it from a **HiFi-GAN** model (the stock pretrained one will do): every tensor but the harmonic merge carries over. Measured on 16 clips before any optimizer step, mel L1 is 1.08 warm started against 1.98 from scratch, while the same pretrain into HiFi-GAN itself reaches 0.33 - all of that remaining gap is the harmonic merge, eleven parameters that cannot come across because HiFi-GAN mixes one harmonic and this mixes nine. Use the Initial Generator LR Boost.\n- **RefineGAN**: Applio-only, trained against an extra multi-resolution discriminator with a multi-scale mel loss. Without a RefineGAN pretrained model for the sample rate it warm starts from the HiFi-GAN one (or from a custom HiFi-GAN G/D): the encoders, flow and residual blocks are inherited and the rest of the decoder starts from scratch, so consider the Initial Generator LR Boost.\n- **SiFi-GAN**: Applio-only source-filter vocoder whose convolutions follow the pitch, trained against the same multi-resolution discriminator plus a loss that supervises its excitation signal. Its filter network is the HiFi-GAN decoder, so warm start it from a **HiFi-GAN** model (the stock pretrained one will do): measured over 50 epochs that is about 22% better on the mel loss than training from scratch. A RefineGAN model is not a useful starting point for it even at the same sample rate and embedder width, because only its residual blocks carry over. Only the source network starts from scratch either way, so consider the Initial Generator LR Boost.\n- **SiFi-GAN+**: 48 kHz only. The same generator as SiFi-GAN, with the same options and losses, trained against a discriminator whose multi-resolution part uses STFT resolutions made for 48 kHz (twice SiFi-GAN's, which come from 24 kHz UnivNet) and a Hann window. Warm started from a SiFi-GAN model it inherits the generator and the multi-period discriminator whole, and only the multi-resolution discriminators start from scratch; from a HiFi-GAN model it inherits what SiFi-GAN does. Exported models are ordinary SiFi-GAN models.\n- **CodenameRingFormer**: from the Codename RVC fork. A Conformer decoder that predicts a magnitude and a phase spectrum and inverts them with an iSTFT instead of upsampling all the way to samples, trained against its own discriminator (a scale discriminator, eight periods and three STFT resolutions) and an extra magnitude and phase loss. Only conv_pre and the speaker conditioning mean the same thing in a HiFi-GAN decoder, so most of this one starts from scratch whatever you warm start from: consider the Initial Generator LR Boost."
                     ),
                     choices=[
                         "HiFi-GAN",
                         "MRF HiFi-GAN",
                         "RefineGAN",
                         "SiFi-GAN",
+                        "SiFi-GAN+",
                         "CodenameRingFormer",
                     ],
                     value="HiFi-GAN",
@@ -863,6 +865,13 @@ def train_tab():
                 value=False,
                 interactive=True,
             )
+            mrf_harmonics_from_hifigan = gr.Checkbox(
+                label="引き継ぎ元がHiFi-GANの場合、MRFの倍音合成をHiFi-GANと同じ動作から開始",
+                info="MRF HiFi-GANで、事前学習モデルまたは「重みを引き継いで学習をリセット」の引き継ぎ元がHiFi-GANのときだけ効きます。ON: 倍音合成（dec.m_source.l_linear）の基音にHiFi-GANの重みとバイアスを入れ、倍音8本を0、conv_postのバイアスを0で始めるので、学習開始時点のデコーダーはHiFi-GANと同じ出力になります（違いはランダムなノイズのみ）。倍音は固定ではなく、学習で必要な分だけ育ちます。OFF: 従来どおり倍音合成は新規初期化（開始時点でデコーダー出力が崩れ、pretrainから引き離されます）。16クリップでの学習前mel L1: OFF 1.081 / ON 0.368 / HiFi-GAN自身 0.325。引き継ぎ元がMRFなど他のボコーダーのときは何もしません。",
+                value=True,
+                interactive=True,
+                visible=False,
+            )
             with gr.Row():
                 learning_rate = gr.Number(
                     label=i18n("Learning Rate"),
@@ -971,7 +980,14 @@ def train_tab():
                     )
                     gr.Info("RefineGAN pretrained models downloaded.")
 
-            return run_train_script(*args)
+            # run_train_script refuses what it cannot train (e.g. SiFi-GAN+ at 40 kHz)
+            # with a ValueError before touching the folder. Uncaught, Gradio only shows
+            # "Error", so the reason goes to the output box instead.
+            try:
+                return run_train_script(*args)
+            except ValueError as error:
+                gr.Warning(str(error))
+                return str(error)
 
         terms_checkbox = gr.Checkbox(
             label=i18n("I agree to the terms of use"),
@@ -1023,6 +1039,7 @@ def train_tab():
                     g_lr_boost_multiplier,
                     g_lr_boost_epochs,
                     reset_training,
+                    mrf_harmonics_from_hifigan,
                 ],
                 outputs=[train_output_info],
             ).then(fn=lambda: gr.update(value=False), outputs=[reset_training])
@@ -1177,8 +1194,10 @@ def train_tab():
                 outputs=[sampling_rate, vocoder],
             )
 
+            # Every recipe that trains the SiFi-GAN generator (SiFi-GAN, SiFi-GAN+) takes
+            # its options.
             def toggle_sifigan_settings(vocoder_choice):
-                visible = vocoder_choice == "SiFi-GAN"
+                visible = generator_vocoder(vocoder_choice) == "SiFi-GAN"
                 return (
                     {"visible": visible, "__type__": "update"},
                     {"visible": visible, "__type__": "update"},
@@ -1189,6 +1208,22 @@ def train_tab():
                 inputs=[vocoder],
                 outputs=[sifigan_filter_resblock, sifigan_source_scale_init],
             )
+
+            # Only an MRF run that inherits weights - from a pretrained model or through
+            # the reset - can be warm started from a HiFi-GAN generator.
+            def toggle_mrf_harmonics_from_hifigan(vocoder_choice, use_pretrained, reset):
+                return {
+                    "visible": vocoder_choice == "MRF HiFi-GAN"
+                    and bool(use_pretrained or reset),
+                    "__type__": "update",
+                }
+
+            for component in (vocoder, pretrained, reset_training):
+                component.change(
+                    fn=toggle_mrf_harmonics_from_hifigan,
+                    inputs=[vocoder, pretrained, reset_training],
+                    outputs=[mrf_harmonics_from_hifigan],
+                )
             refresh.click(
                 fn=refresh_models_and_datasets,
                 inputs=[],

@@ -331,6 +331,79 @@ class WarmStartTest(unittest.TestCase):
                 torch.equal(after[target_key], source[source_key]), target_key
             )
 
+    def test_seeding_carries_the_fundamental_and_zeroes_the_rest(self):
+        target = quiet(build_generator, MRF_HIFIGAN, 48000)
+        transfer = self._warm(
+            target,
+            self.paths[HIFIGAN],
+            identity(MRF_HIFIGAN, 48000),
+            mrf_harmonics_from_hifigan=True,
+        )
+        source = self._source(HIFIGAN)
+        after = target.state_dict()
+
+        # Nothing starts from scratch and nothing is left behind any more.
+        self.assertEqual(transfer.reinitialised, {})
+        self.assertEqual(transfer.dropped, {})
+        weight = after["dec.m_source.l_linear.weight"]
+        self.assertEqual(tuple(weight.shape), (1, HARMONIC_NUM + 1))
+        self.assertTrue(
+            torch.equal(weight[:, :1], source["dec.m_source.l_linear.weight"])
+        )
+        self.assertTrue(torch.equal(weight[:, 1:], torch.zeros(1, HARMONIC_NUM)))
+        self.assertTrue(
+            torch.equal(
+                after["dec.m_source.l_linear.bias"],
+                source["dec.m_source.l_linear.bias"],
+            )
+        )
+        self.assertTrue(torch.equal(after["dec.conv_post.bias"], torch.zeros(1)))
+        self.assertTrue(any("seeded from HiFi-GAN" in note for note in transfer.notes))
+
+    def test_seeding_starts_mrf_as_the_hifigan_function(self):
+        """With the random noise off, the two decoders compute the same waveform."""
+        hifigan = quiet(build_generator, HIFIGAN, 48000).eval()
+        self._warm(hifigan, self.paths[HIFIGAN], identity(HIFIGAN, 48000))
+        mrf = quiet(build_generator, MRF_HIFIGAN, 48000).eval()
+        self._warm(
+            mrf,
+            self.paths[HIFIGAN],
+            identity(MRF_HIFIGAN, 48000),
+            mrf_harmonics_from_hifigan=True,
+        )
+        hifigan.dec.m_source.l_sin_gen.noise_stddev = 0.0
+        mrf.dec.m_source.l_sin_gen.noise_std = 0.0
+
+        torch.manual_seed(0)
+        frames = 36
+        x = torch.randn(1, 192, frames)
+        # Every frame voiced: unvoiced frames are pure noise, which is switched off only
+        # for the voiced amplitude.
+        f0 = torch.linspace(90.0, 900.0, frames)[None, :]
+        g = torch.randn(1, 256, 1)
+        with torch.no_grad():
+            expected = hifigan.dec(x, f0, g)
+            actual = mrf.dec(x, f0, g)
+        self.assertEqual(actual.shape, expected.shape)
+        self.assertGreater(expected.abs().max().item(), 1e-4)
+        self.assertLess((actual - expected).abs().max().item(), 1e-4)
+
+    def test_seeding_is_ignored_for_any_other_source(self):
+        """An MRF pretrain already has its own merge, which is inherited as it is."""
+        target = quiet(build_generator, MRF_HIFIGAN, 48000)
+        transfer = self._warm(
+            target,
+            self.paths[MRF_HIFIGAN],
+            identity(MRF_HIFIGAN, 48000),
+            mrf_harmonics_from_hifigan=True,
+        )
+        source = self._source(MRF_HIFIGAN)
+        after = target.state_dict()
+        self.assertEqual(transfer.reinitialised, {})
+        for key in M_SOURCE | CONV_POST_BIAS:
+            self.assertTrue(torch.equal(after[key], source[key]), key)
+        self.assertFalse(any("seeded" in note for note in transfer.notes))
+
     def test_the_residual_blocks_land_stage_outer_kernel_inner(self):
         target = quiet(build_generator, MRF_HIFIGAN, 48000)
         self._warm(target, self.paths[HIFIGAN], identity(MRF_HIFIGAN, 48000))

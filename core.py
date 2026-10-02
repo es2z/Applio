@@ -564,7 +564,21 @@ def run_train_script(
     g_lr_boost_multiplier: float = None,
     g_lr_boost_epochs: int = None,
     reset_training: bool = False,
+    mrf_harmonics_from_hifigan: bool = False,
 ):
+
+    # Before anything below writes to the folder or resets it. The folder's own config
+    # decides the sample rate when there is one, because that is what train.py trains at.
+    from rvc.train.vocoder_recipe import sample_rate_error
+
+    training_sample_rate = int(sample_rate)
+    config_path = os.path.join(logs_path, model_name, "config.json")
+    if os.path.isfile(config_path):
+        with open(config_path, encoding="utf-8") as stream:
+            training_sample_rate = json.load(stream)["data"]["sample_rate"]
+    error = sample_rate_error(str(vocoder), training_sample_rate)
+    if error:
+        raise ValueError(error)
 
     if reset_training and cleanup:
         raise ValueError("Disable Cleanup when resetting training from existing weights.")
@@ -621,6 +635,7 @@ def run_train_script(
             vocoder=vocoder,
             sifigan_filter_resblock=sifigan_filter_resblock,
             sifigan_source_scale_init=sifigan_source_scale_init,
+            mrf_harmonics_from_hifigan=bool(mrf_harmonics_from_hifigan),
         )
         print(f"Training reset to epoch 1 with GUI settings. Previous run: {archive}")
 
@@ -650,6 +665,7 @@ def run_train_script(
                 # Appended last so the existing positions never shift.
                 sifigan_filter_resblock,
                 sifigan_source_scale_init,
+                bool(mrf_harmonics_from_hifigan),
             ],
         ),
     ]
@@ -689,8 +705,8 @@ def run_model_blender_script(
 
 
 # Tensorboard
-def run_tensorboard_script():
-    launch_tensorboard_pipeline()
+def run_tensorboard_script(lan: bool = False, port: int | None = None):
+    launch_tensorboard_pipeline(lan=lan, port=port)
 
 
 # Download
@@ -2163,6 +2179,9 @@ def parse_arguments():
             "MRF HiFi-GAN",
             "RefineGAN",
             "SiFi-GAN",
+            # The SiFi-GAN generator against resolution discriminators made for 48 kHz;
+            # 48 kHz only. See rvc/train/vocoder_recipe.py.
+            "SiFi-GAN+",
             "CodenameRingFormer",
         ],
         default="HiFi-GAN",
@@ -2171,9 +2190,10 @@ def parse_arguments():
         "--sifigan_filter_resblock",
         type=str,
         help=(
-            "SiFi-GAN only: the filter network's residual blocks. 'rvc' matches this "
-            "repository's HiFi-GAN decoder, so a HiFi-GAN or RefineGAN pretrain can be "
-            "inherited almost whole. 'official' follows the SiFi-GAN paper and cannot."
+            "SiFi-GAN / SiFi-GAN+ only: the filter network's residual blocks. 'rvc' "
+            "matches this repository's HiFi-GAN decoder, so a HiFi-GAN or RefineGAN "
+            "pretrain can be inherited almost whole. 'official' follows the SiFi-GAN "
+            "paper and cannot."
         ),
         choices=["rvc", "official"],
         default="rvc",
@@ -2182,13 +2202,25 @@ def parse_arguments():
         "--sifigan_source_scale_init",
         type=float,
         help=(
-            "SiFi-GAN only: initial value of the learnable per-stage gain on the source "
-            "network's contribution to the filter network. The paper is equivalent to "
-            "1.0, but that warm starts 51%% worse than scratch from a HiFi-GAN model "
-            "while 0.03 warm starts 48%% better. The gain is learnable and settles on "
-            "its own within a few hundred epochs, so this only affects early training."
+            "SiFi-GAN / SiFi-GAN+ only: initial value of the learnable per-stage gain on "
+            "the source network's contribution to the filter network. The paper is "
+            "equivalent to 1.0, but that warm starts 51%% worse than scratch from a "
+            "HiFi-GAN model while 0.03 warm starts 48%% better. The gain is learnable "
+            "and settles on its own within a few hundred epochs, so this only affects "
+            "early training."
         ),
         default=0.03,
+    )
+    train_parser.add_argument(
+        "--mrf_harmonics_from_hifigan",
+        action="store_true",
+        help=(
+            "MRF HiFi-GAN only, when warm starting (pretrained or --reset_training) from "
+            "a HiFi-GAN generator: seed the harmonic merge with HiFi-GAN's fundamental "
+            "and zero harmonics, so the decoder starts as the same function as the "
+            "HiFi-GAN one instead of behind a freshly initialised merge. Ignored "
+            "otherwise."
+        ),
     )
     train_parser.add_argument(
         "--checkpointing",
@@ -2363,8 +2395,19 @@ def parse_arguments():
     )
 
     # Parser for 'tensorboard' mode
-    subparsers.add_parser(
+    tensorboard_parser = subparsers.add_parser(
         "tensorboard", help="Launch TensorBoard for monitoring training progress."
+    )
+    tensorboard_parser.add_argument(
+        "--lan",
+        action="store_true",
+        help="Listen on every network interface so other devices on the local network can open it.",
+    )
+    tensorboard_parser.add_argument(
+        "--port",
+        type=int,
+        help="Port to listen on (default: 6006, or the next free one).",
+        default=None,
     )
 
     # Parser for 'download' mode
@@ -2638,6 +2681,7 @@ def main():
                 sifigan_source_scale_init=args.sifigan_source_scale_init,
                 learning_rate=args.learning_rate,
                 reset_training=args.reset_training,
+                mrf_harmonics_from_hifigan=args.mrf_harmonics_from_hifigan,
                 c_mel=args.c_mel,
                 lr_decay=args.lr_decay,
                 g_lr_boost_multiplier=args.g_lr_boost_multiplier,
@@ -2662,7 +2706,7 @@ def main():
                 ratio=args.ratio,
             )
         elif args.mode == "tensorboard":
-            run_tensorboard_script()
+            run_tensorboard_script(lan=args.lan, port=args.port)
         elif args.mode == "download":
             run_download_script(
                 model_link=args.model_link,

@@ -1,8 +1,13 @@
 import os
 
+from rvc.train.vocoder_recipe import pretrained_dir_name
+
 
 def _pretrained_paths(vocoder, sample_rate):
-    base_path = os.path.join("rvc", "models", "pretraineds", f"{vocoder.lower()}")
+    # A recipe's own folder: "SiFi-GAN+" has to become a folder name without the "+".
+    base_path = os.path.join(
+        "rvc", "models", "pretraineds", pretrained_dir_name(vocoder)
+    )
     return (
         os.path.join(base_path, f"f0G{str(sample_rate)[:2]}k.pth"),
         os.path.join(base_path, f"f0D{str(sample_rate)[:2]}k.pth"),

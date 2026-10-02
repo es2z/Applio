@@ -69,7 +69,10 @@ cache_data_in_gpu = strtobool(sys.argv[11])
 overtraining_detector = strtobool(sys.argv[12])
 overtraining_threshold = int(sys.argv[13])
 cleanup = strtobool(sys.argv[14])
-vocoder = sys.argv[15]
+# A training recipe (see rvc/train/vocoder_recipe.py): the vocoder's own name, or one that
+# trains a vocoder's generator against another discriminator. `vocoder` below is always
+# the generator's.
+training_recipe = sys.argv[15]
 checkpointing = strtobool(sys.argv[16])
 # Appended after checkpointing so none of the existing positions shift. Only meaningful
 # for SiFi-GAN; a caller that passes the old 16 arguments gets the default.
@@ -80,6 +83,11 @@ sifigan_filter_resblock = sys.argv[17] if len(sys.argv) > 17 else "rvc"
 # inference load overwrites whatever the constructor put there. None means "not given",
 # which leaves Synthesizer's own default in place.
 sifigan_source_scale_init = float(sys.argv[18]) if len(sys.argv) > 18 else None
+# Appended last for the same reason. Only read by a warm start that ports a HiFi-GAN
+# generator into an MRF HiFi-GAN one; it seeds the harmonic merge and changes no shape.
+mrf_harmonics_from_hifigan = (
+    strtobool(sys.argv[19]) if len(sys.argv) > 19 else False
+)
 # experimental settings
 randomized = True
 d_lr_coeff = 1.0
@@ -89,10 +97,19 @@ bf16_adamw = False
 
 # Shared with rvc/train/reset_run.py, which has to build the same discriminator for the
 # checkpoints it installs ahead of a run.
-from rvc.train.vocoder_recipe import discriminator_version, uses_multiscale_mel_loss
+from rvc.train.vocoder_recipe import (
+    discriminator_version,
+    generator_vocoder,
+    sample_rate_error,
+    uses_multiscale_mel_loss,
+)
 
-disc_version = discriminator_version(vocoder)
-multiscale_mel_loss = uses_multiscale_mel_loss(vocoder)
+# Normalised before anything builds or records a generator: Synthesizer builds a HiFi-GAN
+# decoder for a name it does not know, and the checkpoints and the exported model record
+# the generator's vocoder, which is what inference and realtime rebuild from.
+vocoder = generator_vocoder(training_recipe)
+disc_version = discriminator_version(training_recipe)
+multiscale_mel_loss = uses_multiscale_mel_loss(training_recipe)
 
 current_dir = os.getcwd()
 
@@ -129,6 +146,13 @@ except FileNotFoundError:
     sys.exit(1)
 
 config.data.training_files = os.path.join(experiment_dir, "filelist.txt")
+
+# core.py refuses this before touching the folder; this covers train.py started directly,
+# and judges by the sample rate the folder was actually extracted at.
+_sample_rate_error = sample_rate_error(training_recipe, config.data.sample_rate)
+if _sample_rate_error:
+    print(f"Error: {_sample_rate_error}")
+    sys.exit(1)
 
 # CodenameRingFormer's decoder upsamples in the STFT frame domain rather than the waveform
 # domain, so its upsample rates, kernels and the two iSTFT settings all differ from the
@@ -246,6 +270,11 @@ def main():
     # Only the parent runs main(), so config.json is written once rather than raced over
     # by every rank. The values themselves were applied to the HParams at module scope.
     resolve_vocoder_model_config(experiment_dir, config.data.sample_rate, vocoder)
+    if training_recipe != vocoder:
+        print(
+            f"Training recipe {training_recipe}: the {vocoder} generator against "
+            f"discriminator {disc_version}"
+        )
     # Check sample rate
     wavs = glob.glob(
         os.path.join(os.path.join(experiment_dir, "sliced_audios"), "*.wav")
@@ -650,6 +679,7 @@ def run(
                 verbose=rank == 0,
                 target_identity=architecture_identity,
                 target_embedder=embedder_identity,
+                mrf_harmonics_from_hifigan=bool(mrf_harmonics_from_hifigan),
             )
 
         if pretrainD not in ("", "None"):

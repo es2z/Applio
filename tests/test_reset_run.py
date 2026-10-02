@@ -361,6 +361,25 @@ class ResetIntoAnotherVocoderTests(unittest.TestCase):
             json.loads((archive / "reset.json").read_text())["generator_transfer"]
         )
 
+    def test_the_harmonic_merge_is_seeded_only_when_asked(self):
+        merge = "dec.m_source.l_linear.weight"
+        archive = self.quiet(
+            reset_training_run,
+            self.root,
+            vocoder=self.TARGET,
+            mrf_harmonics_from_hifigan=True,
+        )
+        generator = self._installed("G")["model"]
+        self.assertTrue(
+            torch.equal(generator[merge][:, :1], self.source_generator[merge])
+        )
+        self.assertEqual(generator[merge][:, 1:].abs().sum().item(), 0.0)
+        self.assertEqual(generator["dec.conv_post.bias"].abs().sum().item(), 0.0)
+        self.assertIn(
+            "seeded from HiFi-GAN",
+            json.loads((archive / "reset.json").read_text())["generator_transfer"],
+        )
+
     def test_the_discriminator_follows_the_new_vocoder(self):
         self.quiet(reset_training_run, self.root, vocoder=self.TARGET)
         discriminator = self._installed("D")

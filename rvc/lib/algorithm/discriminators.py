@@ -29,6 +29,23 @@ DISCRIMINATOR_VERSIONS = {
         "resolutions": [[2048, 240, 1200], [4096, 480, 2400], [1024, 100, 480]],
         "window": "hann",
     },
+    # What SiFi-GAN+ trains against: v3's periods with the resolution discriminators made
+    # for 48 kHz. v3's resolutions are UnivNet's 24 kHz ones, so at 48 kHz each of them
+    # sees half the time span and twice the bandwidth per bin it was designed for; these
+    # are the same resolutions doubled, which is what codename-ringformer already uses,
+    # with the Hann window the official SiFi-GAN discriminator config uses.
+    #
+    # always_recorded: its weights are shaped exactly like v3's - a DiscriminatorR's
+    # shapes depend on neither its resolution nor its window - so the weights alone
+    # cannot tell the two apart. It was added after save_checkpoint started recording
+    # disc_version, so every checkpoint holding one says so, and one that records nothing
+    # is v3.
+    "v3-48k": {
+        "periods": [2, 3, 5, 7, 11],
+        "resolutions": [[2048, 240, 1200], [4096, 480, 2400], [1024, 100, 480]],
+        "window": "hann",
+        "always_recorded": True,
+    },
 }
 
 # The window every resolution discriminator of a version uses. Absent from v1 to v3, whose
