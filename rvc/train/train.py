@@ -138,6 +138,16 @@ model_info_path = os.path.join(experiment_dir, "model_info.json")
 try:
     with open(config_save_path, "r") as f:
         config = json.load(f)
+    # Which checkpoints to keep beyond the last one, and the evaluation that ranks them
+    # (rvc/train/checkpoint_policy.py). Read from the raw dict: a folder that never had a
+    # policy trains exactly as before.
+    from rvc.train.checkpoint_policy import POLICY_KEY, normalize_policy
+
+    try:
+        checkpoint_policy = normalize_policy(config.get(POLICY_KEY))
+    except ValueError as error:
+        print(f"Invalid checkpoint policy in {config_save_path}: {error}")
+        sys.exit(1)
     config = HParams(**config)
 except FileNotFoundError:
     print(
@@ -216,6 +226,9 @@ smoothed_loss_gen_history = []
 loss_disc_history = []
 smoothed_loss_disc_history = []
 lowest_value = {"step": 0, "value": float("inf"), "epoch": 0}
+# Set in run() on rank 0 when the checkpoint policy asks for anything.
+checkpoint_keeper = None
+evaluator = None
 training_file_path = os.path.join(experiment_dir, "training_data.json")
 
 avg_losses = {
@@ -402,6 +415,9 @@ def main():
                             os.remove(item_path)
                     os.rmdir(folder_path)
 
+        from rvc.train.checkpoint_policy import remove_checkpoints
+
+        remove_checkpoints(experiment_dir)
         print("Cleanup done!")
 
     continue_overtrain_detector(training_file_path)
@@ -552,6 +568,7 @@ def run(
         config.model.use_spectral_norm,
         checkpointing=checkpointing,
         version=disc_version,
+        sample_rate=config.data.sample_rate,
     )
 
     if torch.cuda.is_available():
@@ -706,6 +723,11 @@ def run(
         scaler.load_state_dict(scaler_dict)
 
     cache = GPUSampleCache()
+
+    global checkpoint_keeper, evaluator
+    if rank == 0:
+        checkpoint_keeper, evaluator = setup_checkpoint_policy(config, device, device_id)
+
     # collect the reference audio for tensorboard evaluation
     if os.path.isfile(os.path.join("logs", "reference", embedder_name, "feats.npy")):
         print("Using", embedder_name, "reference set for validation")
@@ -1304,6 +1326,11 @@ def train_and_evaluate(
                         vocoder=vocoder,
                     )
 
+        if checkpoint_keeper is not None:
+            keep_checkpoints(
+                epoch, done, net_g, net_d, writer, use_amp, overtrain_info, hps
+            )
+
         if done:
             # Clean-up process IDs from config.json
             pid_file_path = os.path.join(experiment_dir, "config.json")
@@ -1316,6 +1343,127 @@ def train_and_evaluate(
 
         with torch.no_grad():
             torch.cuda.empty_cache()
+
+
+def setup_checkpoint_policy(config, device, device_id):
+    """The keeper and evaluator for this run, or None for what it does not ask for.
+
+    An evaluation set that cannot be prepared turns evaluation off with a message rather
+    than stopping the run: the checkpoints it would have ranked are still saved.
+    """
+    from rvc.train.checkpoint_policy import CheckpointKeeper, policy_is_active
+
+    if not policy_is_active(checkpoint_policy):
+        return None, None
+    keeper = CheckpointKeeper(experiment_dir, model_name, checkpoint_policy)
+    print(f"Checkpoint policy: {checkpoint_policy}")
+    if not checkpoint_policy["eval_set"]:
+        return keeper, None
+
+    from rvc.train.evaluation import Evaluator, pick_auto_trained, prepare_eval_cache
+
+    eval_device = f"cuda:{device_id}" if device.type == "cuda" else str(device)
+    try:
+        manifest = prepare_eval_cache(
+            experiment_dir, checkpoint_policy["eval_set"], eval_device
+        )
+        auto_trained = []
+        if not any(entry["group"] == "trained" for entry in manifest["entries"]):
+            # Chosen once and recorded, so a resumed run keeps scoring the same clips.
+            auto_trained = keeper.state.get("auto_trained") or []
+            if not all(os.path.isfile(entry["wav"]) for entry in auto_trained):
+                auto_trained = pick_auto_trained(config.data.training_files)
+            keeper.state["auto_trained"] = auto_trained
+            keeper.save_state()
+        built = Evaluator(
+            manifest, auto_trained, config, eval_device, config.data.training_files
+        )
+    except Exception as error:
+        print(f"Evaluation is off for this run: {error}")
+        return keeper, None
+    if not built.items:
+        print(f"Evaluation set '{checkpoint_policy['eval_set']}' has no usable clips; evaluation is off.")
+        return keeper, None
+    counts = {}
+    for item in built.items:
+        counts[item["group"]] = counts.get(item["group"], 0) + 1
+    print(f"Evaluation set '{checkpoint_policy['eval_set']}': {counts}")
+    return keeper, built
+
+
+def keep_checkpoints(epoch, done, net_g, net_d, writer, use_amp, overtrain_info, hps):
+    """Carry out the checkpoint policy for this epoch (rank 0 only)."""
+    from rvc.train.checkpoint_policy import wants_eval, wants_export_every
+
+    global evaluator
+    policy = checkpoint_keeper.policy
+    model = net_g.module if hasattr(net_g, "module") else net_g
+
+    def export(path):
+        extract_model(
+            ckpt=model.state_dict(),
+            sr=config.data.sample_rate,
+            name=model_name,
+            model_path=path,
+            epoch=epoch,
+            step=global_step,
+            hps=hps,
+            overtrain_info=overtrain_info,
+            vocoder=vocoder,
+        )
+
+    def save_gd(g_path, d_path):
+        for net, path in ((net_g, g_path), (net_d, d_path)):
+            save_checkpoint(
+                net,
+                None,
+                config.train.learning_rate,
+                epoch,
+                path,
+                None,
+                embedder_identity,
+                architecture_identity,
+                include_optimizer=False,
+            )
+
+    if epoch % save_every_epoch == 0 or done:
+        checkpoint_keeper.save_last(epoch, global_step, export)
+    if wants_export_every(policy, epoch):
+        checkpoint_keeper.save_every(epoch, global_step, export, save_gd)
+    if evaluator is not None and wants_eval(policy, epoch, save_every_epoch):
+        started = ttime()
+        try:
+            scores, samples = evaluator.evaluate(model, use_amp, train_dtype)
+        except Exception as error:
+            import traceback
+
+            traceback.print_exc()
+            print(f"Evaluation failed at epoch {epoch} and is off for the rest of the run: {error}")
+            evaluator = None
+            return
+        score, rank = checkpoint_keeper.record_evaluation(
+            epoch, global_step, scores, export, save_gd
+        )
+        scalars = {f"eval/{key}": value for key, value in scores.items()}
+        if score is not None:
+            scalars["eval/score"] = score
+        summarize(
+            writer=writer,
+            global_step=global_step,
+            scalars=scalars,
+            audios={
+                f"eval_audio/{group}": torch.from_numpy(audio).unsqueeze(0)
+                for group, (_, audio) in samples.items()
+            },
+            audio_sample_rate=config.data.sample_rate,
+        )
+        shown = ", ".join(f"{key} {value:.4g}" for key, value in sorted(scores.items()))
+        kept = f", kept as best #{rank}" if rank else ""
+        score_text = f"{score:.4g}" if score is not None else "-"
+        print(
+            f"Evaluation at epoch {epoch}: {shown} | score {score_text}{kept} "
+            f"({ttime() - started:.1f} s)"
+        )
 
 
 def check_overtraining(smoothed_loss_history, threshold, epsilon=0.004):

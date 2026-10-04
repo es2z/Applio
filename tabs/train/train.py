@@ -1,4 +1,5 @@
 from tabs.components import fcn_profile_controls
+import json
 import os
 import shutil
 import sys
@@ -13,6 +14,14 @@ from rvc.train.extract.preparing_files import (
 )
 from rvc.train.lr_boost import DEFAULT_G_LR_BOOST_EPOCHS, DEFAULT_G_LR_BOOST_MULTIPLIER
 from rvc.train.vocoder_recipe import generator_vocoder
+from rvc.train.checkpoint_policy import CRITERIA, DEFAULT_POLICY, read_policy
+from rvc.train.evaluation import (
+    create_eval_set,
+    eval_set_path,
+    list_eval_sets,
+    open_folder,
+    summarize_eval_set,
+)
 
 from core import (
     run_extract_script,
@@ -337,6 +346,11 @@ def load_train_settings(model_name, sample_rate):
     settings = read_train_settings(model_path, int(sample_rate))
     settings = settings or DEFAULT_TRAIN_SETTINGS
     boost = read_generator_lr_boost_settings(model_path)
+    try:
+        policy = read_policy(model_path)
+    except ValueError:
+        policy = dict(DEFAULT_POLICY)
+    sets = list_eval_sets()
     return (
         gr.update(value=settings["learning_rate"]),
         gr.update(value=settings["c_mel"]),
@@ -345,7 +359,55 @@ def load_train_settings(model_name, sample_rate):
         gr.update(visible=boost["enabled"]),
         gr.update(value=boost["multiplier"]),
         gr.update(value=boost["epochs"]),
+        gr.update(value=policy["export_every"]),
+        gr.update(value=policy["gd_every"]),
+        gr.update(choices=sets, value=policy["eval_set"] if policy["eval_set"] in sets else None),
+        gr.update(value=policy["eval_every"]),
+        gr.update(value=policy["best_n"]),
+        gr.update(value=policy["best_criterion"]),
+        gr.update(value=policy["best_save_gd"]),
     )
+
+
+def _model_speaker_count(model_name):
+    """How many speakers a run has, for mapping an evaluation set's folders; None if unknown."""
+    info_path = os.path.join(now_dir, "logs", str(model_name or ""), "model_info.json")
+    try:
+        with open(info_path, encoding="utf-8") as f:
+            return int(json.load(f).get("speakers_id") or 1)
+    except (OSError, ValueError):
+        return None
+
+
+def eval_set_summary(set_name, model_name):
+    return summarize_eval_set(set_name, _model_speaker_count(model_name)) if set_name else ""
+
+
+def refresh_eval_sets(current, model_name):
+    sets = list_eval_sets()
+    value = current if current in sets else None
+    return gr.update(choices=sets, value=value), eval_set_summary(value, model_name)
+
+
+def create_eval_set_ui(name, model_name):
+    try:
+        path = create_eval_set(name)
+    except (ValueError, OSError) as error:
+        gr.Warning(str(error))
+        return gr.update(), gr.update(), gr.update()
+    gr.Info(f"Created {path}")
+    return (
+        gr.update(choices=list_eval_sets(), value=path.name),
+        eval_set_summary(path.name, model_name),
+        gr.update(value=""),
+    )
+
+
+def open_eval_set_folder(set_name):
+    if not set_name or not eval_set_path(set_name).is_dir():
+        gr.Warning("Select an evaluation set first.")
+        return
+    open_folder(eval_set_path(set_name))
 
 def train_tab():
     # Model settings section
@@ -381,7 +443,7 @@ def train_tab():
                 vocoder = gr.Radio(
                     label=i18n("Vocoder"),
                     info=i18n(
-                        "Choose the vocoder for audio synthesis:\n- **HiFi-GAN**: Default option, compatible with all clients.\n- **MRF HiFi-GAN**: Applio-only. The HiFi-GAN decoder with multi-receptive-field blocks and an eight-harmonic excitation in place of the single sine, trained against exactly the same discriminator and the same losses as HiFi-GAN, so the two are directly comparable. Warm start it from a **HiFi-GAN** model (the stock pretrained one will do): every tensor but the harmonic merge carries over. Measured on 16 clips before any optimizer step, mel L1 is 1.08 warm started against 1.98 from scratch, while the same pretrain into HiFi-GAN itself reaches 0.33 - all of that remaining gap is the harmonic merge, eleven parameters that cannot come across because HiFi-GAN mixes one harmonic and this mixes nine. Use the Initial Generator LR Boost.\n- **RefineGAN**: Applio-only, trained against an extra multi-resolution discriminator with a multi-scale mel loss. Without a RefineGAN pretrained model for the sample rate it warm starts from the HiFi-GAN one (or from a custom HiFi-GAN G/D): the encoders, flow and residual blocks are inherited and the rest of the decoder starts from scratch, so consider the Initial Generator LR Boost.\n- **SiFi-GAN**: Applio-only source-filter vocoder whose convolutions follow the pitch, trained against the same multi-resolution discriminator plus a loss that supervises its excitation signal. Its filter network is the HiFi-GAN decoder, so warm start it from a **HiFi-GAN** model (the stock pretrained one will do): measured over 50 epochs that is about 22% better on the mel loss than training from scratch. A RefineGAN model is not a useful starting point for it even at the same sample rate and embedder width, because only its residual blocks carry over. Only the source network starts from scratch either way, so consider the Initial Generator LR Boost.\n- **SiFi-GAN+**: 48 kHz only. The same generator as SiFi-GAN, with the same options and losses, trained against a discriminator whose multi-resolution part uses STFT resolutions made for 48 kHz (twice SiFi-GAN's, which come from 24 kHz UnivNet) and a Hann window. Warm started from a SiFi-GAN model it inherits the generator and the multi-period discriminator whole, and only the multi-resolution discriminators start from scratch; from a HiFi-GAN model it inherits what SiFi-GAN does. Exported models are ordinary SiFi-GAN models.\n- **CodenameRingFormer**: from the Codename RVC fork. A Conformer decoder that predicts a magnitude and a phase spectrum and inverts them with an iSTFT instead of upsampling all the way to samples, trained against its own discriminator (a scale discriminator, eight periods and three STFT resolutions) and an extra magnitude and phase loss. Only conv_pre and the speaker conditioning mean the same thing in a HiFi-GAN decoder, so most of this one starts from scratch whatever you warm start from: consider the Initial Generator LR Boost."
+                        "Choose the vocoder for audio synthesis:\n- **HiFi-GAN**: Default option, compatible with all clients.\n- **MRF HiFi-GAN**: Applio-only. The HiFi-GAN decoder with multi-receptive-field blocks and an eight-harmonic excitation in place of the single sine, trained against exactly the same discriminator and the same losses as HiFi-GAN, so the two are directly comparable. Warm start it from a **HiFi-GAN** model (the stock pretrained one will do): every tensor but the harmonic merge carries over. Measured on 16 clips before any optimizer step, mel L1 is 1.08 warm started against 1.98 from scratch, while the same pretrain into HiFi-GAN itself reaches 0.33 - all of that remaining gap is the harmonic merge, eleven parameters that cannot come across because HiFi-GAN mixes one harmonic and this mixes nine. Use the Initial Generator LR Boost.\n- **RefineGAN**: Applio-only, trained against an extra multi-resolution discriminator with a multi-scale mel loss. Without a RefineGAN pretrained model for the sample rate it warm starts from the HiFi-GAN one (or from a custom HiFi-GAN G/D): the encoders, flow and residual blocks are inherited and the rest of the decoder starts from scratch, so consider the Initial Generator LR Boost.\n- **SiFi-GAN**: Applio-only source-filter vocoder whose convolutions follow the pitch, trained against the same multi-resolution discriminator plus a loss that supervises its excitation signal. Its filter network is the HiFi-GAN decoder, so warm start it from a **HiFi-GAN** model (the stock pretrained one will do): measured over 50 epochs that is about 22% better on the mel loss than training from scratch. A RefineGAN model is not a useful starting point for it even at the same sample rate and embedder width, because only its residual blocks carry over. Only the source network starts from scratch either way, so consider the Initial Generator LR Boost.\n- **SiFi-GAN+**: 48 kHz only. The same generator as SiFi-GAN, with the same options and losses, trained against a discriminator whose multi-resolution part uses STFT resolutions made for 48 kHz (twice SiFi-GAN's, which come from 24 kHz UnivNet) and a Hann window. Warm started from a SiFi-GAN model it inherits the generator and the multi-period discriminator whole, and only the multi-resolution discriminators start from scratch; from a HiFi-GAN model it inherits what SiFi-GAN does. Exported models are ordinary SiFi-GAN models.\n- **CodenameRingFormer**: from the Codename RVC fork. A Conformer decoder that predicts a magnitude and a phase spectrum and inverts them with an iSTFT instead of upsampling all the way to samples, trained against its own discriminator (a scale discriminator, eight periods and three STFT resolutions) and an extra magnitude and phase loss. Only conv_pre and the speaker conditioning mean the same thing in a HiFi-GAN decoder, so most of this one starts from scratch whatever you warm start from: consider the Initial Generator LR Boost.\n- **RingFormer+**: The same generator as CodenameRingFormer, with the same losses, trained against CodenameRingFormer's discriminator plus the multi-scale sub-band CQT discriminator (MS-SB-CQT) the RingFormer paper trains against. Warm started from a CodenameRingFormer model it inherits the generator and the whole discriminator, and only the three CQT discriminators start from scratch; from a HiFi-GAN model it inherits what CodenameRingFormer does. Exported models are ordinary CodenameRingFormer models."
                     ),
                     choices=[
                         "HiFi-GAN",
@@ -390,6 +452,7 @@ def train_tab():
                         "SiFi-GAN",
                         "SiFi-GAN+",
                         "CodenameRingFormer",
+                        "RingFormer+",
                     ],
                     value="HiFi-GAN",
                     interactive=True,
@@ -944,6 +1007,109 @@ def train_tab():
                 interactive=True,
             )
 
+        with gr.Accordion(i18n("Checkpoints and Evaluation"), open=False):
+            with gr.Row():
+                export_every = gr.Number(
+                    label=i18n("Keep Exported Model Every (epochs)"),
+                    info=i18n(
+                        "Keep an exported model (the .pth used for inference) every N epochs in logs/<model_name>/checkpoints/every, separately from Save Every Epoch. 0 = off. The newest exported model is always kept in checkpoints/last."
+                    ),
+                    value=DEFAULT_POLICY["export_every"],
+                    minimum=0,
+                    precision=0,
+                    step=1,
+                    interactive=True,
+                )
+                gd_every = gr.Number(
+                    label=i18n("Also Keep G/D Every (x the interval above)"),
+                    info=i18n(
+                        "Also keep weights-only G/D (about 0.5 GB, a warm start source for a later run such as a fine-tune; not for resuming) every N exported models: 1 = with each one, 4 = every fourth. 0 = off."
+                    ),
+                    value=DEFAULT_POLICY["gd_every"],
+                    minimum=0,
+                    precision=0,
+                    step=1,
+                    interactive=True,
+                )
+            with gr.Row():
+                eval_set = gr.Dropdown(
+                    label=i18n("Evaluation Set"),
+                    info=i18n(
+                        "Audio in assets/eval_sets/<name> that each evaluated checkpoint is scored on. Leave empty for no evaluation. See the readme.txt in a new set for what goes where."
+                    ),
+                    choices=list_eval_sets(),
+                    value=None,
+                    interactive=True,
+                )
+                refresh_eval_sets_button = gr.Button(i18n("Refresh"))
+                open_eval_set_button = gr.Button(i18n("Open Folder"))
+            eval_set_info = gr.Textbox(
+                label=i18n("Evaluation Set Contents"),
+                value="",
+                lines=2,
+                interactive=False,
+            )
+            with gr.Row():
+                new_eval_set_name = gr.Textbox(
+                    label=i18n("New Evaluation Set"),
+                    placeholder=i18n("Name"),
+                    interactive=True,
+                )
+                create_eval_set_button = gr.Button(i18n("Create"))
+            with gr.Row():
+                eval_every = gr.Number(
+                    label=i18n("Evaluate Every (epochs)"),
+                    info=i18n("0 = at every save (Save Every Epoch)."),
+                    value=DEFAULT_POLICY["eval_every"],
+                    minimum=0,
+                    precision=0,
+                    step=1,
+                    interactive=True,
+                )
+                best_n = gr.Number(
+                    label=i18n("Keep Best N"),
+                    info=i18n(
+                        "Keep the N best exported models by evaluation score in checkpoints/best. 0 = off. Needs an evaluation set."
+                    ),
+                    value=DEFAULT_POLICY["best_n"],
+                    minimum=0,
+                    precision=0,
+                    step=1,
+                    interactive=True,
+                )
+                best_criterion = gr.Radio(
+                    label=i18n("Best By"),
+                    info=i18n(
+                        "mel: mel L1 on the held-out clips (or the trained ones without them). noise: how much more noise-like than the reference the voiced high band is. combined: both, each relative to the first evaluation of the run."
+                    ),
+                    choices=list(CRITERIA),
+                    value=DEFAULT_POLICY["best_criterion"],
+                    interactive=True,
+                )
+                best_save_gd = gr.Checkbox(
+                    label=i18n("Keep G/D With Each Best"),
+                    info=i18n(
+                        "Also keep weights-only G/D for each best checkpoint, so the best one can be used as a pretrained model for a fine-tune."
+                    ),
+                    value=DEFAULT_POLICY["best_save_gd"],
+                    interactive=True,
+                )
+
+            refresh_eval_sets_button.click(
+                fn=refresh_eval_sets,
+                inputs=[eval_set, model_name],
+                outputs=[eval_set, eval_set_info],
+            )
+            open_eval_set_button.click(fn=open_eval_set_folder, inputs=[eval_set], outputs=[])
+            create_eval_set_button.click(
+                fn=create_eval_set_ui,
+                inputs=[new_eval_set_name, model_name],
+                outputs=[eval_set, eval_set_info, new_eval_set_name],
+            )
+            eval_set.change(
+                fn=eval_set_summary, inputs=[eval_set, model_name], outputs=[eval_set_info]
+            )
+
         for component in (model_name, sampling_rate):
             component.change(
                 fn=load_train_settings,
@@ -956,6 +1122,13 @@ def train_tab():
                     g_lr_boost_settings,
                     g_lr_boost_multiplier,
                     g_lr_boost_epochs,
+                    export_every,
+                    gd_every,
+                    eval_set,
+                    eval_every,
+                    best_n,
+                    best_criterion,
+                    best_save_gd,
                 ],
             )
 
@@ -1040,6 +1213,13 @@ def train_tab():
                     g_lr_boost_epochs,
                     reset_training,
                     mrf_harmonics_from_hifigan,
+                    export_every,
+                    gd_every,
+                    eval_set,
+                    eval_every,
+                    best_n,
+                    best_criterion,
+                    best_save_gd,
                 ],
                 outputs=[train_output_info],
             ).then(fn=lambda: gr.update(value=False), outputs=[reset_training])

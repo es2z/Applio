@@ -32,5 +32,7 @@ templates
 /kushinada-hubert-large/
 assets/config.json.backup
 benchmarks/
+
 /temp/
 docs/dataset-prep-for-claude.md
+assets/eval_sets/

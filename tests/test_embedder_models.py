@@ -1013,6 +1013,15 @@ class TrainSettingsTest(unittest.TestCase):
             "g_lr_boost_multiplier",
             "g_lr_boost_epochs",
             "reset_training",
+            "mrf_harmonics_from_hifigan",
+            # The checkpoint policy (rvc/train/checkpoint_policy.py).
+            "export_every",
+            "gd_every",
+            "eval_set",
+            "eval_every",
+            "best_n",
+            "best_criterion",
+            "best_save_gd",
         ]
         names = list(inspect.signature(run_train_script).parameters)
         self.assertEqual(names[-len(expected) :], expected)

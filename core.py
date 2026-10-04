@@ -565,6 +565,15 @@ def run_train_script(
     g_lr_boost_epochs: int = None,
     reset_training: bool = False,
     mrf_harmonics_from_hifigan: bool = False,
+    # The checkpoint policy (rvc/train/checkpoint_policy.py). None leaves a value as the
+    # folder's config.json has it.
+    export_every: int = None,
+    gd_every: int = None,
+    eval_set: str = None,
+    eval_every: int = None,
+    best_n: int = None,
+    best_criterion: str = None,
+    best_save_gd: bool = None,
 ):
 
     # Before anything below writes to the folder or resets it. The folder's own config
@@ -608,6 +617,22 @@ def run_train_script(
         enabled=g_lr_boost,
         multiplier=g_lr_boost_multiplier,
         epochs=g_lr_boost_epochs,
+    )
+
+    from rvc.train.checkpoint_policy import apply_checkpoint_policy
+    from rvc.train.evaluation import eval_set_path
+
+    if eval_set and not eval_set_path(eval_set).is_dir():
+        raise ValueError(f"Evaluation set '{eval_set}' does not exist under assets/eval_sets.")
+    apply_checkpoint_policy(
+        os.path.join(logs_path, model_name),
+        export_every=None if export_every is None else int(export_every),
+        gd_every=None if gd_every is None else int(gd_every),
+        eval_set=None if eval_set is None else str(eval_set or ""),
+        eval_every=None if eval_every is None else int(eval_every),
+        best_n=None if best_n is None else int(best_n),
+        best_criterion=best_criterion,
+        best_save_gd=None if best_save_gd is None else bool(best_save_gd),
     )
 
     if pretrained == True:
@@ -2183,6 +2208,10 @@ def parse_arguments():
             # 48 kHz only. See rvc/train/vocoder_recipe.py.
             "SiFi-GAN+",
             "CodenameRingFormer",
+            # The CodenameRingFormer generator against its own discriminator plus the
+            # multi-scale sub-band CQT one from the RingFormer paper. See
+            # rvc/train/vocoder_recipe.py.
+            "RingFormer+",
         ],
         default="HiFi-GAN",
     )
@@ -2221,6 +2250,56 @@ def parse_arguments():
             "HiFi-GAN one instead of behind a freshly initialised merge. Ignored "
             "otherwise."
         ),
+    )
+    train_parser.add_argument(
+        "--export_every",
+        type=int,
+        help="Keep an exported model every N epochs under checkpoints/every (0 = off).",
+        default=None,
+    )
+    train_parser.add_argument(
+        "--gd_every",
+        type=int,
+        help=(
+            "Also keep weights-only G/D every export_every * N epochs (0 = off). They are "
+            "warm start sources for a later run, not resume checkpoints."
+        ),
+        default=None,
+    )
+    train_parser.add_argument(
+        "--eval_set",
+        type=str,
+        help="Evaluation set under assets/eval_sets to score checkpoints with ('' = none).",
+        default=None,
+    )
+    train_parser.add_argument(
+        "--eval_every",
+        type=int,
+        help="Evaluate every N epochs (0 = at every save).",
+        default=None,
+    )
+    train_parser.add_argument(
+        "--best_n",
+        type=int,
+        help="Keep the N best exported models by evaluation score (0 = off).",
+        default=None,
+    )
+    train_parser.add_argument(
+        "--best_criterion",
+        type=str,
+        choices=["mel", "noise", "combined"],
+        help=(
+            "What best means: held-out mel L1, the noise ratio, or both relative to the "
+            "run's first evaluation."
+        ),
+        default=None,
+    )
+    train_parser.add_argument(
+        "--best_save_gd",
+        type=lambda x: bool(strtobool(x)),
+        choices=[True, False],
+        help="Keep weights-only G/D with each best exported model.",
+        default=None,
     )
     train_parser.add_argument(
         "--checkpointing",
@@ -2682,6 +2761,13 @@ def main():
                 learning_rate=args.learning_rate,
                 reset_training=args.reset_training,
                 mrf_harmonics_from_hifigan=args.mrf_harmonics_from_hifigan,
+                export_every=args.export_every,
+                gd_every=args.gd_every,
+                eval_set=args.eval_set,
+                eval_every=args.eval_every,
+                best_n=args.best_n,
+                best_criterion=args.best_criterion,
+                best_save_gd=args.best_save_gd,
                 c_mel=args.c_mel,
                 lr_decay=args.lr_decay,
                 g_lr_boost_multiplier=args.g_lr_boost_multiplier,

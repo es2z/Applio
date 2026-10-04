@@ -350,6 +350,7 @@ def reset_training_run(
                 discriminator = MultiPeriodDiscriminator(
                     config["model"].get("use_spectral_norm", False),
                     version=target_disc_version,
+                    sample_rate=config["data"]["sample_rate"],
                 )
                 transfer = warm_start(discriminator, source, "D")
                 discriminator_transfer = transfer.summary(str(source))
@@ -401,9 +402,13 @@ def reset_training_run(
             "optimizer": "G and D reset",
             "settings": config["train"],
         }, indent=2), encoding="utf-8")
+        # checkpoints/ (rvc/train/checkpoint_policy.py) belongs to the run being archived:
+        # its best list and kept G/D were ranked and trained there. evaluation/ stays,
+        # because its cache is keyed by the clips and the extraction settings alone.
         outputs = [p for p in root.iterdir() if (
             p.suffix == ".pth" or p.name == "training_data.json"
             or p.name == "eval" or p.name.startswith("events.out.tfevents.")
+            or p.name == "checkpoints"
         )]
         for source in outputs:
             if source.is_symlink() or (hasattr(source, "is_junction") and source.is_junction()):

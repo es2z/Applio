@@ -216,7 +216,8 @@ def assert_resumable(experiment_dir, embedder_identity, architecture_identity=No
             and "vocoder" not in architecture_reason
         ):
             print(
-                "For a discriminator change alone (e.g. SiFi-GAN <-> SiFi-GAN+), tick the "
+                "For a discriminator change alone (e.g. SiFi-GAN <-> SiFi-GAN+, "
+                "CodenameRingFormer <-> RingFormer+), tick the "
                 "training reset (重みを引き継いで学習をリセット / --reset_training): it "
                 "keeps the generator and rebuilds the discriminator in the new layout, "
                 "inheriting every sub-discriminator the two layouts share."
@@ -237,6 +238,7 @@ def save_checkpoint(
     scaler,
     embedder_identity=None,
     architecture_identity=None,
+    include_optimizer=True,
 ):
     """
     Save the model and optimizer state to a checkpoint file.
@@ -253,6 +255,10 @@ def save_checkpoint(
         architecture_identity (dict): vocoder, sample_rate and disc_version, so a resume
             can refuse a different architecture and a warm start from this file knows
             what it is inheriting from.
+        include_optimizer (bool): False writes the weights and the identity stamps only,
+            about a third of the size. Such a file is a warm start source (warm_start
+            reads "model" alone), never a resume checkpoint, which is why
+            rvc/train/checkpoint_policy.py keeps them out of the folder resume reads.
     """
     state_dict = (
         model.module.state_dict() if hasattr(model, "module") else model.state_dict()
@@ -260,10 +266,11 @@ def save_checkpoint(
     checkpoint_data = {
         "model": state_dict,
         "iteration": iteration,
-        "optimizer": optimizer.state_dict(),
         "learning_rate": learning_rate,
-        "scaler": scaler.state_dict(),
     }
+    if include_optimizer:
+        checkpoint_data["optimizer"] = optimizer.state_dict()
+        checkpoint_data["scaler"] = scaler.state_dict()
     if embedder_identity:
         checkpoint_data.update(embedder_identity)
     if architecture_identity:

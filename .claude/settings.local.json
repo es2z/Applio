@@ -18,7 +18,8 @@
       "mcp__serena__think_about_whether_you_are_done",
       "mcp__serena__read_memory",
       "Bash(nvidia-smi --query-gpu=name,memory.total,memory.used,utilization.gpu --format=csv)",
-      "Bash(nvidia-smi --query-compute-apps=pid,used_memory --format=csv)"
+      "Bash(nvidia-smi --query-compute-apps=pid,used_memory --format=csv)",
+      "Bash(export PYTHONIOENCODING=utf-8)"
     ],
     "deny": [],
     "ask": []

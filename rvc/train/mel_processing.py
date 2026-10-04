@@ -65,7 +65,13 @@ def spec_to_mel_torch(spec, n_fft, num_mels, sample_rate, fmin, fmax):
     """
     global mel_basis
     dtype_device = str(spec.dtype) + "_" + str(spec.device)
-    fmax_dtype_device = str(fmax) + "_" + dtype_device
+    # Every parameter that shapes the filterbank is in the key. Keyed on fmax alone, a
+    # process that builds a 48 kHz (n_fft 2048) basis and then a 32 kHz (n_fft 1024) one
+    # - the in-training evaluation's tests, or any tool scoring two runs - reused the
+    # first and failed on the shape. A training run uses one setting, so it never hit this.
+    fmax_dtype_device = (
+        f"{fmax}_{fmin}_{n_fft}_{num_mels}_{sample_rate}_" + dtype_device
+    )
     if fmax_dtype_device not in mel_basis:
         mel = librosa_mel_fn(
             sr=sample_rate, n_fft=n_fft, n_mels=num_mels, fmin=fmin, fmax=fmax

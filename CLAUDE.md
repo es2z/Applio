@@ -951,6 +951,137 @@ is a memory optimisation over identical maths with nothing to save at 36 and 144
 Parameters, and so the state_dict, are the same either way. The regression test takes a
 gradient in fp16 on CUDA rather than only a forward.
 
+### RingFormer+ (CodenameRingFormer + MS-SB-CQT)
+The CodenameRingFormer generator - same decoder, same per-vocoder config, same spectral
+loss (`c_sd`), same single-scale mel loss - trained against codename-ringformer's
+discriminator **plus the multi-scale sub-band CQT discriminator (MS-SB-CQT, Gu et al.,
+arXiv 2311.14957)** the RingFormer paper trains against. Added to find out whether the
+metallic ring CodenameRingFormer models keep is the missing CQT discriminator: frame-wise
+iSTFT phase prediction is the setting arXiv 2404.17161 finds metallic artifacts in and finds
+CQT discriminators relieve, and the RingFormer paper's ablation loses quality without it.
+
+**It is a training recipe, not a vocoder**, exactly as SiFi-GAN+ is:
+`generator_vocoder("RingFormer+")` is `"CodenameRingFormer"`, `discriminator_version` is
+`"codename-ringformer-cqt"`, `pretrained_dir_name` is `ringformer-plus`. Every `G_*.pth`,
+`D_*.pth` and exported `.pth` says `vocoder: "CodenameRingFormer"`, so inference, realtime,
+export and the blender needed no change; only `disc_version` tells the two recipes'
+checkpoints apart. **32, 40 and 48 kHz all work**, with no `sample_rate_error` entry: the
+CQT discriminators resample to twice the sample rate first (BigVGAN's structure), which
+keeps the ~16.5 kHz top bin below Nyquist at every rate.
+
+**What the discriminator is.** `codename-ringformer-cqt` is codename-ringformer unchanged -
+scale, periods 2..37, the three Hann-window resolution discriminators - with three
+`DiscriminatorCQT` appended (sub-discriminators 12..14). Each runs a 9-octave CQT from
+32.70 Hz at twice the sample rate, gives each octave's bins its own first convolution and
+then a shared stack: hops `[512, 256, 256]`, bins per octave `[24, 36, 48]`, **filters 32**
+(RingFormer's `configs/vits2_ljs_ring.json` and Amphion's default; BigVGAN v2 uses 128, which
+measured 2.5x the discriminator time for the same step-0 losses). The paper's own layout is
+MPD(2,3,5,7,11) + MS-SB-CQT with no scale discriminator and no MRD; the MRD stays here
+because the CQT stops at ~16.5 kHz, so above that only the MRD looks at a 40 or 48 kHz model,
+and keeping all of codename-ringformer makes the CQT the *only* difference in an A/B.
+
+**`rvc/lib/algorithm/cqt_discriminator.py` is a port, not a dependency.** `ConstantQTransform`
+is nnAudio 0.3.4's `CQT2010v2` ("Complex", constant padding, librosa normalisation) and
+`DiscriminatorCQT` is BigVGAN's (`docs/licenses/nnAudio-LICENSE`, `BigVGAN-LICENSE`). Both
+verified **bit-identical** to the originals at 32/40/48 kHz on CPU and CUDA - transform,
+initialisation from the same seed, logits and feature maps - and
+`test_it_is_bit_identical_to_nnaudio` re-checks the transform whenever nnAudio is importable.
+Not taken as a dependency because nnAudio's kernels and torchaudio's Resample kernel are
+persistent buffers, which would put sample-rate-shaped kernels into every `D_*.pth`
+(bins_per_octave 36 is 512 taps at 64/80 kHz, 1024 at 96 kHz); here every buffer is
+non-persistent, so the state_dict holds only weights. The resampler stays
+`transforms.Resample` (kernel re-registered non-persistent) rather than
+`functional.resample`, which builds its kernel in the input's dtype instead of float64 and
+differs by up to 7e-7. Against librosa.cqt the magnitude agrees within 0.85% on tones from
+45 Hz to 7 kHz; the phase reference differs per bin, which a discriminator seeing real and
+fake through the same transform cannot notice. Easy to get wrong when porting, so pinned by
+tests: `conv_pres` and the first conv are plain and the rest weight-normed (BigVGAN's
+placement); BigVGAN's `z_amplitude` / `z_phase` hold the real and imaginary parts;
+conv_post's output is not a feature map.
+
+**The transform runs in fp32 with autocast off.** Resample and CQT are convolutions, which
+autocast runs in half precision even on an fp32 input - `x.float()` alone, which is enough for
+`DiscriminatorR`'s `torch.stft`, is not enough here. Measured against fp32: 8.4e-4 relative
+error under fp16, 6.5e-3 under bf16; with autocast off, bit-identical. The convolutions after
+the transform follow autocast like every other sub-discriminator.
+
+**The segment is shorter than the low octaves' windows, deliberately.** A CQT bin's window is
+Q/f: for bins_per_octave 48 that is 2.10 s at 32.7 Hz, 1.05 s at 65 Hz, 0.53 s at 131 Hz and
+0.26 s at 262 Hz, against a 0.36 s segment at 48 kHz (0.32 s at 40k, 0.40 s at 32k). So the
+lowest octaves mostly see zero padding - 83% of the 32.7 Hz window's span; by Hann weight,
+averaged over frames, 42 / 66 / 83 / 91% of the window lands on signal in the four lowest
+octaves at 48k bins_per_octave 48, and 99% from 1 kHz up. Left as the paper has it, because
+**RingFormer itself trains on 8192 samples at 22.05 kHz = 0.372 s**, real and fake see the
+same padding, and the region metallic artifacts live in is fully covered. Raising fmin to
+fit (~191 Hz for bins_per_octave 48) would drop male F0 from the CQT; a longer segment for
+RingFormer+ alone (3-6x to cover the low octaves) would change what the generator trains on
+and void the A/B.
+
+**Loss weights are unchanged**: the CQT discriminators' adversarial and feature-matching
+terms simply join the sums, as in RingFormer and BigVGAN. Measured before any step on 32
+real clips from the 48k `pretrain_48k_codename_1100_rmvpe112ali_kushinada` G/D, as the norm
+of each term's gradient on y_hat: mel 288, the twelve trained sub-discriminators' fm 70 and
+adv 51, the three fresh CQT discriminators' fm **0.013** and adv **0.0001**. So the fresh
+CQT discriminators do not knock an inherited generator off at step 0. Trained
+sub-discriminators sit at adv 0.28-0.69 and fm 0.4-2.7 each, so once the CQT ones are trained
+the adv / fm sums should grow by roughly a fifth; in RingFormer they are 3 of 8
+sub-discriminators, here 3 of 15. (Same measurement, existing behaviour, not acted on: the
+phase term of CodenameRingFormer's `sd` loss has a gradient norm on y_hat of ~60,000, ~200x
+the mel loss's, because the unit-normalised phase difference scales as 1/|X| in quiet bins.
+RingFormer has the same loss.)
+
+**An A/B against CodenameRingFormer is fair from the first step.** The CQT discriminators are
+built on `torch.random.fork_rng(devices=[])`, so with the same seed both recipes initialise
+every shared sub-discriminator identically *and* leave the CPU generator in the same state
+afterwards; the CQT discriminators' own initialisation still follows the seed.
+
+Warm starts (`tests/test_ringformer_plus.py` pins each):
+
+| from -> to | G | D |
+|---|---|---|
+| CodenameRingFormer -> RingFormer+ | 100% | 99.60%: all twelve shared; the three CQT fresh |
+| HiFi-GAN (v2) -> RingFormer+ | what CodenameRingFormer gets (40.5% at 48k/1024) | 99.21%: S + all eight periods; the three R and three CQT fresh, nothing dropped |
+| RingFormer+ -> CodenameRingFormer | 100% | 100%: the three CQT dropped |
+
+The warm start reads a CQT discriminator off its `conv_pres` (its first conv has no weight
+norm, so the usual `original1` probe finds nothing), describes it as
+`("Q", hop_length, n_octaves, bins_per_octave, fmin)` - no sample rate, like `P` and `R`,
+because a discriminator never crosses sample rates without its generator, which refuses
+to - and needs no `always_recorded`: no other layout has one.
+
+**Resume and reset** behave as for SiFi-GAN <-> SiFi-GAN+: `assert_resumable` refuses
+"discriminator version codename-ringformer -> codename-ringformer-cqt" and suggests the reset,
+which keeps G bit for bit and rebuilds D in the recipe's layout through the common warm
+start, at the folder's own sample rate (`MultiPeriodDiscriminator` now takes `sample_rate`,
+required only by a layout with CQT discriminators).
+
+**Cost: +22% step time and +2.2 GiB at batch 24.** Whole training steps on an RTX 4090,
+measured the way train.py runs them (fp16 autocast + GradScaler, cuDNN autotuned, batch 24,
+the real 9734-line 48k kushinada-hubert-large `pretrain_48k_codename_1100_rmvpe112ali_kushinada`
+folder through the real DataLoader, warm started from its G/D), each run a fresh process,
+alternating, median of 300 steps after 20 of warm-up:
+
+| | step (median) | peak allocated / reserved |
+|---|---|---|
+| CodenameRingFormer | 422.0 / 423.6 ms | 12.73 / 14.12 GiB |
+| RingFormer+ | 519.1 / 515.3 ms | 14.89 / 16.43 GiB |
+
+For scale, the discriminator alone (48k, batch 24, real and fake forward + backward):
+codename-ringformer 170.5 ms fp16, the three CQT discriminators 65.1 ms on top of it, of
+which the transform is 13.6 ms. With filters 128 they measured 253.7 ms instead.
+
+**Removing one of the two later.** To drop RingFormer+: its Training tab choice and help
+entry (en_US / ja_JA keys too), the `--vocoder` choice, `RINGFORMER_PLUS` with its three
+table rows in `vocoder_recipe.py`, this section and `tests/test_ringformer_plus.py`. Keep
+`codename-ringformer-cqt` and `cqt_discriminator.py` for as long as any such D may be warm
+started from or reset; after that they, the `Q` branches and the two licence files can go.
+`sample_rate` on `MultiPeriodDiscriminator` is generic and can stay. To drop
+CodenameRingFormer's own recipe instead: remove "CodenameRingFormer" from the Training tab
+and `--vocoder` choices only - the name stays as the generator's - or point
+`CODENAME_RINGFORMER` at `codename-ringformer-cqt` in `_DISCRIMINATOR_VERSIONS` and remove the
+`+` (old folders are then refused on resume and move over with the reset). Keep
+`codename-ringformer` itself as a warm start source.
+
 ### MRF HiFi-GAN at 32k / 40k / 48k
 A fifth vocoder, and the closest one to HiFi-GAN. The generator
 (`rvc/lib/algorithm/generators/hifigan_mrf.py`) has been in the tree since upstream
@@ -1123,7 +1254,8 @@ contribute. It works from meaning, not from shape equality:
   v3's `[2048, 240, 1200]` and this layout's are not confused for one another. The weights
   carry neither resolution nor window, so layouts that differ only there (v3 and v3-48k)
   are told apart by the recorded `disc_version`; a D that records none is never a layout
-  marked `always_recorded`.
+  marked `always_recorded`. A CQT discriminator (`Q`, RingFormer+ only) matches by hop,
+  octaves, bins per octave and fmin; from any other layout the three start fresh.
 - **Always weights only.** Optimizer and scaler state never cross a warm start.
 - **Resume guard.** `assert_resumable` now also refuses a `G_*.pth` whose vocoder (from its
   keys) or recorded sample rate / discriminator version differs from the run. And
@@ -1201,6 +1333,69 @@ the unboosted ones, the boost is decided from the absolute epoch number (a resum
 restarts nor loses it), and with it off nothing touches the optimizer. Unticking a
 previously enabled boost writes epochs 0; unticking on a config that never had one leaves
 the file untouched. TensorBoard's `learning_rate` shows the effective generator rate.
+
+### Checkpoint policy and evaluation sets
+Training tab > `Checkpoints and Evaluation` (`--export_every --gd_every --eval_set
+--eval_every --best_n --best_criterion --best_save_gd`). Before this a run could keep the
+last G/D or every one of them, and exported models only at the same moments, while
+quality swings between checkpoints - measured on RingFormer+, a quiet 60e between noisier
+50e and 55e by 20-25% - so the checkpoint worth fine-tuning from was usually gone.
+
+- **What is kept** (`rvc/train/checkpoint_policy.py`), all under `logs/<model>/checkpoints/`:
+  `last/` the newest exported model, replaced at every save; `every/` an exported model
+  every `export_every` epochs plus weights-only G/D every `export_every * gd_every`;
+  `best/` the `best_n` best exported models by evaluation score, with weights-only G/D
+  when `best_save_gd`. `state.json` records every evaluation, the best ranking, what was
+  kept and the auto-picked trained clips, so a resume continues the ranking.
+- **Never next to the resume checkpoints.** `latest_checkpoint_path()` and
+  `reset_run.latest()` take the root `G_*.pth` with the largest number in its name, so a
+  kept G/D in the root would be resumed from. The root `G_2333333.pth` / `D_2333333.pth`
+  stay exactly as before. The training reset moves `checkpoints/` into the archive and
+  Fresh Training deletes it; `evaluation/` (the clip cache) survives both.
+- **Kept G/D are weights only** (`save_checkpoint(..., include_optimizer=False)`, about a
+  third of the size): warm starts read `model` alone, and the identity stamps are kept,
+  so they work as Custom Pretrained G/D. They cannot be resumed from.
+- **Stored as `config.json["checkpoint_policy"]`**, written by `core.run_train_script`
+  and read by train.py, like the learning rate; not in `TRAIN_SETTING_KEYS`, and train.py's
+  positional arguments did not grow. A folder without the key trains exactly as before;
+  a config that never had one is not touched when every value is the default.
+
+**Evaluation sets** (`rvc/train/evaluation.py`) live in `assets/eval_sets/<name>/`
+(git-ignored, they are the user's audio), created from the tab with a readme.txt:
+`trained/[<speaker>/]` audio that is in the training data, `heldout/[<speaker>/]` the same
+speakers not trained on (must stay out of every stage's data - nothing can detect the
+overlap after preprocessing renames and slices it), `convert/` other people. A run with
+one speaker scores everything as speaker 0; with several, the folder number is the
+speaker, files directly in the folder are 0, and an unknown number is skipped with a
+warning. An empty `trained/` falls back to clips picked deterministically from the
+filelist and recorded in state.json.
+
+- **Clips become exactly what the run was trained on**: the same `load_audio`, 48 Hz
+  high-pass, "pre" normalisation and soxr_vhq as `PreProcess` (verified equal within 1e-6
+  against `PreProcess.process_audio`), capped at 9 s (the loader's 900 frames), then the
+  run's own embedder / output layer / F0 method / coarse range from `model_info.json`
+  through `FeatureInput` and `embedder_forward`. Cached per clip in
+  `evaluation/cache/<sha256 of file + spec>.npz` on rank 0 at the start of a run, so a
+  changed setting re-extracts and nothing else does. A custom embedder (path not
+  recorded) turns evaluation off with a message rather than stopping the run.
+- **`FeatureInput` is imported through `_feature_input_class()`**: extract.py calls
+  `mp.set_start_method("spawn", force=True)` at import, which inside a Linux training
+  process would also switch the DataLoader's workers to spawn; the previous method is
+  put back.
+- **Metrics**, generated with fixed seeds inside `torch.random.fork_rng`, so a score
+  depends only on the weights and the run's own random stream is untouched:
+  `A_/B_mel` mel L1 with the training mel settings; `A_/B_/C_noise` the median spectral
+  flatness above 4 kHz over voiced frames, generated divided by reference (the original
+  for A/B, the input for C); `C_f0_cents` / `C_vuv_mismatch` from re-extracting the
+  output's F0 with the run's own method. C is converted to every speaker that has
+  trained/held-out clips (else 0), its F0 moved to that speaker's training F0 median, or
+  by `convert/transpose.json` semitones per file.
+- **Best by** `mel` (B, else A), `noise` (mean of B and C, else A) or `combined` (both,
+  each divided by the run's first evaluation, summed). Logged as `eval/*` scalars and one
+  `eval_audio/<group>` clip per group, which unlike the old `gen/audio_*` sample is the
+  same clip and seed every time and so comparable across epochs.
+- An evaluation failure turns evaluation off for the rest of the run and keeps
+  training; the checkpoints it would have ranked are still saved by last / every.
 
 ### TorchCompile during training (extraction only)
 `training_compile_extraction` (`assets/config.json`, default off) compiles the embedder

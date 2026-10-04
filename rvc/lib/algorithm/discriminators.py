@@ -46,6 +46,22 @@ DISCRIMINATOR_VERSIONS = {
         "window": "hann",
         "always_recorded": True,
     },
+    # What RingFormer+ trains against: codename-ringformer unchanged, plus the
+    # multi-scale sub-band CQT discriminator (MS-SB-CQT, Gu et al.) the RingFormer paper
+    # trains against, at RingFormer's and BigVGAN's three scales - [hop_length, octaves,
+    # bins per octave], the hop at twice the sample rate. The MRD stays because the CQT
+    # stops at ~16.5 kHz, so above that only the MRD looks at a 40 or 48 kHz model, and
+    # because keeping every codename-ringformer sub-discriminator makes the CQT the only
+    # difference between the two recipes. See rvc/lib/algorithm/cqt_discriminator.py.
+    #
+    # Not always_recorded: no other version has a CQT discriminator, so its weights alone
+    # tell it apart.
+    "codename-ringformer-cqt": {
+        "periods": [2, 3, 5, 7, 11, 17, 23, 37],
+        "resolutions": [[2048, 240, 1200], [4096, 480, 2400], [1024, 100, 480]],
+        "window": "hann",
+        "cqts": [[512, 9, 24], [256, 9, 36], [256, 9, 48]],
+    },
 }
 
 # The window every resolution discriminator of a version uses. Absent from v1 to v3, whose
@@ -57,11 +73,19 @@ def discriminator_layout(version):
     """Descriptors of a version's sub-discriminators, in ModuleList order."""
     spec = DISCRIMINATOR_VERSIONS[version]
     window = spec.get("window", DEFAULT_RESOLUTION_WINDOW)
-    return (
+    layout = (
         [("S",)]
         + [("P", period) for period in spec["periods"]]
         + [("R", tuple(resolution), window) for resolution in spec["resolutions"]]
     )
+    if spec.get("cqts"):
+        from rvc.lib.algorithm.cqt_discriminator import CQT_FMIN
+
+        layout += [
+            ("Q", hop_length, n_octaves, bins_per_octave, CQT_FMIN)
+            for hop_length, n_octaves, bins_per_octave in spec["cqts"]
+        ]
+    return layout
 
 
 def describe_discriminator(discriminator):
@@ -73,6 +97,11 @@ def describe_discriminator(discriminator):
         # codename-ringformer, and the two look at a different spectrogram, so a warm
         # start must not treat them as the same discriminator.
         return ("R", tuple(discriminator.resolution), discriminator.window)
+    # A DiscriminatorCQT carries its own, so that describing the other versions' layouts
+    # never imports it (and torchaudio).
+    descriptor = getattr(discriminator, "descriptor", None)
+    if descriptor is not None:
+        return descriptor
     return ("S",)
 
 
@@ -90,6 +119,8 @@ class MultiPeriodDiscriminator(torch.nn.Module):
             Defaults to False.
         version (str): Which set of sub-discriminators to build, see
             DISCRIMINATOR_VERSIONS. Defaults to "v2".
+        sample_rate (int): The training sample rate. Only read by, and required for, a
+            version with CQT discriminators, whose transform depends on it.
     """
 
     def __init__(
@@ -97,6 +128,7 @@ class MultiPeriodDiscriminator(torch.nn.Module):
         use_spectral_norm: bool = False,
         checkpointing: bool = False,
         version: str = "v2",
+        sample_rate: int = None,
     ):
         super().__init__()
         if version not in DISCRIMINATOR_VERSIONS:
@@ -106,8 +138,14 @@ class MultiPeriodDiscriminator(torch.nn.Module):
         periods = spec["periods"]
         resolutions = spec["resolutions"]
         window = spec.get("window", DEFAULT_RESOLUTION_WINDOW)
+        cqts = spec.get("cqts", [])
+        if cqts and sample_rate is None:
+            raise ValueError(
+                f"Discriminator version '{version}' has CQT discriminators, which need "
+                "the sample rate"
+            )
         self.checkpointing = checkpointing
-        self.discriminators = torch.nn.ModuleList(
+        discriminators = (
             [DiscriminatorS(use_spectral_norm=use_spectral_norm)]
             + [DiscriminatorP(p, use_spectral_norm=use_spectral_norm) for p in periods]
             + [
@@ -115,6 +153,28 @@ class MultiPeriodDiscriminator(torch.nn.Module):
                 for r in resolutions
             ]
         )
+        if cqts:
+            from rvc.lib.algorithm.cqt_discriminator import DiscriminatorCQT
+
+            # Built on a fork of the CPU generator, so building them leaves the global
+            # stream exactly where the same layout without them leaves it. With the same
+            # seed, a run against codename-ringformer-cqt then initialises every
+            # sub-discriminator the two layouts share identically to, and draws the same
+            # random numbers afterwards as, a run against codename-ringformer: what makes
+            # an A/B between them fair from the first step. Their own initialisation
+            # still follows the run's seed, from where the shared ones left the stream.
+            with torch.random.fork_rng(devices=[]):
+                discriminators += [
+                    DiscriminatorCQT(
+                        sample_rate,
+                        hop_length,
+                        n_octaves,
+                        bins_per_octave,
+                        use_spectral_norm=use_spectral_norm,
+                    )
+                    for hop_length, n_octaves, bins_per_octave in cqts
+                ]
+        self.discriminators = torch.nn.ModuleList(discriminators)
 
     def forward(self, y, y_hat):
         y_d_rs, y_d_gs, fmap_rs, fmap_gs = [], [], [], []

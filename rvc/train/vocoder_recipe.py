@@ -4,9 +4,10 @@ train.py decides this for the run it is about to start, and reset_run.py has to 
 same thing for the checkpoints it installs ahead of that run, so it lives in one place
 rather than in two that can drift apart.
 
-What the Training tab and --vocoder offer is a training recipe. For every vocoder but one
-the recipe is just the vocoder's name; SiFi-GAN+ is the SiFi-GAN generator trained against
-a different discriminator. Everything that builds or describes a generator works with
+What the Training tab and --vocoder offer is a training recipe. For every vocoder but two
+the recipe is just the vocoder's name; SiFi-GAN+ is the SiFi-GAN generator and RingFormer+
+the CodenameRingFormer generator, each trained against a different discriminator.
+Everything that builds or describes a generator works with
 generator_vocoder(recipe), so a recipe never reaches Synthesizer, which would quietly build
 a HiFi-GAN decoder for a name it does not know.
 """
@@ -21,9 +22,17 @@ DEFAULT_DISCRIMINATOR_VERSION = "v2"
 # "SiFi-GAN", and only their disc_version tells the two recipes apart.
 SIFIGAN_PLUS = "SiFi-GAN+"
 
+# CodenameRingFormer against its own discriminator plus the multi-scale sub-band CQT one
+# the RingFormer paper trains against ("codename-ringformer-cqt"). Everything else -
+# generator, decoder config, spectral loss, single-scale mel loss - is CodenameRingFormer's,
+# and checkpoints and exported models record "CodenameRingFormer"; only disc_version tells
+# the two recipes apart.
+RINGFORMER_PLUS = "RingFormer+"
+
 # The generator each recipe trains, when it is not the recipe's own name.
 _GENERATOR_VOCODERS = {
     SIFIGAN_PLUS: SIFIGAN,
+    RINGFORMER_PLUS: CODENAME_RINGFORMER,
 }
 
 # Upstream Applio trains RefineGAN against the v3 discriminator (five periods plus three
@@ -42,13 +51,16 @@ _DISCRIMINATOR_VERSIONS = {
     SIFIGAN: "v3",
     SIFIGAN_PLUS: "v3-48k",
     CODENAME_RINGFORMER: "codename-ringformer",
+    RINGFORMER_PLUS: "codename-ringformer-cqt",
 }
 # Keyed by generator: a recipe that trains the SiFi-GAN generator trains it with SiFi-GAN's
 # losses.
 _MULTISCALE_MEL_LOSS = (REFINEGAN, SIFIGAN)
 
 # Recipes that only make sense at some sample rates. v3-48k's resolutions are v3's
-# doubled for 48 kHz; at 32 or 40 kHz they would be neither v3 nor 48 kHz's.
+# doubled for 48 kHz; at 32 or 40 kHz they would be neither v3 nor 48 kHz's. RingFormer+
+# needs no entry: its CQT discriminators resample to twice the sample rate before the
+# transform, which keeps its ~16.5 kHz top bin below Nyquist at 32, 40 and 48 kHz alike.
 _SAMPLE_RATES = {
     SIFIGAN_PLUS: (48000,),
 }
@@ -56,6 +68,7 @@ _SAMPLE_RATES = {
 # Folder under rvc/models/pretraineds/ for a recipe whose name does not make one.
 _PRETRAINED_DIRS = {
     SIFIGAN_PLUS: "sifi-gan-plus",
+    RINGFORMER_PLUS: "ringformer-plus",
 }
 
 

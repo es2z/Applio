@@ -41,9 +41,17 @@ SiFi-GAN にはマルチスケール mel 損失（さらに 3.0 で割る）を�
 表示は同じ `loss_avg_50/g/mel` でも中身が別の関数なので、大小に意味がない。`fm` も判別器の版
 （HiFi-GAN は v2、RefineGAN / SiFi-GAN は v3、SiFi-GAN+ は v3-48k）が違うと比較できない。
 SiFi-GAN と SiFi-GAN+ は mel 損失が同じ関数なので `mel` は比べてよいが、判別器が違うので
-`fm` / `g_adv` / `d_adv` は比べられない。
+`fm` / `g_adv` / `d_adv` は比べられない。CodenameRingFormer と RingFormer+ も同じで、`mel` と
+`sd` は同じ関数なので比べてよいが、RingFormer+ は判別器に CQT 識別器が 3 つ多く（12 → 15）、
+`fm` / `g_adv` / `d_adv` はその分の和なので比べられない。
 
 - **`kl` は比較できる**。vocoder に依らず `kl_loss × c_kl` で、`c_kl` は全 config で 1.0。
+- **評価セットを使った学習には `eval/` の指標がある**（`rvc/train/evaluation.py`）。学習データの
+  損失ではなく、決まった音声を乱数固定で生成して測るので、エポック間でも、vocoder や判別器が違う
+  学習の間でも比べられる（同じ評価セットを使った場合）。`eval/B_mel`（heldout の mel L1）と
+  `eval/B_noise`・`eval/C_noise`（有声部分の高域が元よりどれだけノイズっぽいか。1 で元と同じ）が
+  主な指標で、止めどきやベストの判断はこちらで行う。`eval/A_*` は学習データの音声なので、下がり
+  続けるのが普通。順位と各回の値は `logs/<run>/checkpoints/state.json` にある。
 - `mel` を跨いで比べたいときは、両方のモデルを読み込んで**同じクリップに同じ指標**を当てる。
   1 ステップも回さずに測れる（`logs/<run>/filelist.txt` の特徴量をそのまま流し、出力と正解の
   mel L1 を取る）。これは warm start が効いているかの判定にも使える唯一まともな道具でもある。

@@ -1239,6 +1239,12 @@ def _discriminator_kind(weight):
 def _describe_discriminator_descriptor(descriptor):
     if descriptor[0] == "P":
         return f"period {descriptor[1]} discriminator"
+    if descriptor[0] == "Q":
+        _, hop_length, n_octaves, bins_per_octave, fmin = descriptor
+        return (
+            f"CQT discriminator (hop {hop_length}, {n_octaves} octaves x "
+            f"{bins_per_octave} bins from {fmin:g} Hz)"
+        )
     if descriptor[0] == "R":
         # The same resolution can appear under two windows (v3 and v3-48k both have
         # [2048, 240, 1200]), and without the window a summary would list it as both
@@ -1267,6 +1273,11 @@ def _source_discriminator_layout(transfer, checkpoint):
     source = transfer.source
     kinds = []
     while any(key.startswith(f"discriminators.{len(kinds)}.") for key in source):
+        # A CQT discriminator's first conv is not weight-normed (BigVGAN's layout), so it
+        # has no original1 to read a kind off; its per-octave conv_pres give it away.
+        if f"discriminators.{len(kinds)}.conv_pres.0.weight" in source:
+            kinds.append("Q")
+            continue
         kinds.append(
             _discriminator_kind(
                 source.get(
