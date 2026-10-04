@@ -1148,6 +1148,47 @@ Unlike `learning_rate`, a changed `lr_decay` does take effect on a resume, becau
 itself comes back from the optimizer state in `G_*.pth` / `D_*.pth`. The first resumed
 epoch still runs at the saved learning rate, and the new decay applies from the next one.
 
+### Dataset preparation and pretraining
+Two documents, in Japanese, hold how datasets are prepared and pretrains are made:
+`docs/dataset-prep-for-claude.md` (what Claude runs when asked to inspect or prepare a
+dataset, the decision thresholds, and the pitfalls measured along the way) and
+`docs/pretrain-manual-guide.md` (the Applio settings the user sets by hand for a pretrain
+and the fine-tune after it). The tools they use:
+- `tools/inspect_dataset.py <dir> [--simulate N] [--pitch N]` reads a dataset folder and
+  reports per speaker: what preprocess will skip or merge (non-integer folders, files in
+  the root), level, edge silence, clipping, files too short to train, high-band content,
+  and whether stereo files are binaural.
+- `tools/trim_edge_silence.py <in> <out> --keep 0.1 [--stereo louder]` writes a copy with
+  the leading and trailing silence cut to 0.1 s, bit for bit otherwise, with levels read
+  from a 100 Hz high-passed copy so sub-300 Hz rumble is not taken for sound.
+  `--stereo louder` keeps only the louder channel of each stereo file: preprocess averages
+  channels, and on binaural sources (ears up to ~0.8 ms apart) that average is a comb
+  filter - measured, 35% of one speaker's files got notches deeper than -10 dB.
+
+### The GPU data cache holds samples, not batches
+`cache_data_in_gpu` used to keep the padded batches the first epoch produced and only
+shuffle their order afterwards, while the uncached path asks `DistributedBucketSampler`
+for new batches every epoch. So turning on a speed option changed what was trained: the
+first epoch's batch composition was frozen for the whole run, and so were the clips the
+sampler repeats to fill each bucket to a multiple of the batch size. Measured on the 791
+clip `naru_20260929_deka_..._gaps_filled` folder, those repeats are 30 clips (4%) at batch
+8, 54 (8%) at 16 and **96 (13%) at 24** - with the cache, the same ones trained twice every
+epoch, forever.
+
+`GPUSampleCache` (`rvc/train/data_utils.py`) now holds every drawable sample unpadded on
+the GPU and yields each epoch's batches from the sampler, padded on the GPU by the same
+`TextAudioCollateMultiNSFsid`, which now pads on whatever device its samples are on.
+`tests/test_gpu_sample_cache.py` checks that every epoch's cached batches equal the
+DataLoader's tensor for tensor, that the collate is unchanged on the CPU, and that epochs
+really differ. Dropping the padding also shrinks the cache. With several GPUs each rank now
+caches the whole set rather than its own share, because the sampler deals samples to
+ranks afresh every epoch.
+
+Unrelated but visible in the same measurement: 71 of that folder's 793 filelist entries
+are never trained on, cached or not - `DistributedBucketSampler` drops anything outside its
+50..900 length boundaries, which at 48 kHz float32 is clips under 0.375 s (and over
+6.75 s).
+
 ### Initial Generator LR Boost
 Training tab > Advanced: `Initial Generator LR Boost`, with `Generator LR Multiplier`
 (default 3.0) and `Boost Epochs` (default 10) shown only while ticked. Stored as

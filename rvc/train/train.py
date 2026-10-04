@@ -7,7 +7,7 @@ import glob
 import json
 from collections import deque
 from distutils.util import strtobool
-from random import randint, shuffle
+from random import randint
 from time import time as ttime
 
 import numpy as np
@@ -459,6 +459,7 @@ def run(
     # Create datasets and dataloaders
     from data_utils import (
         DistributedBucketSampler,
+        GPUSampleCache,
         TextAudioCollateMultiNSFsid,
         TextAudioLoaderMultiNSFsid,
     )
@@ -704,7 +705,7 @@ def run(
     if len(scaler_dict) > 0:
         scaler.load_state_dict(scaler_dict)
 
-    cache = []
+    cache = GPUSampleCache()
     # collect the reference audio for tensorboard evaluation
     if os.path.isfile(os.path.join("logs", "reference", embedder_name, "feats.npy")):
         print("Using", embedder_name, "reference set for validation")
@@ -794,7 +795,7 @@ def train_and_evaluate(
         optims (list): List of optimizers [optim_g, optim_d].
         loaders (list): List of dataloaders [train_loader, eval_loader].
         writers (list): List of TensorBoard writers [writer_eval].
-        cache (list): List to cache data in GPU memory.
+        cache (GPUSampleCache): Training samples held in GPU memory.
         use_cpu (bool): Whether to use CPU for training.
     """
     global global_step, lowest_value, loss_disc, consecutive_increases_gen, consecutive_increases_disc, smoothed_value_gen, smoothed_value_disc
@@ -819,16 +820,24 @@ def train_and_evaluate(
         train_dtype == torch.bfloat16 or train_dtype == torch.float16
     )
 
-    # Data caching
+    # Data caching. Samples, not batches, are held on the GPU, and the sampler draws this
+    # epoch's batches from them exactly as it does for the DataLoader below - so caching
+    # changes how fast an epoch loads and nothing about what it trains on. Caching the
+    # first epoch's batches froze their composition and the sampler's padding repeats for
+    # the whole run (see GPUSampleCache).
     if device.type == "cuda" and cache_data_in_gpu:
-        data_iterator = cache
-        if cache == []:
-            for batch_idx, info in enumerate(train_loader):
-                # phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wave, wave_lengths, sid
-                info = [tensor.cuda(device_id, non_blocking=True) for tensor in info]
-                cache.append((batch_idx, info))
-        else:
-            shuffle(cache)
+        if not len(cache):
+            cache.fill(
+                train_loader.dataset,
+                train_loader.batch_sampler,
+                torch.device("cuda", device_id),
+            )
+            if rank == 0:
+                print(f"Cached {len(cache)} training samples in GPU memory")
+        # phone, phone_lengths, pitch, pitchf, spec, spec_lengths, wave, wave_lengths, sid
+        data_iterator = enumerate(
+            cache.batches(train_loader.batch_sampler, train_loader.collate_fn)
+        )
     else:
         data_iterator = enumerate(train_loader)
 

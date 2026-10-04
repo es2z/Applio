@@ -186,49 +186,61 @@ class TextAudioCollateMultiNSFsid:
         _, ids_sorted_decreasing = torch.sort(
             torch.LongTensor([x[0].size(1) for x in batch]), dim=0, descending=True
         )
+        # Padded on the device the samples are on, so the same code collates for the
+        # DataLoader on the CPU and for GPUSampleCache on the GPU. Lengths are gathered
+        # as Python ints and written once, rather than element by element into a device
+        # tensor.
+        device = batch[0][0].device
+        size = len(batch)
 
         max_spec_len = max([x[0].size(1) for x in batch])
         max_wave_len = max([x[1].size(1) for x in batch])
-        spec_lengths = torch.LongTensor(len(batch))
-        wave_lengths = torch.LongTensor(len(batch))
-        spec_padded = torch.FloatTensor(len(batch), batch[0][0].size(0), max_spec_len)
-        wave_padded = torch.FloatTensor(len(batch), 1, max_wave_len)
-        spec_padded.zero_()
-        wave_padded.zero_()
+        spec_padded = torch.zeros(
+            size, batch[0][0].size(0), max_spec_len, dtype=torch.float32, device=device
+        )
+        wave_padded = torch.zeros(
+            size, 1, max_wave_len, dtype=torch.float32, device=device
+        )
 
         max_phone_len = max([x[2].size(0) for x in batch])
-        phone_lengths = torch.LongTensor(len(batch))
-        phone_padded = torch.FloatTensor(
-            len(batch), max_phone_len, batch[0][2].shape[1]
+        phone_padded = torch.zeros(
+            size, max_phone_len, batch[0][2].shape[1], dtype=torch.float32, device=device
         )
-        pitch_padded = torch.LongTensor(len(batch), max_phone_len)
-        pitchf_padded = torch.FloatTensor(len(batch), max_phone_len)
-        phone_padded.zero_()
-        pitch_padded.zero_()
-        pitchf_padded.zero_()
-        sid = torch.LongTensor(len(batch))
+        pitch_padded = torch.zeros(size, max_phone_len, dtype=torch.long, device=device)
+        pitchf_padded = torch.zeros(
+            size, max_phone_len, dtype=torch.float32, device=device
+        )
+        spec_lengths, wave_lengths, phone_lengths, sids = [], [], [], []
 
         for i in range(len(ids_sorted_decreasing)):
             row = batch[ids_sorted_decreasing[i]]
 
             spec = row[0]
             spec_padded[i, :, : spec.size(1)] = spec
-            spec_lengths[i] = spec.size(1)
+            spec_lengths.append(spec.size(1))
 
             wave = row[1]
             wave_padded[i, :, : wave.size(1)] = wave
-            wave_lengths[i] = wave.size(1)
+            wave_lengths.append(wave.size(1))
 
             phone = row[2]
             phone_padded[i, : phone.size(0), :] = phone
-            phone_lengths[i] = phone.size(0)
+            phone_lengths.append(phone.size(0))
 
             pitch = row[3]
             pitch_padded[i, : pitch.size(0)] = pitch
             pitchf = row[4]
             pitchf_padded[i, : pitchf.size(0)] = pitchf
 
-            sid[i] = row[5]
+            sids.append(row[5].reshape(1))
+
+        def lengths(values):
+            return torch.tensor(values, dtype=torch.long, device=device)
+
+        spec_lengths = lengths(spec_lengths)
+        wave_lengths = lengths(wave_lengths)
+        phone_lengths = lengths(phone_lengths)
+        sid = torch.cat(sids).to(device=device, dtype=torch.long)
 
         return (
             phone_padded,
@@ -377,3 +389,62 @@ class DistributedBucketSampler(torch.utils.data.distributed.DistributedSampler):
         Returns the length of the sampler.
         """
         return self.num_samples // self.batch_size
+
+
+class _IndexedDataset(torch.utils.data.Dataset):
+    """A dataset's samples paired with their index, for filling GPUSampleCache."""
+
+    def __init__(self, dataset):
+        self.dataset = dataset
+
+    def __getitem__(self, index):
+        return index, self.dataset[index]
+
+    def __len__(self):
+        return len(self.dataset)
+
+
+def _keep_as_list(batch):
+    # Module level rather than a lambda: DataLoader workers are spawned on Windows and
+    # have to pickle it.
+    return batch
+
+
+class GPUSampleCache:
+    """Every training sample on one GPU, unpadded, batched afresh every epoch.
+
+    train.py used to cache whole padded batches the first epoch produced and only shuffle
+    their order afterwards. That froze the first epoch's draw for the rest of the run:
+    which clips share a batch, and which clips DistributedBucketSampler repeats to fill a
+    bucket up to a multiple of the batch size - measured on a 791 clip folder at batch
+    24, the same 96 clips (13%) were trained twice every epoch for the whole run. Holding
+    samples rather than batches lets the sampler draw every epoch exactly as it does
+    without the cache, and it drops the padding the batches carried.
+    """
+
+    def __init__(self):
+        self.samples = {}
+
+    def __len__(self):
+        return len(self.samples)
+
+    def fill(self, dataset, batch_sampler, device, num_workers=4):
+        """Load every sample the sampler can draw onto `device`, once."""
+        indices = sorted({index for bucket in batch_sampler.buckets for index in bucket})
+        loader = torch.utils.data.DataLoader(
+            _IndexedDataset(dataset),
+            batch_size=16,
+            sampler=indices,
+            num_workers=num_workers,
+            collate_fn=_keep_as_list,
+        )
+        for chunk in loader:
+            for index, sample in chunk:
+                self.samples[index] = tuple(
+                    tensor.to(device, non_blocking=True) for tensor in sample
+                )
+
+    def batches(self, batch_sampler, collate_fn):
+        """This epoch's batches, as the sampler draws them, padded on the GPU."""
+        for indices in batch_sampler:
+            yield collate_fn([self.samples[index] for index in indices])
