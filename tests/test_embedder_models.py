@@ -1001,9 +1001,14 @@ class TrainSettingsTest(unittest.TestCase):
 
     def test_the_training_tab_passes_them_last(self):
         # run_train_script takes the config.json settings as its final parameters, and
-        # gradio forwards the inputs list positionally, so the order has to agree.
+        # gradio forwards the inputs list positionally, so the order has to agree. The
+        # save settings' controls come after them and enforce_terms turns them into the
+        # checkpoint policy keywords with policy_from_ui.
         import inspect
+
         from core import run_train_script
+        from rvc.train.checkpoint_policy import policy_from_ui
+        from tabs.train.train import SAVE_SETTINGS_INPUTS
 
         expected = [
             "learning_rate",
@@ -1014,17 +1019,16 @@ class TrainSettingsTest(unittest.TestCase):
             "g_lr_boost_epochs",
             "reset_training",
             "mrf_harmonics_from_hifigan",
-            # The checkpoint policy (rvc/train/checkpoint_policy.py).
-            "export_every",
-            "gd_every",
-            "eval_set",
-            "eval_every",
-            "best_n",
-            "best_criterion",
-            "best_save_gd",
         ]
+        policy_keys = list(policy_from_ui(*([None] * len(SAVE_SETTINGS_INPUTS))))
         names = list(inspect.signature(run_train_script).parameters)
-        self.assertEqual(names[-len(expected) :], expected)
+        self.assertEqual(names[-len(policy_keys) :], policy_keys)
+        self.assertEqual(
+            names[-len(policy_keys) - len(expected) : -len(policy_keys)], expected
+        )
+        self.assertEqual(
+            list(inspect.signature(policy_from_ui).parameters), list(SAVE_SETTINGS_INPUTS)
+        )
 
         source = (
             Path(__file__).resolve().parents[1] / "tabs" / "train" / "train.py"
@@ -1042,8 +1046,12 @@ class TrainSettingsTest(unittest.TestCase):
                 )
             ):
                 inputs = next(kw.value for kw in node.keywords if kw.arg == "inputs")
-                tail = [element.id for element in inputs.elts[-len(expected) :]]
-                self.assertEqual(tail, expected)
+                ids = [element.id for element in inputs.elts]
+                self.assertEqual(ids[-len(SAVE_SETTINGS_INPUTS) :], list(SAVE_SETTINGS_INPUTS))
+                self.assertEqual(
+                    ids[-len(SAVE_SETTINGS_INPUTS) - len(expected) : -len(SAVE_SETTINGS_INPUTS)],
+                    expected,
+                )
                 return
         self.fail("could not find the train button wiring")
 

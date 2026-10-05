@@ -567,13 +567,12 @@ def run_train_script(
     mrf_harmonics_from_hifigan: bool = False,
     # The checkpoint policy (rvc/train/checkpoint_policy.py). None leaves a value as the
     # folder's config.json has it.
-    export_every: int = None,
     gd_every: int = None,
-    eval_set: str = None,
+    best_export_n: int = None,
+    best_gd_n: int = None,
     eval_every: int = None,
-    best_n: int = None,
     best_criterion: str = None,
-    best_save_gd: bool = None,
+    eval_set: str = None,
 ):
 
     # Before anything below writes to the folder or resets it. The folder's own config
@@ -626,13 +625,12 @@ def run_train_script(
         raise ValueError(f"Evaluation set '{eval_set}' does not exist under assets/eval_sets.")
     apply_checkpoint_policy(
         os.path.join(logs_path, model_name),
-        export_every=None if export_every is None else int(export_every),
         gd_every=None if gd_every is None else int(gd_every),
         eval_set=None if eval_set is None else str(eval_set or ""),
         eval_every=None if eval_every is None else int(eval_every),
-        best_n=None if best_n is None else int(best_n),
+        best_export_n=None if best_export_n is None else int(best_export_n),
+        best_gd_n=None if best_gd_n is None else int(best_gd_n),
         best_criterion=best_criterion,
-        best_save_gd=None if best_save_gd is None else bool(best_save_gd),
     )
 
     if pretrained == True:
@@ -2252,36 +2250,32 @@ def parse_arguments():
         ),
     )
     train_parser.add_argument(
-        "--export_every",
-        type=int,
-        help="Keep an exported model every N epochs under checkpoints/every (0 = off).",
-        default=None,
-    )
-    train_parser.add_argument(
         "--gd_every",
         type=int,
         help=(
-            "Also keep weights-only G/D every export_every * N epochs (0 = off). They are "
-            "warm start sources for a later run, not resume checkpoints."
+            "Keep weights-only G/D every save_every_epoch * N epochs under "
+            "checkpoints/every (0 = off). They are warm start sources for a new folder "
+            "or a training reset; resuming always uses the latest G_2333333/D_2333333."
         ),
         default=None,
     )
     train_parser.add_argument(
-        "--eval_set",
-        type=str,
-        help="Evaluation set under assets/eval_sets to score checkpoints with ('' = none).",
+        "--best_export_n",
+        type=int,
+        help="Keep the N best exported RVC models by evaluation score (0 = off).",
+        default=None,
+    )
+    train_parser.add_argument(
+        "--best_gd_n",
+        type=int,
+        help="Keep the N best weights-only G/D by evaluation score (0 = off).",
         default=None,
     )
     train_parser.add_argument(
         "--eval_every",
         type=int,
-        help="Evaluate every N epochs (0 = at every save).",
-        default=None,
-    )
-    train_parser.add_argument(
-        "--best_n",
-        type=int,
-        help="Keep the N best exported models by evaluation score (0 = off).",
+        choices=[0, 1],
+        help="Evaluate at every save (0) or every epoch (1).",
         default=None,
     )
     train_parser.add_argument(
@@ -2295,10 +2289,9 @@ def parse_arguments():
         default=None,
     )
     train_parser.add_argument(
-        "--best_save_gd",
-        type=lambda x: bool(strtobool(x)),
-        choices=[True, False],
-        help="Keep weights-only G/D with each best exported model.",
+        "--eval_set",
+        type=str,
+        help="Evaluation set under assets/eval_sets that ranks the best checkpoints.",
         default=None,
     )
     train_parser.add_argument(
@@ -2761,13 +2754,12 @@ def main():
                 learning_rate=args.learning_rate,
                 reset_training=args.reset_training,
                 mrf_harmonics_from_hifigan=args.mrf_harmonics_from_hifigan,
-                export_every=args.export_every,
                 gd_every=args.gd_every,
                 eval_set=args.eval_set,
                 eval_every=args.eval_every,
-                best_n=args.best_n,
+                best_export_n=args.best_export_n,
+                best_gd_n=args.best_gd_n,
                 best_criterion=args.best_criterion,
-                best_save_gd=args.best_save_gd,
                 c_mel=args.c_mel,
                 lr_decay=args.lr_decay,
                 g_lr_boost_multiplier=args.g_lr_boost_multiplier,

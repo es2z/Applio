@@ -1335,23 +1335,43 @@ previously enabled boost writes epochs 0; unticking on a config that never had o
 the file untouched. TensorBoard's `learning_rate` shows the effective generator rate.
 
 ### Checkpoint policy and evaluation sets
-Training tab > `Checkpoints and Evaluation` (`--export_every --gd_every --eval_set
---eval_every --best_n --best_criterion --best_save_gd`). Before this a run could keep the
-last G/D or every one of them, and exported models only at the same moments, while
-quality swings between checkpoints - measured on RingFormer+, a quiet 60e between noisier
-50e and 55e by 20-25% - so the checkpoint worth fine-tuning from was usually gone.
+Training tab > Training > `Save Settings` (保存の設定), right under Batch Size / Total
+Epoch; CLI `--gd_every --best_export_n --best_gd_n --eval_every --best_criterion
+--eval_set`. Before this a run could keep the last G/D or every one of them, and exported
+models only at the same moments, while quality swings between checkpoints - measured on
+RingFormer+, a quiet 60e between noisier 50e and 55e by 20-25% - so the checkpoint worth
+fine-tuning from was usually gone.
 
+- **The design**: the root `G_2333333.pth` / `D_2333333.pth` are always the latest,
+  overwritten at every save (Save Every Epoch, relabelled "RVC Model Save Interval" - it is
+  also when exported RVC models and the TensorBoard samples are written). Resuming always
+  continues from them; starting again from another G/D is what the training reset or a new
+  folder is for. "Save Only Latest" is no longer in the GUI (a `gr.State(True)`), since
+  keeping older G/D is what the next two do, weights only and in their own folder. The CLI
+  flag and train.py's argument still work.
 - **What is kept** (`rvc/train/checkpoint_policy.py`), all under `logs/<model>/checkpoints/`:
-  `last/` the newest exported model, replaced at every save; `every/` an exported model
-  every `export_every` epochs plus weights-only G/D every `export_every * gd_every`;
-  `best/` the `best_n` best exported models by evaluation score, with weights-only G/D
-  when `best_save_gd`. `state.json` records every evaluation, the best ranking, what was
-  kept and the auto-picked trained clips, so a resume continues the ranking.
+  `every/` weights-only G/D every `save_every_epoch * gd_every` epochs ("Also Keep G/D",
+  n); `best/` the `best_export_n` best exported RVC models and the `best_gd_n` best
+  weights-only G/D, ranked by evaluation score ("Keep the Best by Evaluation"); `last/`
+  the newest exported RVC model whenever either is in use. The ranking holds
+  max(best_export_n, best_gd_n) entries; an entry keeps its RVC model while its rank is
+  within best_export_n and its G/D while within best_gd_n. Entries only ever move down,
+  so files are only ever deleted, never needing older weights to recreate. Keeping every
+  exported RVC model is still the existing "Keep Every RVC Model" (Save Every Weights).
+  `state.json` records every evaluation, the ranking, what was kept and the auto-picked
+  trained clips, so a resume continues the ranking. Evaluation only runs while best is on.
+- **The GUI shows only what applies**: the n slider only with "Also Keep G/D"; the best
+  section only with its box; counts and evaluation settings only when RVC models or G/D
+  are to be kept; one count, or one per kind with "Separate Counts"; the evaluation set's
+  contents only once a set is chosen; "New Evaluation Set" before the set dropdown.
+  `policy_from_ui()` turns the boxes into the policy (a hidden control's value never
+  counts) and `ui_from_policy()` turns a folder's policy back into the boxes; both are
+  pure functions, tested for a round trip. The train button passes the controls last
+  (`SAVE_SETTINGS_INPUTS`) and `enforce_terms` converts them.
 - **Never next to the resume checkpoints.** `latest_checkpoint_path()` and
   `reset_run.latest()` take the root `G_*.pth` with the largest number in its name, so a
-  kept G/D in the root would be resumed from. The root `G_2333333.pth` / `D_2333333.pth`
-  stay exactly as before. The training reset moves `checkpoints/` into the archive and
-  Fresh Training deletes it; `evaluation/` (the clip cache) survives both.
+  kept G/D in the root would be resumed from. The training reset moves `checkpoints/` into
+  the archive and Fresh Training deletes it; `evaluation/` (the clip cache) survives both.
 - **Kept G/D are weights only** (`save_checkpoint(..., include_optimizer=False)`, about a
   third of the size): warm starts read `model` alone, and the identity stamps are kept,
   so they work as Custom Pretrained G/D. They cannot be resumed from.
@@ -1385,11 +1405,19 @@ filelist and recorded in state.json.
 - **Metrics**, generated with fixed seeds inside `torch.random.fork_rng`, so a score
   depends only on the weights and the run's own random stream is untouched:
   `A_/B_mel` mel L1 with the training mel settings; `A_/B_/C_noise` the median spectral
-  flatness above 4 kHz over voiced frames, generated divided by reference (the original
+  flatness in 4-12 kHz over voiced frames, generated divided by reference (the original
   for A/B, the input for C); `C_f0_cents` / `C_vuv_mismatch` from re-extracting the
   output's F0 with the run's own method. C is converted to every speaker that has
   trained/held-out clips (else 0), its F0 moved to that speaker's training F0 median, or
   by `convert/transpose.json` semitones per file.
+- **The noise band stops at 12 kHz** (`HF_BAND`). It first ran to Nyquist, where speech
+  has almost nothing and flatness reads the noise floor: on the TensorBoard clip of the 48k
+  RingFormer+ pretrain, writing the original as 16-bit (as TensorBoard stores audio) raised
+  it 1.43x, against 1.005x for 4-12 kHz. Rescored on 70 training clips, epochs 165-200 kept
+  their order in 4-12 kHz but the spread shrank (185e x1.09 -> x1.05 of 165e), and on one
+  clip the differences between 165e / 180e / 185e were inside the 0.90-1.16 spread that
+  eight seeds of the *same* checkpoint give - so read single-clip, single-seed scores (and
+  TensorBoard's `gen/audio_*`, a new seed every save) with that in mind.
 - **Best by** `mel` (B, else A), `noise` (mean of B and C, else A) or `combined` (both,
   each divided by the run's first evaluation, summed). Logged as `eval/*` scalars and one
   `eval_audio/<group>` clip per group, which unlike the old `gen/audio_*` sample is the

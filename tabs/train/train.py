@@ -14,7 +14,13 @@ from rvc.train.extract.preparing_files import (
 )
 from rvc.train.lr_boost import DEFAULT_G_LR_BOOST_EPOCHS, DEFAULT_G_LR_BOOST_MULTIPLIER
 from rvc.train.vocoder_recipe import generator_vocoder
-from rvc.train.checkpoint_policy import CRITERIA, DEFAULT_POLICY, read_policy
+from rvc.train.checkpoint_policy import (
+    CRITERIA,
+    DEFAULT_POLICY,
+    policy_from_ui,
+    read_policy,
+    ui_from_policy,
+)
 from rvc.train.evaluation import (
     create_eval_set,
     eval_set_path,
@@ -335,6 +341,22 @@ def auto_enable_checkpointing():
 
 DEFAULT_TRAIN_SETTINGS = read_train_settings("", 40000)
 
+# The save settings' controls the train button passes last, in policy_from_ui's order.
+SAVE_SETTINGS_INPUTS = (
+    "gd_keep",
+    "gd_n",
+    "best_enabled",
+    "best_keep_export",
+    "best_keep_gd",
+    "best_n",
+    "best_split",
+    "best_export_n",
+    "best_gd_n",
+    "eval_timing",
+    "best_criterion",
+    "eval_set",
+)
+
 
 def load_train_settings(model_name, sample_rate):
     """Show what the selected run will actually train with.
@@ -350,7 +372,12 @@ def load_train_settings(model_name, sample_rate):
         policy = read_policy(model_path)
     except ValueError:
         policy = dict(DEFAULT_POLICY)
+    ui = ui_from_policy(policy)
     sets = list_eval_sets()
+    eval_set = ui["eval_set"] if ui["eval_set"] in sets else None
+    visible = best_visibility(
+        ui["best_enabled"], ui["best_keep_export"], ui["best_keep_gd"], ui["best_split"]
+    )
     return (
         gr.update(value=settings["learning_rate"]),
         gr.update(value=settings["c_mel"]),
@@ -359,13 +386,34 @@ def load_train_settings(model_name, sample_rate):
         gr.update(visible=boost["enabled"]),
         gr.update(value=boost["multiplier"]),
         gr.update(value=boost["epochs"]),
-        gr.update(value=policy["export_every"]),
-        gr.update(value=policy["gd_every"]),
-        gr.update(choices=sets, value=policy["eval_set"] if policy["eval_set"] in sets else None),
-        gr.update(value=policy["eval_every"]),
-        gr.update(value=policy["best_n"]),
-        gr.update(value=policy["best_criterion"]),
-        gr.update(value=policy["best_save_gd"]),
+        gr.update(value=ui["gd_keep"]),
+        gr.update(value=ui["gd_n"], visible=ui["gd_keep"]),
+        gr.update(value=ui["best_enabled"]),
+        visible[0],
+        gr.update(value=ui["best_keep_export"]),
+        gr.update(value=ui["best_keep_gd"]),
+        visible[1],
+        gr.update(value=ui["best_n"], visible=visible[2]["visible"]),
+        gr.update(value=ui["best_split"]),
+        gr.update(value=ui["best_export_n"], visible=visible[3]["visible"]),
+        gr.update(value=ui["best_gd_n"], visible=visible[4]["visible"]),
+        gr.update(value=ui["eval_timing"]),
+        gr.update(value=ui["best_criterion"]),
+        gr.update(choices=sets, value=eval_set),
+        eval_set_info_update(eval_set, model_name),
+    )
+
+
+def best_visibility(enabled, keep_export, keep_gd, split):
+    """Show only what the ticked boxes make meaningful: the best section when it is on,
+    its details when at least one kind is kept, and one count or a count per kind."""
+    details = bool(enabled and (keep_export or keep_gd))
+    return (
+        gr.update(visible=bool(enabled)),
+        gr.update(visible=details),
+        gr.update(visible=details and not split),
+        gr.update(visible=details and bool(split) and bool(keep_export)),
+        gr.update(visible=details and bool(split) and bool(keep_gd)),
     )
 
 
@@ -379,14 +427,18 @@ def _model_speaker_count(model_name):
         return None
 
 
-def eval_set_summary(set_name, model_name):
-    return summarize_eval_set(set_name, _model_speaker_count(model_name)) if set_name else ""
+def eval_set_info_update(set_name, model_name):
+    if not set_name:
+        return gr.update(value="", visible=False)
+    return gr.update(
+        value=summarize_eval_set(set_name, _model_speaker_count(model_name)), visible=True
+    )
 
 
 def refresh_eval_sets(current, model_name):
     sets = list_eval_sets()
     value = current if current in sets else None
-    return gr.update(choices=sets, value=value), eval_set_summary(value, model_name)
+    return gr.update(choices=sets, value=value), eval_set_info_update(value, model_name)
 
 
 def create_eval_set_ui(name, model_name):
@@ -398,7 +450,7 @@ def create_eval_set_ui(name, model_name):
     gr.Info(f"Created {path}")
     return (
         gr.update(choices=list_eval_sets(), value=path.name),
-        eval_set_summary(path.name, model_name),
+        eval_set_info_update(path.name, model_name),
         gr.update(value=""),
     )
 
@@ -790,15 +842,6 @@ def train_tab():
                 ),
                 interactive=True,
             )
-            save_every_epoch = gr.Slider(
-                1,
-                100,
-                10,
-                step=1,
-                label=i18n("Save Every Epoch"),
-                info=i18n("Determine at how many epochs the model will saved at."),
-                interactive=True,
-            )
             total_epoch = gr.Slider(
                 1,
                 10000,
@@ -810,25 +853,171 @@ def train_tab():
                 ),
                 interactive=True,
             )
+        with gr.Accordion(i18n("Save Settings"), open=True):
+            save_every_epoch = gr.Slider(
+                1,
+                100,
+                10,
+                step=1,
+                label=i18n("RVC Model Save Interval (epochs)"),
+                info=i18n(
+                    "How often the RVC model used for inference (.pth) is exported. The latest G/D for resuming (overwritten each time) and the TensorBoard samples are saved at the same interval."
+                ),
+                interactive=True,
+            )
+            # The resume checkpoints are always the latest, overwritten. Keeping older
+            # ones is what "Also Keep G/D" is for: weights only, in their own folder.
+            save_only_latest = gr.State(True)
+            save_every_weights = gr.Checkbox(
+                label=i18n("Keep Every RVC Model"),
+                info=i18n(
+                    "Keep the RVC model exported at every save. Off keeps only the one from the end of training (and the latest in checkpoints/last when G/D or the best are kept)."
+                ),
+                value=True,
+                interactive=True,
+            )
+            gd_keep = gr.Checkbox(
+                label=i18n("Also Keep G/D"),
+                info=i18n(
+                    "Keep weights-only G/D (about 0.5 GB each) in checkpoints/every at every n-th save. They are pretrained models for a new folder or a training reset; resuming always continues from the latest G/D."
+                ),
+                value=False,
+                interactive=True,
+            )
+            gd_n = gr.Slider(
+                1,
+                20,
+                1,
+                step=1,
+                label=i18n("Keep G/D Every n Saves"),
+                info=i18n("1 = at every save, 4 = at every fourth save."),
+                visible=False,
+                interactive=True,
+            )
+            best_enabled = gr.Checkbox(
+                label=i18n("Keep the Best by Evaluation"),
+                info=i18n(
+                    "Score checkpoints on an evaluation set and keep the best ones in checkpoints/best."
+                ),
+                value=False,
+                interactive=True,
+            )
+            with gr.Column(visible=False) as best_settings:
+                with gr.Row():
+                    best_keep_export = gr.Checkbox(
+                        label=i18n("Keep RVC Models"), value=True, interactive=True
+                    )
+                    best_keep_gd = gr.Checkbox(
+                        label=i18n("Keep G/D"), value=True, interactive=True
+                    )
+                with gr.Column(visible=True) as best_details:
+                    with gr.Row():
+                        best_n = gr.Number(
+                            label=i18n("How Many to Keep"),
+                            value=3,
+                            minimum=1,
+                            precision=0,
+                            step=1,
+                            interactive=True,
+                        )
+                        best_export_n = gr.Number(
+                            label=i18n("RVC Models to Keep"),
+                            value=3,
+                            minimum=1,
+                            precision=0,
+                            step=1,
+                            visible=False,
+                            interactive=True,
+                        )
+                        best_gd_n = gr.Number(
+                            label=i18n("G/D to Keep"),
+                            value=3,
+                            minimum=1,
+                            precision=0,
+                            step=1,
+                            visible=False,
+                            interactive=True,
+                        )
+                        best_split = gr.Checkbox(
+                            label=i18n("Separate Counts for RVC Models and G/D"),
+                            value=False,
+                            interactive=True,
+                        )
+                    eval_timing = gr.Radio(
+                        label=i18n("When to Evaluate"),
+                        info=i18n("RVC models and G/D are judged at the same time."),
+                        choices=[
+                            (i18n("At Every Save"), "save"),
+                            (i18n("Every Epoch"), "epoch"),
+                        ],
+                        value="save",
+                        interactive=True,
+                    )
+                    best_criterion = gr.Radio(
+                        label=i18n("Best By"),
+                        info=i18n(
+                            "mel: mel L1 on the held-out clips (or the trained ones without them). noise: how much more noise-like than the reference the voiced 4-12 kHz band is. combined: both, each relative to the first evaluation of the run."
+                        ),
+                        choices=list(CRITERIA),
+                        value=DEFAULT_POLICY["best_criterion"],
+                        interactive=True,
+                    )
+                    with gr.Row():
+                        new_eval_set_name = gr.Textbox(
+                            label=i18n("New Evaluation Set"),
+                            placeholder=i18n("Name"),
+                            interactive=True,
+                        )
+                        create_eval_set_button = gr.Button(i18n("Create"))
+                    with gr.Row():
+                        eval_set = gr.Dropdown(
+                            label=i18n("Evaluation Set"),
+                            info=i18n(
+                                "Audio in assets/eval_sets/<name> that checkpoints are scored on. See the readme.txt in a new set for what goes where."
+                            ),
+                            choices=list_eval_sets(),
+                            value=None,
+                            interactive=True,
+                        )
+                        refresh_eval_sets_button = gr.Button(i18n("Refresh"))
+                        open_eval_set_button = gr.Button(i18n("Open Folder"))
+                    eval_set_info = gr.Textbox(
+                        label=i18n("Evaluation Set Contents"),
+                        value="",
+                        lines=2,
+                        interactive=False,
+                        visible=False,
+                    )
+
+            gd_keep.change(
+                fn=lambda keep: gr.update(visible=bool(keep)),
+                inputs=[gd_keep],
+                outputs=[gd_n],
+            )
+            for component in (best_enabled, best_keep_export, best_keep_gd, best_split):
+                component.change(
+                    fn=best_visibility,
+                    inputs=[best_enabled, best_keep_export, best_keep_gd, best_split],
+                    outputs=[best_settings, best_details, best_n, best_export_n, best_gd_n],
+                )
+            refresh_eval_sets_button.click(
+                fn=refresh_eval_sets,
+                inputs=[eval_set, model_name],
+                outputs=[eval_set, eval_set_info],
+            )
+            open_eval_set_button.click(fn=open_eval_set_folder, inputs=[eval_set], outputs=[])
+            create_eval_set_button.click(
+                fn=create_eval_set_ui,
+                inputs=[new_eval_set_name, model_name],
+                outputs=[eval_set, eval_set_info, new_eval_set_name],
+            )
+            eval_set.change(
+                fn=eval_set_info_update, inputs=[eval_set, model_name], outputs=[eval_set_info]
+            )
+
         with gr.Accordion(i18n("Advanced Settings"), open=False):
             with gr.Row():
                 with gr.Column():
-                    save_only_latest = gr.Checkbox(
-                        label=i18n("Save Only Latest"),
-                        info=i18n(
-                            "Enabling this setting will result in the G and D files saving only their most recent versions, effectively conserving storage space."
-                        ),
-                        value=True,
-                        interactive=True,
-                    )
-                    save_every_weights = gr.Checkbox(
-                        label=i18n("Save Every Weights"),
-                        info=i18n(
-                            "This setting enables you to save the weights of the model at the conclusion of each epoch."
-                        ),
-                        value=True,
-                        interactive=True,
-                    )
                     pretrained = gr.Checkbox(
                         label=i18n("Pretrained"),
                         info=i18n(
@@ -1007,109 +1196,6 @@ def train_tab():
                 interactive=True,
             )
 
-        with gr.Accordion(i18n("Checkpoints and Evaluation"), open=False):
-            with gr.Row():
-                export_every = gr.Number(
-                    label=i18n("Keep Exported Model Every (epochs)"),
-                    info=i18n(
-                        "Keep an exported model (the .pth used for inference) every N epochs in logs/<model_name>/checkpoints/every, separately from Save Every Epoch. 0 = off. The newest exported model is always kept in checkpoints/last."
-                    ),
-                    value=DEFAULT_POLICY["export_every"],
-                    minimum=0,
-                    precision=0,
-                    step=1,
-                    interactive=True,
-                )
-                gd_every = gr.Number(
-                    label=i18n("Also Keep G/D Every (x the interval above)"),
-                    info=i18n(
-                        "Also keep weights-only G/D (about 0.5 GB, a warm start source for a later run such as a fine-tune; not for resuming) every N exported models: 1 = with each one, 4 = every fourth. 0 = off."
-                    ),
-                    value=DEFAULT_POLICY["gd_every"],
-                    minimum=0,
-                    precision=0,
-                    step=1,
-                    interactive=True,
-                )
-            with gr.Row():
-                eval_set = gr.Dropdown(
-                    label=i18n("Evaluation Set"),
-                    info=i18n(
-                        "Audio in assets/eval_sets/<name> that each evaluated checkpoint is scored on. Leave empty for no evaluation. See the readme.txt in a new set for what goes where."
-                    ),
-                    choices=list_eval_sets(),
-                    value=None,
-                    interactive=True,
-                )
-                refresh_eval_sets_button = gr.Button(i18n("Refresh"))
-                open_eval_set_button = gr.Button(i18n("Open Folder"))
-            eval_set_info = gr.Textbox(
-                label=i18n("Evaluation Set Contents"),
-                value="",
-                lines=2,
-                interactive=False,
-            )
-            with gr.Row():
-                new_eval_set_name = gr.Textbox(
-                    label=i18n("New Evaluation Set"),
-                    placeholder=i18n("Name"),
-                    interactive=True,
-                )
-                create_eval_set_button = gr.Button(i18n("Create"))
-            with gr.Row():
-                eval_every = gr.Number(
-                    label=i18n("Evaluate Every (epochs)"),
-                    info=i18n("0 = at every save (Save Every Epoch)."),
-                    value=DEFAULT_POLICY["eval_every"],
-                    minimum=0,
-                    precision=0,
-                    step=1,
-                    interactive=True,
-                )
-                best_n = gr.Number(
-                    label=i18n("Keep Best N"),
-                    info=i18n(
-                        "Keep the N best exported models by evaluation score in checkpoints/best. 0 = off. Needs an evaluation set."
-                    ),
-                    value=DEFAULT_POLICY["best_n"],
-                    minimum=0,
-                    precision=0,
-                    step=1,
-                    interactive=True,
-                )
-                best_criterion = gr.Radio(
-                    label=i18n("Best By"),
-                    info=i18n(
-                        "mel: mel L1 on the held-out clips (or the trained ones without them). noise: how much more noise-like than the reference the voiced high band is. combined: both, each relative to the first evaluation of the run."
-                    ),
-                    choices=list(CRITERIA),
-                    value=DEFAULT_POLICY["best_criterion"],
-                    interactive=True,
-                )
-                best_save_gd = gr.Checkbox(
-                    label=i18n("Keep G/D With Each Best"),
-                    info=i18n(
-                        "Also keep weights-only G/D for each best checkpoint, so the best one can be used as a pretrained model for a fine-tune."
-                    ),
-                    value=DEFAULT_POLICY["best_save_gd"],
-                    interactive=True,
-                )
-
-            refresh_eval_sets_button.click(
-                fn=refresh_eval_sets,
-                inputs=[eval_set, model_name],
-                outputs=[eval_set, eval_set_info],
-            )
-            open_eval_set_button.click(fn=open_eval_set_folder, inputs=[eval_set], outputs=[])
-            create_eval_set_button.click(
-                fn=create_eval_set_ui,
-                inputs=[new_eval_set_name, model_name],
-                outputs=[eval_set, eval_set_info, new_eval_set_name],
-            )
-            eval_set.change(
-                fn=eval_set_summary, inputs=[eval_set, model_name], outputs=[eval_set_info]
-            )
-
         for component in (model_name, sampling_rate):
             component.change(
                 fn=load_train_settings,
@@ -1122,13 +1208,21 @@ def train_tab():
                     g_lr_boost_settings,
                     g_lr_boost_multiplier,
                     g_lr_boost_epochs,
-                    export_every,
-                    gd_every,
-                    eval_set,
-                    eval_every,
+                    gd_keep,
+                    gd_n,
+                    best_enabled,
+                    best_settings,
+                    best_keep_export,
+                    best_keep_gd,
+                    best_details,
                     best_n,
+                    best_split,
+                    best_export_n,
+                    best_gd_n,
+                    eval_timing,
                     best_criterion,
-                    best_save_gd,
+                    eval_set,
+                    eval_set_info,
                 ],
             )
 
@@ -1156,8 +1250,12 @@ def train_tab():
             # run_train_script refuses what it cannot train (e.g. SiFi-GAN+ at 40 kHz)
             # with a ValueError before touching the folder. Uncaught, Gradio only shows
             # "Error", so the reason goes to the output box instead.
+            # The last SAVE_SETTINGS_INPUTS inputs are the save settings' controls, in
+            # policy_from_ui's order; run_train_script takes the policy they describe.
+            base = args[: -len(SAVE_SETTINGS_INPUTS)]
+            policy = policy_from_ui(*args[-len(SAVE_SETTINGS_INPUTS) :])
             try:
-                return run_train_script(*args)
+                return run_train_script(*base, **policy)
             except ValueError as error:
                 gr.Warning(str(error))
                 return str(error)
@@ -1213,13 +1311,18 @@ def train_tab():
                     g_lr_boost_epochs,
                     reset_training,
                     mrf_harmonics_from_hifigan,
-                    export_every,
-                    gd_every,
-                    eval_set,
-                    eval_every,
+                    gd_keep,
+                    gd_n,
+                    best_enabled,
+                    best_keep_export,
+                    best_keep_gd,
                     best_n,
+                    best_split,
+                    best_export_n,
+                    best_gd_n,
+                    eval_timing,
                     best_criterion,
-                    best_save_gd,
+                    eval_set,
                 ],
                 outputs=[train_output_info],
             ).then(fn=lambda: gr.update(value=False), outputs=[reset_training])

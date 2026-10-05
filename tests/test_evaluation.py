@@ -169,6 +169,25 @@ class MetricTest(unittest.TestCase):
         self.assertGreater(noisy, 3 * clean)
         self.assertIsNone(voiced_hf_flatness(tone(2.0, sample_rate), sample_rate, np.zeros(201)))
 
+    def test_an_empty_top_band_does_not_count(self):
+        # Speech-like: harmonics and a quiet noise floor up to 12 kHz, nothing above. Over
+        # bins up to Nyquist, 16-bit rounding alone raised this flatness 167x; noise in
+        # the band still has to register.
+        from scipy import signal
+
+        sample_rate = 48000
+        t = np.arange(2 * sample_rate) / sample_rate
+        f0 = np.full(201, 220.0)
+        rng = np.random.default_rng(0)
+        b, a = signal.butter(8, 11000, fs=sample_rate)
+        harmonics = sum(0.3 / k**1.5 * np.sin(2 * np.pi * 220 * k * t) for k in range(1, 55))
+        speech = (harmonics + 1e-4 * signal.lfilter(b, a, rng.standard_normal(t.size))).astype(np.float32)
+        rounded = np.round(speech * 32767) / 32767
+        noisy = speech + 0.01 * signal.lfilter(b, a, rng.standard_normal(t.size)).astype(np.float32)
+        clean = voiced_hf_flatness(speech, sample_rate, f0)
+        self.assertAlmostEqual(voiced_hf_flatness(rounded, sample_rate, f0) / clean, 1.0, delta=0.05)
+        self.assertGreater(voiced_hf_flatness(noisy, sample_rate, f0), 3 * clean)
+
     def test_f0_tracking(self):
         target = np.array([200.0] * 50 + [0.0] * 10)
         sharp = target * 2 ** (100 / 1200)

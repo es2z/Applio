@@ -1,22 +1,24 @@
-"""Which checkpoints a run keeps beyond the last one, and the record of what it kept.
+"""Which checkpoints a run keeps beyond the latest one, and the record of what it kept.
 
-Until this existed a run could only keep the last G/D (save_only_latest) or every one of
-them, and exported models were written at the same moments. But quality swings from one
-checkpoint to the next - measured on RingFormer+, a quiet 60e between noisier 50e and
-55e, by 20-25% - so the checkpoint worth fine-tuning from is often not the last one, and
-keeping every G/D to be sure costs 1.5 GB per save.
+The latest resume checkpoints, G_2333333.pth / D_2333333.pth in the model folder, are
+always saved and overwritten at the save interval (Save Every Epoch, which is also the
+interval exported RVC models are written at). On top of that a run can keep:
 
-So a run can now also keep:
-- every:  an exported model every `export_every` epochs, and optionally weights-only G/D
-          every `export_every * gd_every` epochs.
-- best:   the `best_n` best exported models by an evaluation score (rvc/train/
-          evaluation.py), optionally with weights-only G/D for each.
-- last:   the newest exported model, replaced on every save, alongside the root
-          G_2333333.pth / D_2333333.pth that resume and the training reset use.
+- every: weights-only G/D every `save_every_epoch * gd_every` epochs, for good.
+- best:  the `best_export_n` best exported RVC models and the `best_gd_n` best
+         weights-only G/D, ranked by an evaluation score (rvc/train/evaluation.py).
+- last:  the newest exported RVC model, whenever either of the above is in use.
 
-Everything lives under logs/<model>/checkpoints/, never next to the resume checkpoints:
-latest_checkpoint_path() and reset_run.py's latest() both pick the root G_*.pth with the
-largest number in its name, so a kept G/D in the root would be resumed from.
+Why: quality swings from one checkpoint to the next - measured on RingFormer+, a quiet
+60e between noisier 50e and 55e by 20-25% - so the checkpoint worth fine-tuning from is
+often not the latest, and keeping every resume checkpoint to be sure costs 1.5 GB a save.
+A kept G/D is weights only (about a third of that): it is a warm start source for a new
+folder or a training reset, never something a run resumes from.
+
+Everything kept lives under logs/<model>/checkpoints/, never next to the resume
+checkpoints: latest_checkpoint_path() and reset_run.py's latest() both take the root
+G_*.pth with the largest number in its name, so a kept G/D in the root would be resumed
+from.
 
 The policy is stored as config.json["checkpoint_policy"] by core.py and read by
 train.py, the way learning_rate is, so train.py's positional arguments do not grow and a
@@ -34,55 +36,118 @@ STATE_FILE = "state.json"
 CRITERIA = ("mel", "noise", "combined")
 
 DEFAULT_POLICY = {
-    # Keep an exported model every N epochs. 0 = off.
-    "export_every": 0,
-    # Also keep weights-only G/D every export_every * N epochs. 0 = off.
+    # Keep weights-only G/D every save_every_epoch * N epochs. 0 = off.
     "gd_every": 0,
-    # assets/eval_sets/<name> to score checkpoints with. "" = no evaluation.
-    "eval_set": "",
-    # Evaluate every N epochs. 0 = at every save (save_every_epoch).
+    # Keep the N best exported RVC models. 0 = off.
+    "best_export_n": 0,
+    # Keep the N best weights-only G/D. 0 = off.
+    "best_gd_n": 0,
+    # Evaluate every epoch (1) or at every save (0).
     "eval_every": 0,
-    # Keep the N best exported models by score. 0 = off.
-    "best_n": 0,
     # What "best" means; see score_of().
     "best_criterion": "combined",
-    # Keep weights-only G/D with each best exported model.
-    "best_save_gd": True,
+    # assets/eval_sets/<name> to rank checkpoints with; required by best.
+    "eval_set": "",
 }
 
-_INT_KEYS = ("export_every", "gd_every", "eval_every", "best_n")
+_INT_KEYS = ("gd_every", "best_export_n", "best_gd_n")
 
 
 def normalize_policy(raw):
     """A complete, validated policy from whatever config.json or a caller holds.
 
-    Missing keys take their defaults; values train.py could not use raise ValueError.
+    Missing keys take their defaults and unknown ones are ignored; values train.py could
+    not use raise ValueError.
     """
     policy = dict(DEFAULT_POLICY)
     for key, value in dict(raw or {}).items():
-        if key not in DEFAULT_POLICY or value is None:
-            continue
-        policy[key] = value
+        if key in DEFAULT_POLICY and value is not None:
+            policy[key] = value
     for key in _INT_KEYS:
         value = policy[key]
         if isinstance(value, bool) or int(value) != float(value) or int(value) < 0:
             raise ValueError(f"{key} must be a whole number of 0 or more, got {value!r}.")
         policy[key] = int(value)
+    if policy["eval_every"] not in (0, 1):
+        raise ValueError(f"eval_every must be 0 (at every save) or 1 (every epoch), got {policy['eval_every']!r}.")
+    policy["eval_every"] = int(policy["eval_every"])
     policy["eval_set"] = str(policy["eval_set"] or "").strip()
     if policy["best_criterion"] not in CRITERIA:
         raise ValueError(
             f"best_criterion must be one of {', '.join(CRITERIA)}, got "
             f"{policy['best_criterion']!r}."
         )
-    policy["best_save_gd"] = bool(policy["best_save_gd"])
-    if policy["best_n"] and not policy["eval_set"]:
-        raise ValueError("Keeping the best checkpoints needs an evaluation set to score them.")
+    if best_is_active(policy) and not policy["eval_set"]:
+        raise ValueError("Keeping the best checkpoints needs an evaluation set to rank them.")
     return policy
 
 
+def best_is_active(policy):
+    return bool(policy["best_export_n"] or policy["best_gd_n"])
+
+
 def policy_is_active(policy):
-    """Whether this policy asks for anything beyond what train.py always did."""
-    return bool(policy["export_every"] or policy["best_n"] or policy["eval_set"])
+    """Whether this policy asks for anything beyond the latest resume checkpoints."""
+    return bool(policy["gd_every"]) or best_is_active(policy)
+
+
+def policy_from_ui(
+    gd_keep,
+    gd_n,
+    best_enabled,
+    best_keep_export,
+    best_keep_gd,
+    best_n,
+    best_split,
+    best_export_n,
+    best_gd_n,
+    eval_timing,
+    best_criterion,
+    eval_set,
+):
+    """The policy the Training tab's save settings describe.
+
+    Every value a hidden control holds is ignored: an unticked "keep G/D" means no G/D,
+    whatever its slider says, and so on down the best section.
+    """
+    keep_best = bool(best_enabled)
+    split = bool(best_split)
+    shared = int(best_n or 0)
+    best_exports = int(best_export_n or 0) if split else shared
+    best_gds = int(best_gd_n or 0) if split else shared
+    return {
+        "gd_every": int(gd_n_or_zero(gd_keep, gd_n)),
+        "best_export_n": best_exports if keep_best and best_keep_export else 0,
+        "best_gd_n": best_gds if keep_best and best_keep_gd else 0,
+        "eval_every": 1 if eval_timing == "epoch" else 0,
+        "best_criterion": best_criterion or DEFAULT_POLICY["best_criterion"],
+        "eval_set": (eval_set or "") if keep_best and (best_keep_export or best_keep_gd) else "",
+    }
+
+
+def gd_n_or_zero(gd_keep, gd_n):
+    return max(1, int(gd_n or 1)) if gd_keep else 0
+
+
+def ui_from_policy(policy, default_best_n=3):
+    """What the Training tab's save settings should show for a policy (policy_from_ui
+    inverted). Counts that are off show a sensible default, so ticking a box offers one."""
+    export_n, gd_n = policy["best_export_n"], policy["best_gd_n"]
+    split = bool(export_n and gd_n and export_n != gd_n)
+    return {
+        "gd_keep": policy["gd_every"] > 0,
+        "gd_n": policy["gd_every"] or 1,
+        "best_enabled": best_is_active(policy),
+        "best_keep_export": export_n > 0,
+        "best_keep_gd": gd_n > 0,
+        "best_n": max(export_n, gd_n) or default_best_n,
+        "best_split": split,
+        "best_export_n": export_n or default_best_n,
+        "best_gd_n": gd_n or default_best_n,
+        "eval_timing": "epoch" if policy["eval_every"] == 1 else "save",
+        "best_criterion": policy["best_criterion"],
+        "eval_set": policy["eval_set"],
+    }
 
 
 def read_policy(model_path):
@@ -98,8 +163,8 @@ def apply_checkpoint_policy(model_path, **values):
     """Write the policy into a run's config.json, leaving everything else be.
 
     Values left at None are not changed. A config that has never had a policy is left
-    untouched when every value given is the default, so training with the section
-    untouched changes nothing, the same rule as the Initial Generator LR Boost.
+    untouched when every value given is the default, so training with nothing ticked
+    changes nothing, the same rule as the Initial Generator LR Boost.
     """
     config_path = os.path.join(model_path, "config.json")
     if not os.path.isfile(config_path):
@@ -109,9 +174,7 @@ def apply_checkpoint_policy(model_path, **values):
     given = {key: value for key, value in values.items() if key in DEFAULT_POLICY and value is not None}
     current = config.get(POLICY_KEY)
     merged = normalize_policy({**(current or {}), **given})
-    if current is None and merged == DEFAULT_POLICY:
-        return merged
-    if current == merged:
+    if (current is None and merged == DEFAULT_POLICY) or current == merged:
         return merged
     config[POLICY_KEY] = merged
     with open(config_path, "w", encoding="utf-8") as f:
@@ -120,20 +183,15 @@ def apply_checkpoint_policy(model_path, **values):
     return merged
 
 
-def eval_interval(policy, save_every_epoch):
-    return policy["eval_every"] or int(save_every_epoch)
-
-
 def wants_eval(policy, epoch, save_every_epoch):
-    return bool(policy["eval_set"]) and epoch % eval_interval(policy, save_every_epoch) == 0
+    if not best_is_active(policy):
+        return False
+    interval = 1 if policy["eval_every"] == 1 else int(save_every_epoch)
+    return epoch % interval == 0
 
 
-def wants_export_every(policy, epoch):
-    return policy["export_every"] > 0 and epoch % policy["export_every"] == 0
-
-
-def wants_gd_every(policy, epoch):
-    every = policy["export_every"] * policy["gd_every"]
+def wants_gd_every(policy, epoch, save_every_epoch):
+    every = int(save_every_epoch) * policy["gd_every"]
     return every > 0 and epoch % every == 0
 
 
@@ -148,9 +206,7 @@ def score_of(scores, criterion, baseline):
     """
 
     def pick(*keys):
-        values = [scores.get(key) for key in keys]
-        values = [value for value in values if value is not None]
-        return values
+        return [scores[key] for key in keys if scores.get(key) is not None]
 
     mel = pick("B_mel") or pick("A_mel")
     noise = pick("B_noise", "C_noise") or pick("A_noise")
@@ -177,23 +233,22 @@ def baseline_of(scores):
     return {"mel": mel, "noise": noise}
 
 
-def update_best(best, candidate, n):
-    """Insert candidate into the best list, keeping the n lowest scores.
+def rank_best(best, candidate, n):
+    """Insert candidate into the ranking, keeping the n lowest scores.
 
-    Returns (new list sorted best first, entries that dropped out, whether candidate
-    made it). An existing entry for the same epoch is replaced (a resume re-running an
-    epoch). Ties keep the earlier epoch.
+    Returns (new ranking best first, entries that left it). An existing entry for the
+    same epoch is replaced (a resume re-running an epoch). Ties keep the earlier epoch.
     """
     others = [entry for entry in best if entry["epoch"] != candidate["epoch"]]
     replaced = [entry for entry in best if entry["epoch"] == candidate["epoch"]]
     ranked = sorted(others + [candidate], key=lambda entry: (entry["score"], entry["epoch"]))
-    kept, evicted = ranked[:n], ranked[n:]
-    accepted = candidate in kept
-    return kept, replaced + [entry for entry in evicted if entry is not candidate], accepted
+    return ranked[:n], replaced + [entry for entry in ranked[n:] if entry is not candidate]
 
 
 def _remove(paths):
     for path in paths:
+        if not path:
+            continue
         try:
             os.remove(path)
         except FileNotFoundError:
@@ -218,7 +273,7 @@ class CheckpointKeeper:
 
     def _empty_state(self):
         return {
-            "version": 1,
+            "version": 2,
             "policy": self.policy,
             "evaluations": [],
             "baseline": None,
@@ -234,7 +289,7 @@ class CheckpointKeeper:
         try:
             with open(self.state_path, "r", encoding="utf-8") as f:
                 state = json.load(f)
-            if not isinstance(state, dict) or state.get("version") != 1:
+            if not isinstance(state, dict) or state.get("version") != 2:
                 raise ValueError("unknown state layout")
         except (OSError, ValueError) as error:
             # Keep the unreadable file for inspection and start a fresh record rather
@@ -245,8 +300,12 @@ class CheckpointKeeper:
             return self._empty_state()
         fresh = self._empty_state()
         fresh.update(state)
-        # A best entry whose exported model was deleted by hand no longer competes.
-        fresh["best"] = [entry for entry in fresh["best"] if os.path.isfile(entry["export"])]
+        # Files deleted by hand no longer count; an entry left with nothing is dropped.
+        for entry in fresh["best"]:
+            for key in ("export", "G", "D"):
+                if entry.get(key) and not os.path.isfile(entry[key]):
+                    entry.pop(key)
+        fresh["best"] = [e for e in fresh["best"] if e.get("export") or e.get("G")]
         fresh["policy"] = self.policy
         return fresh
 
@@ -274,7 +333,7 @@ class CheckpointKeeper:
     # actions
 
     def save_last(self, epoch, step, export):
-        """Replace the newest exported model."""
+        """Replace the newest exported RVC model."""
         path = self.export_path("last", epoch, step)
         previous = self.state.get("last")
         export(path)
@@ -284,22 +343,20 @@ class CheckpointKeeper:
         self.save_state()
         return path
 
-    def save_every(self, epoch, step, export, save_gd):
-        """Keep an exported model, and weights-only G/D on the multiple, for good."""
-        entry = {"epoch": epoch, "step": step, "export": self.export_path("every", epoch, step)}
-        export(entry["export"])
-        if wants_gd_every(self.policy, epoch):
-            entry["G"], entry["D"] = self.gd_paths("every", epoch)
-            save_gd(entry["G"], entry["D"])
+    def save_gd_every(self, epoch, step, save_gd):
+        """Keep weights-only G/D for good."""
+        entry = {"epoch": epoch, "step": step}
+        entry["G"], entry["D"] = self.gd_paths("every", epoch)
+        save_gd(entry["G"], entry["D"])
         self.state["every"] = [e for e in self.state["every"] if e["epoch"] != epoch] + [entry]
         self.save_state()
         return entry
 
     def record_evaluation(self, epoch, step, scores, export, save_gd):
-        """Record an evaluation and keep the checkpoint if it is among the best.
+        """Record an evaluation and keep what the best counts ask for.
 
-        Returns (score, rank) - rank is 1-based within the kept best, None when not kept
-        or when no best is being kept.
+        Returns (score, rank) - rank is 1-based in the ranking, None when this epoch did
+        not make it or nothing is being kept.
         """
         if self.state["baseline"] is None:
             self.state["baseline"] = baseline_of(scores)
@@ -308,20 +365,28 @@ class CheckpointKeeper:
             e for e in self.state["evaluations"] if e["epoch"] != epoch
         ] + [{"epoch": epoch, "step": step, "scores": scores, "score": score}]
         rank = None
-        if self.policy["best_n"] and score is not None:
-            candidate = {"epoch": epoch, "step": step, "score": score,
-                         "export": self.export_path("best", epoch, step)}
-            if self.policy["best_save_gd"]:
-                candidate["G"], candidate["D"] = self.gd_paths("best", epoch)
-            kept, dropped, accepted = update_best(self.state["best"], candidate, self.policy["best_n"])
-            for entry in dropped:
-                _remove([entry.get(key) for key in ("export", "G", "D") if entry.get(key)])
-            if accepted:
-                export(candidate["export"])
-                if self.policy["best_save_gd"]:
-                    save_gd(candidate["G"], candidate["D"])
-                rank = kept.index(candidate) + 1
-            self.state["best"] = kept
+        export_n, gd_n = self.policy["best_export_n"], self.policy["best_gd_n"]
+        if best_is_active(self.policy) and score is not None:
+            candidate = {"epoch": epoch, "step": step, "score": score}
+            ranking, left = rank_best(self.state["best"], candidate, max(export_n, gd_n))
+            _remove([entry.get(key) for entry in left for key in ("export", "G", "D")])
+            # Entries only ever move down the ranking, so files are only ever deleted -
+            # never something that would have to be recreated from older weights.
+            for position, entry in enumerate(ranking, start=1):
+                if entry is candidate:
+                    rank = position
+                    if position <= export_n:
+                        entry["export"] = self.export_path("best", epoch, step)
+                        export(entry["export"])
+                    if position <= gd_n:
+                        entry["G"], entry["D"] = self.gd_paths("best", epoch)
+                        save_gd(entry["G"], entry["D"])
+                    continue
+                if position > export_n and entry.get("export"):
+                    _remove([entry.pop("export")])
+                if position > gd_n and entry.get("G"):
+                    _remove([entry.pop("G"), entry.pop("D", None)])
+            self.state["best"] = ranking
         self.save_state()
         return score, rank
 

@@ -1351,13 +1351,18 @@ def setup_checkpoint_policy(config, device, device_id):
     An evaluation set that cannot be prepared turns evaluation off with a message rather
     than stopping the run: the checkpoints it would have ranked are still saved.
     """
-    from rvc.train.checkpoint_policy import CheckpointKeeper, policy_is_active
+    from rvc.train.checkpoint_policy import (
+        CheckpointKeeper,
+        best_is_active,
+        policy_is_active,
+    )
 
     if not policy_is_active(checkpoint_policy):
         return None, None
     keeper = CheckpointKeeper(experiment_dir, model_name, checkpoint_policy)
     print(f"Checkpoint policy: {checkpoint_policy}")
-    if not checkpoint_policy["eval_set"]:
+    # Evaluation only exists to rank the best checkpoints.
+    if not best_is_active(checkpoint_policy):
         return keeper, None
 
     from rvc.train.evaluation import Evaluator, pick_auto_trained, prepare_eval_cache
@@ -1393,7 +1398,7 @@ def setup_checkpoint_policy(config, device, device_id):
 
 def keep_checkpoints(epoch, done, net_g, net_d, writer, use_amp, overtrain_info, hps):
     """Carry out the checkpoint policy for this epoch (rank 0 only)."""
-    from rvc.train.checkpoint_policy import wants_eval, wants_export_every
+    from rvc.train.checkpoint_policy import wants_eval, wants_gd_every
 
     global evaluator
     policy = checkpoint_keeper.policy
@@ -1428,8 +1433,8 @@ def keep_checkpoints(epoch, done, net_g, net_d, writer, use_amp, overtrain_info,
 
     if epoch % save_every_epoch == 0 or done:
         checkpoint_keeper.save_last(epoch, global_step, export)
-    if wants_export_every(policy, epoch):
-        checkpoint_keeper.save_every(epoch, global_step, export, save_gd)
+    if wants_gd_every(policy, epoch, save_every_epoch):
+        checkpoint_keeper.save_gd_every(epoch, global_step, save_gd)
     if evaluator is not None and wants_eval(policy, epoch, save_every_epoch):
         started = ttime()
         try:

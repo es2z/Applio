@@ -388,8 +388,16 @@ def pick_auto_trained(filelist_path, count=AUTO_TRAINED_COUNT):
 # Metrics
 
 
+# The band the noise metric looks at. It stops at 12 kHz because speech has next to no
+# energy above that, and a spectral flatness over near-empty bins measures the noise floor
+# rather than anything audible: with the band running to Nyquist, writing the original
+# of a real 48 kHz training clip as 16-bit raised its flatness 1.43x (4-12 kHz: 1.005x),
+# and the ranking of a run's checkpoints moved with that floor.
+HF_BAND = (4000, 12000)
+
+
 def voiced_hf_flatness(audio, sample_rate, f0):
-    """Median spectral flatness above 4 kHz over the frames f0 calls voiced.
+    """Median spectral flatness in HF_BAND over the frames f0 calls voiced.
 
     High means the harmonics have turned into noise there. f0 is at 100 frames/s.
     """
@@ -401,7 +409,7 @@ def voiced_hf_flatness(audio, sample_rate, f0):
         return None
     f, t, Z = signal.stft(audio, sample_rate, nperseg=nperseg, noverlap=nperseg - hop)
     power = np.abs(Z) ** 2 + 1e-20
-    band = f >= 4000
+    band = (f >= HF_BAND[0]) & (f < HF_BAND[1])
     flatness = np.exp(np.mean(np.log(power[band]), 0)) / np.mean(power[band], 0)
     index = np.clip(np.round(t * 100).astype(int), 0, len(f0) - 1)
     voiced = np.asarray(f0)[index] > 0
