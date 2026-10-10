@@ -529,7 +529,7 @@ class VoiceConverter:
             self.sifigan_filter_resblock = self.cpt.get(
                 "sifigan_filter_resblock", "rvc"
             )
-            # Only CodenameRingFormer reads these, and (None, None) for anything else
+            # Only CodenameRingFormer and APEX-GAN read these; (None, None) for anything else
             # leaves Synthesizer's defaults in place. They decide the width of conv_post
             # and noise_convs, so that decoder cannot be rebuilt without them.
             gen_istft_n_fft, gen_istft_hop_size = checkpoint_gen_istft(self.cpt)

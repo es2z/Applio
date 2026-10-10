@@ -44,9 +44,10 @@ def generate_config(
 
 
 # The decoder settings a vocoder is allowed to redefine. Every vocoder but
-# CodenameRingFormer builds its decoder from the stock values; CodenameRingFormer upsamples
-# in the STFT frame domain instead of the waveform domain, so its rates, kernels and the
-# two iSTFT settings all differ and the stock ones would build the wrong decoder.
+# CodenameRingFormer and APEX-GAN builds its decoder from the stock values; those two
+# upsample to the STFT frame rate instead of the waveform rate and finish with an iSTFT, so
+# their rates, kernels and the two iSTFT settings all differ and the stock ones would build
+# the wrong decoder.
 VOCODER_MODEL_KEYS = (
     "upsample_rates",
     "upsample_kernel_sizes",
@@ -57,7 +58,11 @@ VOCODER_MODEL_KEYS = (
     "gen_istft_hop_size",
 )
 
-VOCODER_CONFIG_DIRS = {"CodenameRingFormer": "codename_ringformer"}
+VOCODER_CONFIG_DIRS = {
+    "CodenameRingFormer": "codename_ringformer",
+    # 48 kHz only (rvc/train/vocoder_recipe.py refuses the other rates before this is read).
+    "APEX-GAN": "apex_gan",
+}
 
 
 def vocoder_model_config(vocoder: str, sample_rate: int):

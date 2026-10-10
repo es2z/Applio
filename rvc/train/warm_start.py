@@ -24,7 +24,7 @@ What is allowed to differ between the pretrained model and this one:
   across vocoders and are inherited whole; decoder parts with the same structure and
   role are ported (see CROSS_VOCODER_DECODER_PORTS) and the rest starts from scratch.
 - Individual sub-discriminators, matched by what they look at (scale, period, STFT
-  resolution), never by position.
+  resolution, CQT, PQMF sub-band), never by position.
 Anything else that does not line up stops the run.
 
 Optimizer and scaler state are never read here: a warm start is always weights only.
@@ -42,6 +42,7 @@ from rvc.lib.algorithm.discriminators import (
     describe_discriminator,
     discriminator_layout,
 )
+from rvc.lib.algorithm.generators.apex_gan import APEX_GAN_ISTFT
 from rvc.lib.algorithm.generators.refinegan import (
     RESBLOCK_DILATION as REFINEGAN_RESBLOCK_DILATION,
 )
@@ -52,6 +53,7 @@ MRF_HIFIGAN = "MRF HiFi-GAN"
 REFINEGAN = "RefineGAN"
 SIFIGAN = "SiFi-GAN"
 CODENAME_RINGFORMER = "CodenameRingFormer"
+APEX_GAN = "APEX-GAN"
 
 # Warm starting a run whose embedder differs from the pretrain's only works because
 # exactly one tensor reads the embedder's feature space.
@@ -102,9 +104,12 @@ def detect_vocoder(state_dict):
     if has("dec.mrfs."):
         return MRF_HIFIGAN
     # Before HiFi-GAN: a CodenameRingFormer decoder has dec.resblocks and dec.ups too, and
-    # only the Conformer stack tells the two apart.
+    # only the Conformer stack tells the two apart. So does an APEX-GAN one, told apart by
+    # its phase projectors.
     if has("dec.conformers."):
         return CODENAME_RINGFORMER
+    if has("dec.phase_convs."):
+        return APEX_GAN
     if has("dec.resblocks.") and has("dec.ups."):
         return HIFIGAN
     return None
@@ -181,6 +186,21 @@ def infer_codename_ringformer_sample_rate(state_dict):
         return None
     sample_rate = (weight.shape[0] - 2) * 400
     return sample_rate if sample_rate in STOCK_SAMPLE_RATES else None
+
+
+def infer_apex_gan_sample_rate(state_dict):
+    """Sample rate of an APEX-GAN generator that did not record one.
+
+    conv_post emits gen_istft_n_fft + 2 channels and every supported rate has its own FFT
+    size (APEX_GAN_ISTFT), so the width gives the rate back. None for an FFT size this
+    repository has no config for, e.g. the Codename fork's 32 or 40 kHz ones.
+    """
+    weight = state_dict.get("dec.conv_post.parametrizations.weight.original1")
+    if weight is None:
+        return None
+    n_fft = weight.shape[0] - 2
+    matches = [rate for rate, (fft, _) in APEX_GAN_ISTFT.items() if fft == n_fft]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _indices(state_dict, prefix):
@@ -962,6 +982,127 @@ def _port_codename_ringformer_to_hifigan(
     return _fitting_entries(entries, source, target), None
 
 
+# What of a HiFi-GAN decoder's first two stages is offered to an APEX-GAN one.
+#
+# At 48 kHz APEX-GAN's two transposed convolutions are exactly HiFi-GAN's first two
+# ([12, 10], kernels [24, 20], 512 -> 256 -> 128 channels), and its six residual blocks
+# hold convs1 / convs2 of exactly the shapes of HiFi-GAN's first six - and, unlike
+# CodenameRingFormer's, they run at the same feature rates (1.2 kHz and 12 kHz), because
+# APEX-GAN replaces HiFi-GAN's last two x2 stages with conv_post and a hop-4 iSTFT. What
+# differs is around them: Snake activations (alpha = 1, the first of each layer rotated by
+# the F0 phase) where HiFi-GAN has LeakyReLU 0.1, SiLU in front of each stage, and a
+# spectral noise injection where HiFi-GAN adds a sine.
+#
+# The residual blocks must not come across, measured. Mel L1 on 16 real 48 kHz clips
+# before any optimizer step, posterior-encoder path, from a 1024-dim HiFi-GAN
+# G_2333333.pth: conv_pre + cond 3.755, + transposed convolutions 3.649, + residual
+# blocks **NaN**. Behind Snakes, whose negative half is not attenuated the way LeakyReLU's
+# is, the inherited blocks amplify instead of refine - rms 0.54 after the first transposed
+# convolution, 160 after the first stage's blocks, 808 after the second's (3.0 and 2.9
+# with fresh blocks) - so conv_post's output reaches 667 and its exp() overflows. The
+# stock f0G48k gives the same picture. Kept as a switch, like
+# CODENAME_RINGFORMER_PORTS_RESBLOCKS, so the code and the measurement stay together.
+APEX_GAN_PORTS_RESBLOCKS = False
+
+# The transposed convolutions are harmless at step 0 (above), where conv_post is fresh and
+# every configuration sits near 3.7, so training decided. Three 20 epoch runs on the same
+# 128 clips, batch 4, fp16, from that G and the same D, scored after training on the 16
+# held-out clips (mel L1) and by the training mel loss (c_mel 45, rolling 50 steps):
+#
+#                       mel at epoch 1.6 / 9.4 / 18.8     held-out mel L1
+#   decoder all fresh   103.6 / 35.7 / 32.3               0.725
+#   conv_pre + cond     103.3 / 33.1 / 30.5               0.678
+#   + upsamplers         94.8 / 32.4 / 30.6               0.698
+#
+# The upsamplers buy a head start that is gone by epoch 11 and end up behind, so they are
+# not inherited; conv_pre + cond is worth 6.5% over a fresh decoder and is.
+APEX_GAN_PORTS_UPSAMPLERS = False
+
+# conv_pre and cond mean exactly the same thing in both decoders, as for
+# CodenameRingFormer: project the latent to 512 channels and add the speaker embedding.
+# conv_pre is weight-normed in APEX-GAN and plain in HiFi-GAN, so it is converted.
+_APEX_GAN_HIFIGAN_PLAIN = ("dec.cond.weight", "dec.cond.bias")
+
+
+def _apex_gan_stage_entries(source, target):
+    """What APEX_GAN_PORTS_UPSAMPLERS / _RESBLOCKS allow of the first two stages.
+
+    Pairs dec.ups.{i} with dec.ups.{i} and block j with block j, so the APEX-GAN decoder's
+    two stages and six blocks meet the HiFi-GAN decoder's first two stages and first six
+    blocks, stage outer and kernel size inner in both. Only convs1 / convs2 of a block are
+    paired - a Snake's alpha has no counterpart in a LeakyReLU block - and every shape is
+    still checked before anything is loaded.
+    """
+    entries = []
+    if APEX_GAN_PORTS_UPSAMPLERS:
+        entries += [
+            (key, (key,), _same)
+            for key in target
+            if key.startswith("dec.ups.") and key in source
+        ]
+    if APEX_GAN_PORTS_RESBLOCKS:
+        entries += _port_leading_resblocks(
+            source,
+            target,
+            _hifigan_resblock_prefixes(source),
+            _hifigan_resblock_prefixes(target),
+        )
+    return entries
+
+
+def _apex_gan_dilations_match(sample_rate, decoder, count):
+    """Whether the first `count` blocks of `decoder` have the stock config's dilations.
+
+    The dilations are not in the weights. APEX-GAN's config (rvc/configs/apex_gan/) uses
+    the stock ones, so the stock config at this rate is what both decoders must agree with.
+    """
+    return _hifigan_config_dilations(sample_rate, count) == (
+        _module_resblock_dilations(decoder)[:count]
+    )
+
+
+def _port_hifigan_to_apex_gan(source, target, source_sample_rate, target_decoder):
+    entries = [
+        (
+            "dec.conv_pre.parametrizations.weight.original0",
+            ("dec.conv_pre.weight",),
+            _weight_norm_magnitude,
+        ),
+        (
+            "dec.conv_pre.parametrizations.weight.original1",
+            ("dec.conv_pre.weight",),
+            _same,
+        ),
+        ("dec.conv_pre.bias", ("dec.conv_pre.bias",), _same),
+    ] + [(key, (key,), _same) for key in _APEX_GAN_HIFIGAN_PLAIN]
+    if APEX_GAN_PORTS_RESBLOCKS and not _apex_gan_dilations_match(
+        source_sample_rate, target_decoder, len(target_decoder.resblocks)
+    ):
+        return None, "the residual block dilations differ"
+    entries += _apex_gan_stage_entries(source, target)
+    return _fitting_entries(entries, source, target), None
+
+
+def _port_apex_gan_to_hifigan(source, target, source_sample_rate, target_decoder):
+    entries = [
+        (
+            "dec.conv_pre.weight",
+            (
+                "dec.conv_pre.parametrizations.weight.original0",
+                "dec.conv_pre.parametrizations.weight.original1",
+            ),
+            _weight_norm_compose,
+        ),
+        ("dec.conv_pre.bias", ("dec.conv_pre.bias",), _same),
+    ] + [(key, (key,), _same) for key in _APEX_GAN_HIFIGAN_PLAIN]
+    if APEX_GAN_PORTS_RESBLOCKS and not _apex_gan_dilations_match(
+        source_sample_rate, target_decoder, len(_hifigan_resblock_prefixes(source))
+    ):
+        return None, "the residual block dilations differ"
+    entries += _apex_gan_stage_entries(source, target)
+    return _fitting_entries(entries, source, target), None
+
+
 # Decoder parts that mean the same thing in two vocoders, for a warm start between them.
 #
 # HiFi-GAN <-> RefineGAN: the residual blocks of each upsampling stage (same channels
@@ -986,6 +1127,14 @@ def _port_codename_ringformer_to_hifigan(
 # vocoder with a pretrained model at every sample rate, so that is the direction worth
 # having, and going through it loses nothing.
 #
+# HiFi-GAN <-> APEX-GAN: conv_pre and cond, plus the first two stages' transposed
+# convolutions or residual block convolutions when APEX_GAN_PORTS_UPSAMPLERS /
+# APEX_GAN_PORTS_RESBLOCKS say so - see the comment above them. Nothing else lines up:
+# APEX-GAN's noise_convs read an STFT of the noise (n_fft + 2 channels) where HiFi-GAN's
+# read a one-channel sine, its conv_post emits a spectrum, and its phase projectors and
+# Snake alphas are new. Only the HiFi-GAN pair is registered, for the same reason as
+# CodenameRingFormer.
+#
 # These are a good starting point rather than an identical function: HiFi-GAN's blocks
 # use a LeakyReLU slope of 0.1 where RefineGAN's use 0.2, and in RefineGAN they sit
 # behind a freshly initialised input_conv.
@@ -1000,6 +1149,8 @@ CROSS_VOCODER_DECODER_PORTS = {
     (CODENAME_RINGFORMER, HIFIGAN): _port_codename_ringformer_to_hifigan,
     (HIFIGAN, MRF_HIFIGAN): _port_hifigan_to_mrf_hifigan,
     (MRF_HIFIGAN, HIFIGAN): _port_mrf_hifigan_to_hifigan,
+    (HIFIGAN, APEX_GAN): _port_hifigan_to_apex_gan,
+    (APEX_GAN, HIFIGAN): _port_apex_gan_to_hifigan,
 }
 
 
@@ -1034,6 +1185,7 @@ def _plan_decoder(
             MRF_HIFIGAN,
             SIFIGAN,
             CODENAME_RINGFORMER,
+            APEX_GAN,
             None,
         ):
             transfer.notes.append(
@@ -1173,9 +1325,9 @@ def _plan_generator(
     source_rate = checkpoint.get("sample_rate")
     if source_rate is None:
         # These decoders encode the sample rate in their weights - three of them in the
-        # kernel widths of their transposed convolutions, CodenameRingFormer in conv_post
-        # - so it can be recovered from a checkpoint written before the metadata stamp
-        # existed. A RefineGAN decoder's shapes carry no such trace.
+        # kernel widths of their transposed convolutions, CodenameRingFormer and APEX-GAN
+        # in conv_post - so it can be recovered from a checkpoint written before the
+        # metadata stamp existed. A RefineGAN decoder's shapes carry no such trace.
         if source_vocoder == HIFIGAN:
             source_rate = infer_hifigan_sample_rate(source)
         elif source_vocoder == MRF_HIFIGAN:
@@ -1184,6 +1336,8 @@ def _plan_generator(
             source_rate = infer_sifigan_sample_rate(source)
         elif source_vocoder == CODENAME_RINGFORMER:
             source_rate = infer_codename_ringformer_sample_rate(source)
+        elif source_vocoder == APEX_GAN:
+            source_rate = infer_apex_gan_sample_rate(source)
     target_identity = target_identity or {}
     _plan_decoder(
         transfer,
@@ -1239,6 +1393,12 @@ def _discriminator_kind(weight):
 def _describe_discriminator_descriptor(descriptor):
     if descriptor[0] == "P":
         return f"period {descriptor[1]} discriminator"
+    if descriptor[0] == "B":
+        _, subbands, (low, high), transpose = descriptor
+        return (
+            f"sub-band discriminator ({subbands}-band PQMF, bands {low}-{high}"
+            f"{', transposed' if transpose else ''})"
+        )
     if descriptor[0] == "Q":
         _, hop_length, n_octaves, bins_per_octave, fmin = descriptor
         return (
@@ -1277,6 +1437,14 @@ def _source_discriminator_layout(transfer, checkpoint):
         # has no original1 to read a kind off; its per-octave conv_pres give it away.
         if f"discriminators.{len(kinds)}.conv_pres.0.weight" in source:
             kinds.append("Q")
+            continue
+        # A sub-band discriminator's first layer is a multi-dilated block, whose branches
+        # hold the weights.
+        if (
+            f"discriminators.{len(kinds)}.convs.0.d_convs.0.parametrizations.weight.original1"
+            in source
+        ):
+            kinds.append("B")
             continue
         kinds.append(
             _discriminator_kind(

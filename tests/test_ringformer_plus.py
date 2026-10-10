@@ -271,7 +271,9 @@ class DiscriminatorTest(unittest.TestCase):
             MultiPeriodDiscriminator(False, version=PLUS_VERSION)
         for version in DISCRIMINATOR_VERSIONS:
             if not DISCRIMINATOR_VERSIONS[version].get("cqts"):
-                MultiPeriodDiscriminator(False, version=version)
+                # apex-gan's sub-band discriminators need the segment size instead, which
+                # is a separate requirement (tests/test_apex_gan.py).
+                MultiPeriodDiscriminator(False, version=version, segment_size=17280)
 
     def test_only_the_cqt_layout_has_cqts_and_it_is_not_always_recorded(self):
         self.assertEqual(

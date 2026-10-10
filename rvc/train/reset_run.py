@@ -351,6 +351,7 @@ def reset_training_run(
                     config["model"].get("use_spectral_norm", False),
                     version=target_disc_version,
                     sample_rate=config["data"]["sample_rate"],
+                    segment_size=config["train"]["segment_size"],
                 )
                 transfer = warm_start(discriminator, source, "D")
                 discriminator_transfer = transfer.summary(str(source))

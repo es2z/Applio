@@ -12,6 +12,10 @@ from rvc.lib.algorithm.generators.codename_ringformer import (
     CodenameRingFormerGenerator,
     default_istft_settings,
 )
+from rvc.lib.algorithm.generators.apex_gan import (
+    APEXGANGenerator,
+    default_istft_settings as apex_gan_istft_settings,
+)
 from rvc.lib.algorithm.commons import slice_segments, rand_slice_segments
 from rvc.lib.algorithm.residuals import ResidualCouplingBlock
 from rvc.lib.algorithm.encoders import TextEncoder, PosteriorEncoder
@@ -161,6 +165,27 @@ class Synthesizer(torch.nn.Module):
                     gen_istft_hop_size=gen_istft_hop_size or default_hop,
                     checkpointing=checkpointing,
                 )
+            elif vocoder == "APEX-GAN":
+                # Like CodenameRingFormer, the two iSTFT settings come from
+                # logs/<model>/config.json (rvc/configs/apex_gan/) or the exported model;
+                # the fallback covers a checkpoint that did not record them.
+                if gen_istft_n_fft is None or gen_istft_hop_size is None:
+                    default_n_fft, default_hop = apex_gan_istft_settings(sr)
+                    gen_istft_n_fft = gen_istft_n_fft or default_n_fft
+                    gen_istft_hop_size = gen_istft_hop_size or default_hop
+                self.dec = APEXGANGenerator(
+                    inter_channels,
+                    resblock_kernel_sizes,
+                    resblock_dilation_sizes,
+                    upsample_rates,
+                    upsample_initial_channel,
+                    upsample_kernel_sizes,
+                    gin_channels=gin_channels,
+                    sr=sr,
+                    gen_istft_n_fft=gen_istft_n_fft,
+                    gen_istft_hop_size=gen_istft_hop_size,
+                    checkpointing=checkpointing,
+                )
             else:
                 self.dec = HiFiGANNSFGenerator(
                     inter_channels,
@@ -187,6 +212,9 @@ class Synthesizer(torch.nn.Module):
                 print(
                     "CodenameRingFormer does not support training without pitch guidance."
                 )
+                self.dec = None
+            elif vocoder == "APEX-GAN":
+                print("APEX-GAN does not support training without pitch guidance.")
                 self.dec = None
             else:
                 self.dec = HiFiGANGenerator(

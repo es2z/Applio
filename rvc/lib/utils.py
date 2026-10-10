@@ -301,17 +301,21 @@ def checkpoint_text_enc_hidden_dim(checkpoint):
 
 
 def checkpoint_gen_istft(checkpoint):
-    """(gen_istft_n_fft, gen_istft_hop_size) of a CodenameRingFormer checkpoint.
+    """(gen_istft_n_fft, gen_istft_hop_size) of a CodenameRingFormer or APEX-GAN checkpoint.
 
-    Its decoder ends in an iSTFT, and both settings decide shapes: conv_post emits
+    Both decoders end in an iSTFT, and both settings decide shapes: conv_post emits
     gen_istft_n_fft + 2 channels and noise_convs take that many in. The FFT size is
     therefore recoverable from the weights of every such checkpoint; the hop is not, so it
-    comes from the recorded key and falls back to the stock relation (n_fft = 4 * hop).
+    comes from the recorded key and falls back to the vocoder's own relation:
+    CodenameRingFormer's stock configs all have n_fft = 4 * hop, and APEX-GAN's hop is the
+    one rvc/lib/algorithm/generators/apex_gan.py lists for that FFT size.
 
     (None, None) for every other vocoder, which is what Synthesizer's defaults expect.
     """
     weight = checkpoint.get("weight", {})
-    if not any(key.startswith("dec.conformers.") for key in weight):
+    ringformer = any(key.startswith("dec.conformers.") for key in weight)
+    apex_gan = any(key.startswith("dec.phase_convs.") for key in weight)
+    if not (ringformer or apex_gan):
         return None, None
     n_fft = checkpoint.get("gen_istft_n_fft")
     for key in (
@@ -323,7 +327,12 @@ def checkpoint_gen_istft(checkpoint):
             break
     hop = checkpoint.get("gen_istft_hop_size")
     if hop is None and n_fft is not None:
-        hop = n_fft // 4
+        if apex_gan:
+            from rvc.lib.algorithm.generators.apex_gan import APEX_GAN_ISTFT
+
+            hop = {fft: hop_size for fft, hop_size in APEX_GAN_ISTFT.values()}.get(n_fft)
+        else:
+            hop = n_fft // 4
     return n_fft, hop
 
 

@@ -2210,6 +2210,10 @@ def parse_arguments():
             # multi-scale sub-band CQT one from the RingFormer paper. See
             # rvc/train/vocoder_recipe.py.
             "RingFormer+",
+            # The Codename RVC fork's APEX-GAN: an iSTFT decoder with phase-only F0
+            # control, against periods, resolutions and a sub-band discriminator. 48 kHz
+            # only.
+            "APEX-GAN",
         ],
         default="HiFi-GAN",
     )

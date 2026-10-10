@@ -12,7 +12,7 @@ generator_vocoder(recipe), so a recipe never reaches Synthesizer, which would qu
 a HiFi-GAN decoder for a name it does not know.
 """
 
-from rvc.train.warm_start import CODENAME_RINGFORMER, REFINEGAN, SIFIGAN
+from rvc.train.warm_start import APEX_GAN, CODENAME_RINGFORMER, REFINEGAN, SIFIGAN
 
 DEFAULT_DISCRIMINATOR_VERSION = "v2"
 
@@ -45,13 +45,16 @@ _GENERATOR_VOCODERS = {
 #
 # The Codename RVC fork trains RingFormer against its own layout - a scale discriminator,
 # eight periods and three STFT resolutions - and against a single-scale mel loss with
-# c_mel 45, so its mel loss is left as HiFi-GAN's.
+# c_mel 45, so its mel loss is left as HiFi-GAN's. It trains APEX-GAN against periods,
+# resolutions and Avocodo's sub-band discriminator ("apex-gan"), with the same
+# single-scale mel loss by default and no other loss, so that mel loss is HiFi-GAN's too.
 _DISCRIMINATOR_VERSIONS = {
     REFINEGAN: "v3",
     SIFIGAN: "v3",
     SIFIGAN_PLUS: "v3-48k",
     CODENAME_RINGFORMER: "codename-ringformer",
     RINGFORMER_PLUS: "codename-ringformer-cqt",
+    APEX_GAN: "apex-gan",
 }
 # Keyed by generator: a recipe that trains the SiFi-GAN generator trains it with SiFi-GAN's
 # losses.
@@ -61,8 +64,20 @@ _MULTISCALE_MEL_LOSS = (REFINEGAN, SIFIGAN)
 # doubled for 48 kHz; at 32 or 40 kHz they would be neither v3 nor 48 kHz's. RingFormer+
 # needs no entry: its CQT discriminators resample to twice the sample rate before the
 # transform, which keeps its ~16.5 kHz top bin below Nyquist at 32, 40 and 48 kHz alike.
+# APEX-GAN has a decoder config for 48 kHz only (rvc/configs/apex_gan/).
 _SAMPLE_RATES = {
     SIFIGAN_PLUS: (48000,),
+    APEX_GAN: (48000,),
+}
+
+# Why a recipe in _SAMPLE_RATES is limited, when it is not its discriminator's resolutions.
+_SAMPLE_RATE_REASONS = {
+    APEX_GAN: (
+        "Only its 48 kHz decoder config is ported: the Codename RVC fork's 32 and 40 kHz "
+        "APEX-GAN configs keep HiFi-GAN's four upsampling stages, so their upsampling "
+        "times the iSTFT hop is four times the hop length and the decoder's output would "
+        "not be the segment length."
+    ),
 }
 
 # Folder under rvc/models/pretraineds/ for a recipe whose name does not make one.
@@ -93,10 +108,13 @@ def sample_rate_error(recipe, sample_rate):
     if rates is None or int(sample_rate) in rates:
         return None
     supported = " / ".join(f"{rate // 1000} kHz" for rate in rates)
-    return (
-        f"{recipe} trains only at {supported}, and this model is {int(sample_rate)} Hz. "
+    reason = _SAMPLE_RATE_REASONS.get(recipe) or (
         f"Its discriminator's STFT resolutions are chosen for {supported}; use "
         f"{generator_vocoder(recipe)} at other sample rates."
+    )
+    return (
+        f"{recipe} trains only at {supported}, and this model is {int(sample_rate)} Hz. "
+        f"{reason}"
     )
 
 

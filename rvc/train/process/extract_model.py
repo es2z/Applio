@@ -125,7 +125,7 @@ def extract_model(
         opt["text_enc_hidden_dim"] = hps.model.text_enc_hidden_dim
         opt["speakers_id"] = speakers_id
         opt["vocoder"] = vocoder
-        if vocoder == "CodenameRingFormer":
+        if vocoder in ("CodenameRingFormer", "APEX-GAN"):
             # opt["config"] is a fixed positional list, so these go in as their own keys.
             # conv_post's width gives the FFT size back, but nothing in the weights records
             # the hop, and the decoder cannot be rebuilt without it.

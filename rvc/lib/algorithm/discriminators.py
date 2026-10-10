@@ -62,6 +62,20 @@ DISCRIMINATOR_VERSIONS = {
         "window": "hann",
         "cqts": [[512, 9, 24], [256, 9, 36], [256, 9, 48]],
     },
+    # What APEX-GAN trains against in the Codename RVC fork (MPD_SBD_MRD_Combined): no
+    # scale discriminator, v3's five periods and three resolution discriminators -
+    # identical construction, the same UnivNet resolutions and the same rectangular
+    # window - and Avocodo's sub-band discriminator, whose four blocks are
+    # sub-discriminators here (see rvc/lib/algorithm/subband_discriminator.py).
+    #
+    # Not always_recorded: no other version lacks the scale discriminator or has a
+    # sub-band one, so its weights alone tell it apart.
+    "apex-gan": {
+        "scale": False,
+        "periods": [2, 3, 5, 7, 11],
+        "resolutions": [[1024, 120, 600], [2048, 240, 1200], [512, 50, 240]],
+        "subbands": True,
+    },
 }
 
 # The window every resolution discriminator of a version uses. Absent from v1 to v3, whose
@@ -74,7 +88,7 @@ def discriminator_layout(version):
     spec = DISCRIMINATOR_VERSIONS[version]
     window = spec.get("window", DEFAULT_RESOLUTION_WINDOW)
     layout = (
-        [("S",)]
+        ([("S",)] if spec.get("scale", True) else [])
         + [("P", period) for period in spec["periods"]]
         + [("R", tuple(resolution), window) for resolution in spec["resolutions"]]
     )
@@ -85,6 +99,10 @@ def discriminator_layout(version):
             ("Q", hop_length, n_octaves, bins_per_octave, CQT_FMIN)
             for hop_length, n_octaves, bins_per_octave in spec["cqts"]
         ]
+    if spec.get("subbands"):
+        from rvc.lib.algorithm.subband_discriminator import subband_descriptors
+
+        layout += subband_descriptors()
     return layout
 
 
@@ -97,8 +115,8 @@ def describe_discriminator(discriminator):
         # codename-ringformer, and the two look at a different spectrogram, so a warm
         # start must not treat them as the same discriminator.
         return ("R", tuple(discriminator.resolution), discriminator.window)
-    # A DiscriminatorCQT carries its own, so that describing the other versions' layouts
-    # never imports it (and torchaudio).
+    # A DiscriminatorCQT or DiscriminatorSB carries its own, so that describing the other
+    # versions' layouts never imports them (and torchaudio).
     descriptor = getattr(discriminator, "descriptor", None)
     if descriptor is not None:
         return descriptor
@@ -121,6 +139,9 @@ class MultiPeriodDiscriminator(torch.nn.Module):
             DISCRIMINATOR_VERSIONS. Defaults to "v2".
         sample_rate (int): The training sample rate. Only read by, and required for, a
             version with CQT discriminators, whose transform depends on it.
+        segment_size (int): The training segment length in samples. Only read by, and
+            required for, a version with sub-band discriminators, whose transposed block
+            takes segment_size // 64 channels.
     """
 
     def __init__(
@@ -129,6 +150,7 @@ class MultiPeriodDiscriminator(torch.nn.Module):
         checkpointing: bool = False,
         version: str = "v2",
         sample_rate: int = None,
+        segment_size: int = None,
     ):
         super().__init__()
         if version not in DISCRIMINATOR_VERSIONS:
@@ -144,9 +166,19 @@ class MultiPeriodDiscriminator(torch.nn.Module):
                 f"Discriminator version '{version}' has CQT discriminators, which need "
                 "the sample rate"
             )
+        subbands = spec.get("subbands", False)
+        if subbands and segment_size is None:
+            raise ValueError(
+                f"Discriminator version '{version}' has sub-band discriminators, which "
+                "need the segment size"
+            )
         self.checkpointing = checkpointing
         discriminators = (
-            [DiscriminatorS(use_spectral_norm=use_spectral_norm)]
+            (
+                [DiscriminatorS(use_spectral_norm=use_spectral_norm)]
+                if spec.get("scale", True)
+                else []
+            )
             + [DiscriminatorP(p, use_spectral_norm=use_spectral_norm) for p in periods]
             + [
                 DiscriminatorR(r, use_spectral_norm=use_spectral_norm, window=window)
@@ -174,6 +206,16 @@ class MultiPeriodDiscriminator(torch.nn.Module):
                     )
                     for hop_length, n_octaves, bins_per_octave in cqts
                 ]
+        if subbands:
+            from rvc.lib.algorithm.subband_discriminator import (
+                SBD_BAND_RANGES,
+                DiscriminatorSB,
+            )
+
+            discriminators += [
+                DiscriminatorSB(band, segment_size, use_spectral_norm=use_spectral_norm)
+                for band in range(len(SBD_BAND_RANGES))
+            ]
         self.discriminators = torch.nn.ModuleList(discriminators)
 
     def forward(self, y, y_hat):

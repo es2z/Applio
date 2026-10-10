@@ -164,9 +164,9 @@ if _sample_rate_error:
     print(f"Error: {_sample_rate_error}")
     sys.exit(1)
 
-# CodenameRingFormer's decoder upsamples in the STFT frame domain rather than the waveform
-# domain, so its upsample rates, kernels and the two iSTFT settings all differ from the
-# stock config and the stock ones would build the wrong decoder. Applied to the HParams in
+# CodenameRingFormer's and APEX-GAN's decoders upsample to the STFT frame rate rather than
+# the waveform rate, so their upsample rates, kernels and the two iSTFT settings all differ
+# from the stock config and the stock ones would build the wrong decoder. Applied to the HParams in
 # every process, including the spawned workers; main() is what writes them back to
 # config.json, once, in the parent.
 from rvc.train.extract.preparing_files import (
@@ -569,6 +569,7 @@ def run(
         checkpointing=checkpointing,
         version=disc_version,
         sample_rate=config.data.sample_rate,
+        segment_size=config.train.segment_size,
     )
 
     if torch.cuda.is_available():

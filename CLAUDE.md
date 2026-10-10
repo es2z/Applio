@@ -89,6 +89,7 @@ This project does not include a formal test suite. Testing is done through the G
   - `refinegan.py` - RefineGAN vocoder
   - `sifigan.py` - SiFi-GAN (fork-specific, see below)
   - `codename_ringformer.py` - CodenameRingFormer (fork-specific, see below)
+  - `apex_gan.py` / `apex_gan_snake.py` - APEX-GAN, 48k only (fork-specific, see below)
 - `encoders.py`, `attentions.py`, `residuals.py` - Network components
 
 **5. F0 (Pitch) Predictors** (`rvc/lib/predictors/`)
@@ -173,7 +174,7 @@ Applio-3.5.0/
 - Models are loaded with `torch.load(..., weights_only=True)` for security
 - The VoiceConverter caches loaded models - only reloads if path changes
 - Multiple vocoder types supported: HiFi-GAN (default), MRF HiFi-GAN, RefineGAN,
-  SiFi-GAN, CodenameRingFormer
+  SiFi-GAN, CodenameRingFormer, APEX-GAN
 
 ### Real-time Mode Configuration
 - Real-time settings stored in `assets/config.json` under `realtime` key
@@ -1178,6 +1179,187 @@ of nine harmonics where they were fitted to one. Eleven parameters have to move 
 rest of the decoder to be worth what it was, so **use the Initial Generator LR Boost**.
 How fast they move in real training is unmeasured.
 
+### APEX-GAN (48k only)
+A sixth vocoder, from the Codename RVC fork
+([DanielNawa/codename-rvc-fork-4](https://github.com/DanielNawa/codename-rvc-fork-4), MIT):
+`rvc/lib/algorithm/generators/apex_gan.py` at `ef613f90`, which is also what that fork's
+latest main (v4.3.0) holds. Ported to `rvc/lib/algorithm/generators/apex_gan.py` and
+`apex_gan_snake.py`, its discriminator's sub-band part to
+`rvc/lib/algorithm/subband_discriminator.py`. The vocoder string is **`APEX-GAN`**, what the
+Codename fork's own checkpoints record; it is the fork's own design rather than a paper's,
+so it needs no "Codename" prefix to say whose it is.
+
+**What it is.** An iSTFT decoder like CodenameRingFormer, but built from HiFi-GAN's parts:
+two transposed convolutions, `[12, 10]` with kernels `[24, 20]` - **the first two stages of
+the stock 48k HiFi-GAN decoder** - take 36 latent frames to 4320 frames at 12 kHz,
+`conv_post` (128 -> 34) emits a magnitude (`exp`) and a phase (`sin`) spectrum, and an
+iSTFT with n_fft 32 / hop 4 turns them into `(4321 - 1) * 4 = 17280 = segment_size`
+samples. The residual blocks are HiFi-GAN's `convs1` / `convs2` with Snake activations
+(alpha 1) in place of LeakyReLU and SiLU in front of each stage. Decoder 15.35M parameters
+at 48k (HiFi-GAN 15.67M), whole `Synthesizer` 37.3M at 48k/768.
+
+**The F0 enters only as a phase.** The excitation is split: the voiced sine is normalised
+to unit peak, STFT'd, and only its phase kept; each stage's `PhaseProjector` makes a
+unit-norm `(cos beta, sin beta)` from it, which rotates the first Snake of every residual
+layer, `x + sin(alpha x + beta)^2 / alpha`. Unit norm means it can say where in the cycle a
+frame is but cannot carry amplitude, so the harmonics have to come from the latent rather
+than being explained by F0 alone (the fork's stated reason for the design). The noise
+(0.003 voiced, 0.033 unvoiced) is STFT'd and its `[magnitude, phase x envelope]` added at
+every stage through `noise_convs`.
+
+**Reproduced verbatim, including what looks like a bug.**
+- The noise envelope is normalised by its mean over the **whole batch**.
+- `dec.excitation_synthesizer.l_linear` exists and is **never called** - upstream's combined
+  sine + noise path is commented out. Kept so `dec.*` is key for key upstream's, and frozen
+  (`requires_grad_(False)`): upstream never gives it a gradient either, so the function is
+  the same, but this repository's DDP runs without `find_unused_parameters` and a trainable
+  parameter with no gradient would stop a multi-GPU run.
+  `test_every_decoder_parameter_but_the_dead_one_learns` pins both halves.
+- No `init_weights` anywhere; the residual convolutions use upstream's Snake-aware Kaiming
+  normal for alpha 1 (`snake_kaiming_normal_`).
+- The same seed initialises the same weights: modules are built in upstream's order.
+
+**Deliberate differences, none of which change the function or the state_dict.** Snake is
+plain PyTorch (upstream: a Triton kernel), written as a `torch.autograd.Function` with
+upstream's fallback arithmetic, computing in fp32, returning the input dtype, and
+recomputing its output in backward rather than saving it - the same memory behaviour as
+both upstream paths. `TorchSTFT` is `rvc/lib/algorithm/conformer/stft.py`'s. SiLU is not in
+place. `checkpointing` is honoured for the transposed convolutions and residual blocks
+(upstream reserves the argument and ignores it). Upstream's unused helper modules
+(FusedGeoSaw, FusedDirichlet, PchipF0Upsampler, SnakeBeta, the convolutional STFT) are not
+ported.
+
+**Verified against upstream's own code** (fetched at `ef613f90`, run once, not a test because
+it is not vendored): the decoder's 166 tensors have the same names and shapes, and the same
+seed initialises them bit for bit identically. The phase Snake against upstream's Triton
+kernel on CUDA: relative error 3e-8 fp32, 3e-6 fp16, 4e-6 bf16 on the output and every
+gradient, output dtype the same. The whole decoder, fp32 with TF32 off: output 2.3e-6,
+gradients at most 1.1e-5. **With TF32 on (the default) the output differs by 8.8e-4** - TF32
+rounding blowing up 1e-7 differences at its mantissa boundaries, gone the moment TF32 is
+off, so not a porting error. The discriminator on CPU: the five periods and four sub-band
+blocks are bit-identical; the three resolution discriminators differ by 1.2e-7, because
+this repository's `DiscriminatorR` (shared with v3, untouched) takes the magnitude as
+`norm(view_as_real)` where upstream's takes `torch.abs`.
+
+**48 kHz only.** `vocoder_recipe.sample_rate_error` refuses 32 and 40 kHz in the same three
+places as SiFi-GAN+, with its own reason: the Codename fork's 32 and 40 kHz APEX-GAN configs
+keep HiFi-GAN's four upsampling stages (`[10,8,2,2]`, `[10,10,2,2]`), so with the iSTFT hop
+of 4 their decoder would emit four times the segment. Those configs never could have
+trained. `rvc/configs/apex_gan/48000.json` is the only per-vocoder config; the train and
+data values the fork's 48k config sets are the stock ones.
+
+**Training recipe.** Discriminator **`apex-gan`**, the fork's `MPD_SBD_MRD_Combined`: no scale
+discriminator, periods 2, 3, 5, 7, 11, v3's three resolution discriminators (same UnivNet
+resolutions, rectangular window, same construction), and Avocodo's sub-band discriminator
+(SBD). The fork's default loss for it is the single-scale L1 mel loss with c_mel 45, its
+feature-matching and LSGAN losses are this repository's, and there is no extra loss, so
+`train.py`'s loop is untouched: APEX-GAN's `mel` is the same function as HiFi-GAN's, while
+`fm` / `adv` are sums over a different discriminator and do not compare.
+- **SBD's four blocks are four sub-discriminators** (`DiscriminatorSB`): bands 0-6, 0-11 and
+  0-16 of a 16-band PQMF, and all 64 bands of a 64-band PQMF transposed, so that block
+  convolves across frequency with time as its channels - `segment_size // 64` = 270 of them,
+  which is why `MultiPeriodDiscriminator` now takes `segment_size` (required only by a
+  layout with sub-bands, like `sample_rate` for CQT). Upstream's SBD is one module feeding
+  four blocks from shared PQMF analyses; splitting it keeps "one sub-discriminator, one
+  (logits, feature maps)" true for the losses, checkpointing and the warm start, at the
+  price of running the 16-band analysis three times. The PQMF filters are non-persistent
+  buffers (upstream's are persistent), so D_*.pth holds only weights. Upstream's
+  `sbd.blocks.{k}.` keys map onto `discriminators.{8 + k}.` by prefix alone.
+- Descriptor `("B", subbands, (low, high), transposed)`; the warm start recognises a
+  sub-band discriminator by `convs.0.d_convs.0`. No `always_recorded`: no other layout
+  lacks the scale discriminator or has sub-bands.
+- Cost on an RTX 4090. A whole training step in train.py's order (G forward, D update,
+  G update; fp16 autocast + GradScaler, cuDNN autotuned), batch 24, 1024-dim features,
+  synthetic 2 s clips, median of 60 steps after 20, two alternating runs each:
+  **APEX-GAN 516.2 / 515.2 ms and 10.92 / 10.94 GiB peak allocated, against HiFi-GAN's
+  282.1 / 280.5 ms and 8.81 GiB** - 1.8x the time. Most of it is the discriminator: at
+  batch 4, forward + backward of real and fake, `apex-gan` takes 189.7 ms against v3's 95.1
+  and v2's 55.7, each sub-band block 14-16 ms and kernel-launch bound (three dilated
+  branches x five layers); the generator 75.2 ms against HiFi-GAN's 58.4.
+- Realtime runs it, compiled included: an exported model through `VoiceChanger` with rmvpe
+  and kushinada-hubert-large converted 40 blocks of 128 ms, "RVC: Using compiled
+  inference", median 42.9 ms a block (70.7 eager, measured with the GPU shared). Without
+  `-X utf8` the compile falls back on Windows' cp932 as it does for every model.
+
+#### Warm starting it: conv_pre and cond only, measured
+The port is registered both ways (`CROSS_VOCODER_DECODER_PORTS`, HiFi-GAN <-> APEX-GAN) and
+carries `conv_pre` (plain <-> weight-normed, converted) and `cond`. At 48k APEX-GAN's two
+transposed convolutions and six residual blocks are shape for shape HiFi-GAN's first two
+stages, and unlike CodenameRingFormer's they run at the same feature rates (1.2 and 12 kHz),
+so both were measured rather than assumed, from the 1024-dim HiFi-GAN
+`naru_20260906_kushinada_hubert_large_test1/G_2333333.pth` on its own data. Mel L1 on 16
+real 48 kHz clips **before any optimizer step**, posterior-encoder path, every
+configuration from the same RNG state:
+
+| configuration | mel L1 |
+|---|---|
+| HiFi-GAN from scratch / warm (controls) | 1.949 / 0.359 |
+| APEX-GAN from scratch | 3.691 |
+| APEX-GAN <- conv_pre + cond (61.1% of parameters) | 3.755 |
+| APEX-GAN <- + transposed convolutions | 3.649 |
+| APEX-GAN <- + residual blocks (98.9%) | **NaN** |
+
+- **The residual blocks must not come across** (`APEX_GAN_PORTS_RESBLOCKS = False`). Behind
+  Snakes, whose negative half is not attenuated the way LeakyReLU's is, the inherited
+  blocks amplify instead of refine: rms 0.54 after the first transposed convolution, 160
+  after the first stage's blocks and 808 after the second's (3.0 and 2.9 with fresh
+  blocks), so `conv_post` reaches 667 and its `exp()` overflows. The stock `f0G48k`
+  gives the same picture (3.707 / 3.679 / NaN).
+- **Step 0 cannot judge the rest** - with `conv_pre`, `cond` and the transposed
+  convolutions everything sits near 3.7 because `conv_post` is fresh - so training did.
+  Three 20 epoch runs on the same 128 clips, batch 4, fp16, from the same G and the same D
+  (the folder's own v2 `D_2333333.pth`, so the five periods inherited), scored by the
+  training mel loss (rolling 50 steps, c_mel 45) and after training on the 16 held-out
+  clips:
+
+| decoder | mel at epoch 1.6 / 9.4 / 18.8 | held-out mel L1 at 20 |
+|---|---|---|
+| all fresh | 103.6 / 35.7 / 32.3 | 0.725 |
+| **conv_pre + cond (the default)** | 103.3 / 33.1 / **30.5** | **0.678** |
+| + transposed convolutions | **94.8** / 32.4 / 30.6 | 0.698 |
+
+  The transposed convolutions buy a head start that is gone by epoch 11 and finish behind,
+  so `APEX_GAN_PORTS_UPSAMPLERS = False`; `conv_pre` + `cond` is worth 6.5% on held-out
+  mel over a fresh decoder. `kl` did not separate the three. So whatever it warm starts
+  from, most of an APEX-GAN decoder starts from scratch: use the Initial Generator LR
+  Boost.
+- Into the `apex-gan` discriminator a v2 D gives its five periods (S and P17/23/37
+  dropped, the resolutions and sub-bands fresh) and a v3 D its periods and all three
+  resolutions (S dropped, the sub-bands fresh).
+
+#### The first steps of an fp16 run are skipped, and that is upstream's design
+A fresh `conv_post` puts `exp()` of a random projection into the iSTFT, so an untrained
+decoder's output is unbounded: measured on real clips, peaks of 70 - 2600 (rms up to 83)
+against real audio's 0.1 - 0.3. The resolution discriminators' fp16 convolutions overflow
+on that (`[2048, 240, 1200]` first), so the first `loss_avg_50` window of every fp16 run
+reads NaN for `d/adv`, `g/adv`, `fm` and `total`. Counted over the first 120 steps of a real
+fp16 run (batch 4, train.py's order), 3 steps had a non-finite loss, all within the first
+10, and GradScaler skipped them; the output peak was 0.2 by step 25 and nothing was
+non-finite after. Upstream trains the same discriminator under the same autocast, so this
+is reproduced rather than fixed. bf16 has fp32's exponent range, so it should not
+overflow there, but it also has no GradScaler to skip a bad step; a bf16 run is unmeasured.
+
+**Resume, reset, export, inference.** Nothing vocoder-specific beyond the registrations:
+`detect_vocoder` tells it from HiFi-GAN by `dec.phase_convs.`, `infer_apex_gan_sample_rate`
+reads the rate off `conv_post`'s width (34 -> 48000), `checkpoint_gen_istft` recovers
+`(32, 4)` from the weights, `extract_model` stamps `gen_istft_n_fft` / `gen_istft_hop_size`
+as for CodenameRingFormer, and inference, realtime and the blender build it from
+`cpt["vocoder"]` unchanged. The reset moves a folder to or from APEX-GAN through the common
+warm start and rebuilds D in the `apex-gan` layout. `tests/test_apex_gan.py`.
+
+Verified end to end through `core.py`: a scratch folder (64 clips of 48k kushinada 1024-dim
+data) trained 2 epochs with no pretrain, stamping `vocoder: APEX-GAN` / `disc_version:
+apex-gan` into G and D; resumed to epoch 4 (`Loaded checkpoint`, no warm start); exported
+with `gen_istft_n_fft` 32 / `gen_istft_hop_size` 4 and built its index; and `core.py infer`
+converted a clip to 5.580 s from 5.602 s in, the same length a HiFi-GAN model gives. A
+40 kHz folder is refused by `run_train_script` before anything in it is written.
+
+**Removing it later.** Its Training tab choice and help entry (en_US / ja_JA keys too), the
+`--vocoder` choice, `APEX_GAN` in `vocoder_recipe.py`'s three tables, `VOCODER_CONFIG_DIRS`,
+the Synthesizer branch, the two port registrations, `rvc/configs/apex_gan/`, the generator
+files and this section. Keep `apex-gan`, `subband_discriminator.py` and the `B` branches for
+as long as any APEX-GAN D may be warm started from or reset.
+
 ### Warm starting across embedders and vocoders
 `rvc/train/warm_start.py` is the single place that decides what a pretrained G / D may
 contribute. It works from meaning, not from shape equality:
@@ -1195,7 +1377,8 @@ contribute. It works from meaning, not from shape equality:
   does a CodenameRingFormer's, but not through its transposed convolutions, which are
   `[8, 8]` at every rate: `infer_codename_ringformer_sample_rate` reads `conv_post`'s
   output width instead, which is `gen_istft_n_fft + 2` and so gives the rate back as
-  `n_fft * 400` (120 -> 48000, 100 -> 40000, 80 -> 32000).
+  `n_fft * 400` (120 -> 48000, 100 -> 40000, 80 -> 32000). APEX-GAN is read the same way
+  (`infer_apex_gan_sample_rate`: 34 -> 48000, its only rate).
 - **Generator, same vocoder:** everything name for name; a shape mismatch stops the run,
   except `enc_p.emb_phone.weight` when the pretrain was fitted to a different embedder.
   A different width (768 <-> 1024) says so in the shapes. **A different embedder at the
@@ -1244,6 +1427,11 @@ contribute. It works from meaning, not from shape equality:
   48k/1024: 40.5% of parameters, nearly all of it `enc_p` / `enc_q` / `flow` / `emb_g`.
   No RefineGAN or SiFi-GAN pair is registered for it: they would carry no more than this
   and HiFi-GAN is the only pretrain that exists at every rate.
+- **Generator, HiFi-GAN <-> APEX-GAN:** `conv_pre` (converted) and `cond` only. The first two
+  stages' transposed convolutions and residual blocks fit shape for shape and are behind
+  two switches, both off by measurement: the residual blocks make the output NaN behind
+  Snake activations, and the transposed convolutions lose a 20 epoch run to leaving them
+  fresh - see the APEX-GAN section. 61.1% of parameters at 48k/1024.
 - **Discriminator:** sub-discriminators matched by descriptor (`S`, `P(period)`,
   `R(resolution)`), never by index - a period 17 and a period 23 discriminator have the
   same shapes. v2 -> v3 inherits S and P2..P11 (99.4% of v3's parameters), starts the
@@ -1255,7 +1443,10 @@ contribute. It works from meaning, not from shape equality:
   carry neither resolution nor window, so layouts that differ only there (v3 and v3-48k)
   are told apart by the recorded `disc_version`; a D that records none is never a layout
   marked `always_recorded`. A CQT discriminator (`Q`, RingFormer+ only) matches by hop,
-  octaves, bins per octave and fmin; from any other layout the three start fresh.
+  octaves, bins per octave and fmin; from any other layout the three start fresh. A
+  sub-band discriminator (`B`, APEX-GAN only) matches by PQMF band count, band range and
+  orientation; `apex-gan` has no scale discriminator, so from v2 that one is dropped
+  along with P17/23/37, and from v3 the periods and resolutions all come across.
 - **Always weights only.** Optimizer and scaler state never cross a warm start.
 - **Resume guard.** `assert_resumable` now also refuses a `G_*.pth` whose vocoder (from its
   keys) or recorded sample rate / discriminator version differs from the run. And
@@ -1418,6 +1609,16 @@ filelist and recorded in state.json.
   clip the differences between 165e / 180e / 185e were inside the 0.90-1.16 spread that
   eight seeds of the *same* checkpoint give - so read single-clip, single-seed scores (and
   TensorBoard's `gen/audio_*`, a new seed every save) with that in mind.
+- **The noise metric does not match listening - unfixed as of 2026-10-05.** Flatness sees
+  the spectrum's shape, not how much noise there is. On that run the ear clearly preferred
+  185e to 165e; flatness ranked 165e best, while noise *energy* against the original - split
+  into pauses, consonants and the bins between harmonics - had 185e lowest in 8/8 seeds of
+  the clip listened to and in 61 of 70 clips. So `noise` and the default `combined` best
+  criteria currently keep the wrong checkpoints, and `mel` was flat (±0.5%) over that
+  stretch. Read `docs/checkpoint-noise-vs-listening.md` before changing `evaluation.py` /
+  `score_of` or trusting a best ranking: it has the measurement, the open design points
+  (a floor so muffled output cannot win, harmonic resolution under ~95 Hz F0, a metric
+  version in `state.json`) and the code to reproduce it.
 - **Best by** `mel` (B, else A), `noise` (mean of B and C, else A) or `combined` (both,
   each divided by the run's first evaluation, summed). Logged as `eval/*` scalars and one
   `eval_audio/<group>` clip per group, which unlike the old `gen/audio_*` sample is the
