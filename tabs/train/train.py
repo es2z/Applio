@@ -495,7 +495,7 @@ def train_tab():
                 vocoder = gr.Radio(
                     label=i18n("Vocoder"),
                     info=i18n(
-                        "Choose the vocoder for audio synthesis:\n- **HiFi-GAN**: Default option, compatible with all clients.\n- **MRF HiFi-GAN**: Applio-only. The HiFi-GAN decoder with multi-receptive-field blocks and an eight-harmonic excitation in place of the single sine, trained against exactly the same discriminator and the same losses as HiFi-GAN, so the two are directly comparable. Warm start it from a **HiFi-GAN** model (the stock pretrained one will do): every tensor but the harmonic merge carries over. Measured on 16 clips before any optimizer step, mel L1 is 1.08 warm started against 1.98 from scratch, while the same pretrain into HiFi-GAN itself reaches 0.33 - all of that remaining gap is the harmonic merge, eleven parameters that cannot come across because HiFi-GAN mixes one harmonic and this mixes nine. Use the Initial Generator LR Boost.\n- **RefineGAN**: Applio-only, trained against an extra multi-resolution discriminator with a multi-scale mel loss. Without a RefineGAN pretrained model for the sample rate it warm starts from the HiFi-GAN one (or from a custom HiFi-GAN G/D): the encoders, flow and residual blocks are inherited and the rest of the decoder starts from scratch, so consider the Initial Generator LR Boost.\n- **SiFi-GAN**: Applio-only source-filter vocoder whose convolutions follow the pitch, trained against the same multi-resolution discriminator plus a loss that supervises its excitation signal. Its filter network is the HiFi-GAN decoder, so warm start it from a **HiFi-GAN** model (the stock pretrained one will do): measured over 50 epochs that is about 22% better on the mel loss than training from scratch. A RefineGAN model is not a useful starting point for it even at the same sample rate and embedder width, because only its residual blocks carry over. Only the source network starts from scratch either way, so consider the Initial Generator LR Boost.\n- **SiFi-GAN+**: 48 kHz only. The same generator as SiFi-GAN, with the same options and losses, trained against a discriminator whose multi-resolution part uses STFT resolutions made for 48 kHz (twice SiFi-GAN's, which come from 24 kHz UnivNet) and a Hann window. Warm started from a SiFi-GAN model it inherits the generator and the multi-period discriminator whole, and only the multi-resolution discriminators start from scratch; from a HiFi-GAN model it inherits what SiFi-GAN does. Exported models are ordinary SiFi-GAN models.\n- **CodenameRingFormer**: from the Codename RVC fork. A Conformer decoder that predicts a magnitude and a phase spectrum and inverts them with an iSTFT instead of upsampling all the way to samples, trained against its own discriminator (a scale discriminator, eight periods and three STFT resolutions) and an extra magnitude and phase loss. Only conv_pre and the speaker conditioning mean the same thing in a HiFi-GAN decoder, so most of this one starts from scratch whatever you warm start from: consider the Initial Generator LR Boost.\n- **RingFormer+**: The same generator as CodenameRingFormer, with the same losses, trained against CodenameRingFormer's discriminator plus the multi-scale sub-band CQT discriminator (MS-SB-CQT) the RingFormer paper trains against. Warm started from a CodenameRingFormer model it inherits the generator and the whole discriminator, and only the three CQT discriminators start from scratch; from a HiFi-GAN model it inherits what CodenameRingFormer does. Exported models are ordinary CodenameRingFormer models.\n- **APEX-GAN**: 48 kHz only, from the Codename RVC fork. A HiFi-GAN-like decoder that stops two stages early and finishes with an iSTFT, in which the pitch only steers the phase of its Snake activations, so the harmonics have to come from the latent; breath and noise are injected separately. Trained against the Codename fork's discriminator (five periods, three STFT resolutions and a sub-band discriminator, no scale discriminator) with HiFi-GAN's losses. From a HiFi-GAN model only conv_pre and the speaker conditioning carry over (its residual blocks make the output blow up behind Snake activations), so most of the decoder starts from scratch whatever you warm start from: consider the Initial Generator LR Boost."
+                        "Choose the vocoder for audio synthesis:\n- **HiFi-GAN**: Default option, compatible with all clients.\n- **MRF HiFi-GAN**: Applio-only. The HiFi-GAN decoder with multi-receptive-field blocks and an eight-harmonic excitation in place of the single sine, trained against exactly the same discriminator and the same losses as HiFi-GAN, so the two are directly comparable. Warm start it from a **HiFi-GAN** model (the stock pretrained one will do): every tensor but the harmonic merge carries over. Measured on 16 clips before any optimizer step, mel L1 is 1.08 warm started against 1.98 from scratch, while the same pretrain into HiFi-GAN itself reaches 0.33 - all of that remaining gap is the harmonic merge, eleven parameters that cannot come across because HiFi-GAN mixes one harmonic and this mixes nine. Use the Initial Generator LR Boost.\n- **RefineGAN**: Applio-only, trained against an extra multi-resolution discriminator with a multi-scale mel loss. Without a RefineGAN pretrained model for the sample rate it warm starts from the HiFi-GAN one (or from a custom HiFi-GAN G/D): the encoders, flow and residual blocks are inherited and the rest of the decoder starts from scratch, so consider the Initial Generator LR Boost.\n- **SiFi-GAN**: Applio-only source-filter vocoder whose convolutions follow the pitch, trained against the same multi-resolution discriminator plus a loss that supervises its excitation signal. Its filter network is the HiFi-GAN decoder, so warm start it from a **HiFi-GAN** model (the stock pretrained one will do): measured over 50 epochs that is about 22% better on the mel loss than training from scratch. A RefineGAN model is not a useful starting point for it even at the same sample rate and embedder width, because only its residual blocks carry over. Only the source network starts from scratch either way, so consider the Initial Generator LR Boost.\n- **SiFi-GAN+**: 48 kHz only. The same generator as SiFi-GAN, with the same options and losses, trained against a discriminator whose multi-resolution part uses STFT resolutions made for 48 kHz (twice SiFi-GAN's, which come from 24 kHz UnivNet) and a Hann window. Warm started from a SiFi-GAN model it inherits the generator and the multi-period discriminator whole, and only the multi-resolution discriminators start from scratch; from a HiFi-GAN model it inherits what SiFi-GAN does. Exported models are ordinary SiFi-GAN models.\n- **CodenameRingFormer**: from the Codename RVC fork. A Conformer decoder that predicts a magnitude and a phase spectrum and inverts them with an iSTFT instead of upsampling all the way to samples, trained against its own discriminator (a scale discriminator, eight periods and three STFT resolutions) and an extra magnitude and phase loss. Only conv_pre and the speaker conditioning mean the same thing in a HiFi-GAN decoder, so most of this one starts from scratch whatever you warm start from: consider the Initial Generator LR Boost.\n- **RingFormer+**: The same generator as CodenameRingFormer, with the same losses, trained against CodenameRingFormer's discriminator plus the multi-scale sub-band CQT discriminator (MS-SB-CQT) the RingFormer paper trains against. Warm started from a CodenameRingFormer model it inherits the generator and the whole discriminator, and only the three CQT discriminators start from scratch; from a HiFi-GAN model it inherits what CodenameRingFormer does. Exported models are ordinary CodenameRingFormer models.\n- **APEX-GAN**: 48 kHz only, from the Codename RVC fork. A HiFi-GAN-like decoder that stops two stages early and finishes with an iSTFT, in which the pitch only steers the phase of its Snake activations, so the harmonics have to come from the latent; breath and noise are injected separately. Trained against the Codename fork's discriminator (five periods, three STFT resolutions and a sub-band discriminator, no scale discriminator) with HiFi-GAN's losses. From a HiFi-GAN model only conv_pre and the speaker conditioning carry over (its residual blocks make the output blow up behind Snake activations), so most of the decoder starts from scratch whatever you warm start from: consider the Initial Generator LR Boost.\n- **APEX-GAN+**: 48 kHz only. The same generator as APEX-GAN, with the same losses, trained against APEX-GAN's discriminator with its multi-resolution part using STFT resolutions made for 48 kHz (twice APEX-GAN's, which come from 24 kHz UnivNet) and a Hann window. Experimental: whether it sounds better than APEX-GAN is not measured yet. Warm started from an APEX-GAN model it inherits the generator whole and the period and sub-band discriminators, and only the three multi-resolution discriminators start from scratch; from a HiFi-GAN model it inherits what APEX-GAN does. Exported models are ordinary APEX-GAN models."
                     ),
                     choices=[
                         "HiFi-GAN",
@@ -506,6 +506,7 @@ def train_tab():
                         "CodenameRingFormer",
                         "RingFormer+",
                         "APEX-GAN",
+                        "APEX-GAN+",
                     ],
                     value="HiFi-GAN",
                     interactive=True,
@@ -1335,10 +1336,50 @@ def train_tab():
                 outputs=[],
             )
 
-            index_button = gr.Button(i18n("Generate Index"))
+            # The single-speaker option sits above Generate Index, in that button's column.
+            with gr.Column():
+                index_single_speaker = gr.Checkbox(
+                    label=i18n("Index One Speaker Only"),
+                    info=i18n(
+                        "Build the index from one speaker's training data only, saved as (model name)_spk(number).index next to the full one. Quicker than the full index on a large multi-speaker dataset."
+                    ),
+                    value=False,
+                    interactive=True,
+                )
+                index_speaker_id = gr.Number(
+                    label=i18n("Index Speaker Number"),
+                    info=i18n(
+                        "The dataset folder number of the speaker. Files directly in the dataset folder are speaker 0."
+                    ),
+                    value=0,
+                    minimum=0,
+                    precision=0,
+                    step=1,
+                    visible=False,
+                    interactive=True,
+                )
+                index_button = gr.Button(i18n("Generate Index"))
+            index_single_speaker.change(
+                fn=lambda checked: gr.update(visible=checked),
+                inputs=[index_single_speaker],
+                outputs=[index_speaker_id],
+            )
+
+            def run_index_from_ui(model, algorithm, single_speaker, speaker):
+                return run_index_script(
+                    model,
+                    algorithm,
+                    int(speaker or 0) if single_speaker else None,
+                )
+
             index_button.click(
-                fn=run_index_script,
-                inputs=[model_name, index_algorithm],
+                fn=run_index_from_ui,
+                inputs=[
+                    model_name,
+                    index_algorithm,
+                    index_single_speaker,
+                    index_speaker_id,
+                ],
                 outputs=[train_output_info],
             )
 

@@ -700,7 +700,9 @@ def run_train_script(
 
 
 # Index
-def run_index_script(model_name: str, index_algorithm: str):
+def run_index_script(model_name: str, index_algorithm: str, speaker_id=None):
+    """speaker_id: build the index from that speaker's features only, written as
+    <model>_spk<id>.index next to the full one. None means every speaker."""
     index_script_path = os.path.join("rvc", "train", "process", "extract_index.py")
     command = [
         python,
@@ -708,8 +710,28 @@ def run_index_script(model_name: str, index_algorithm: str):
         os.path.join(logs_path, model_name),
         index_algorithm,
     ]
+    if speaker_id is not None:
+        command.append(str(int(speaker_id)))
+        speaker_index = os.path.join(
+            logs_path, model_name, f"{model_name}_spk{int(speaker_id)}.index"
+        )
+        if os.path.exists(speaker_index):
+            return (
+                f"{os.path.basename(speaker_index)} already exists, so it was not "
+                "generated again. Delete it to rebuild it."
+            )
 
-    subprocess.run(command)
+    result = subprocess.run(command)
+    if speaker_id is not None:
+        if result.returncode:
+            return (
+                f"Could not generate the index for speaker {int(speaker_id)} of "
+                f"{model_name}. See the console for details."
+            )
+        return (
+            f"Index file for speaker {int(speaker_id)} of {model_name} generated "
+            f"successfully ({model_name}_spk{int(speaker_id)}.index)."
+        )
     return f"Index file for {model_name} generated successfully."
 
 
@@ -2214,6 +2236,9 @@ def parse_arguments():
             # control, against periods, resolutions and a sub-band discriminator. 48 kHz
             # only.
             "APEX-GAN",
+            # The APEX-GAN generator against apex-gan with its resolution discriminators
+            # made for 48 kHz. 48 kHz only. See rvc/train/vocoder_recipe.py.
+            "APEX-GAN+",
         ],
         default="HiFi-GAN",
     )
@@ -2432,6 +2457,13 @@ def parse_arguments():
         choices=["Auto", "Faiss", "KMeans"],
         help="Choose the method for generating the index file.",
         default="Auto",
+        required=False,
+    )
+    index_parser.add_argument(
+        "--speaker_id",
+        type=int,
+        help="Build the index from this speaker's features only, as <model>_spk<id>.index. Omit for every speaker.",
+        default=None,
         required=False,
     )
 
@@ -2775,6 +2807,7 @@ def main():
             run_index_script(
                 model_name=args.model_name,
                 index_algorithm=args.index_algorithm,
+                speaker_id=args.speaker_id,
             )
         elif args.mode == "model_information":
             run_model_information_script(

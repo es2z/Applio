@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 応答の言語
+
+**ユーザーへの応答は必ず日本語で書く。** 状況報告・質問・プラン・説明・表の見出しも含めてすべて日本語にする。
+英語で質問されたり、英語の資料を読んだ直後だったりしても同じ。
+コード・コードのコメント・コミットメッセージ・ファイル名・識別子・コマンドは英語のままでよい。
+
 ## Project Overview
 
 Applio is a high-quality voice conversion tool built on Retrieval-Based Voice Conversion (RVC) technology. It provides a Gradio-based web interface for training voice models and performing voice conversion with various audio processing features.
@@ -837,7 +843,10 @@ weights of every such checkpoint; the hop is not, and is stamped into the export
 - The discriminator layout is **`"codename-ringformer"`**, not `"v4"`: `v1` to `v3` are
   upstream Applio's names for upstream's layouts and this one is the Codename fork's
   (`MPD_MSD_MRD_Combined`) - a scale discriminator, periods 2, 3, 5, 7, 11, 17, 23, 37, and
-  three STFT resolutions `[[2048,240,1200], [4096,480,2400], [1024,100,480]]`.
+  three STFT resolutions `[[2048,240,1200], [4096,480,2400], [1024,100,480]]`. That is the
+  Codename fork's layout only from 2025-08-06 to 2025-08-13: it then reverted the
+  resolutions to UnivNet's 24 kHz values, later dropped periods 17/23/37 and, in 2026-07,
+  moved to a rectangular window, none of it explained (see APEX-GAN+ below).
 - Its MRD uses a **Hann** window where upstream Applio's `DiscriminatorR` uses a
   rectangular one, so `DiscriminatorR` grew a `window` argument defaulting to `"ones"`.
   v1 to v3 do not set it and are byte-for-byte unchanged. The window is part of the warm
@@ -1358,7 +1367,112 @@ converted a clip to 5.580 s from 5.602 s in, the same length a HiFi-GAN model gi
 `--vocoder` choice, `APEX_GAN` in `vocoder_recipe.py`'s three tables, `VOCODER_CONFIG_DIRS`,
 the Synthesizer branch, the two port registrations, `rvc/configs/apex_gan/`, the generator
 files and this section. Keep `apex-gan`, `subband_discriminator.py` and the `B` branches for
-as long as any APEX-GAN D may be warm started from or reset.
+as long as any APEX-GAN D may be warm started from or reset. APEX-GAN+ trains this generator,
+so it goes too (see below).
+
+### APEX-GAN+ (48k only)
+The APEX-GAN generator - same decoder, same decoder config, same losses (single-scale mel,
+`c_mel` 45, nothing else) - trained against **`apex-gan-48k`**: `apex-gan` with its three
+resolution discriminators made for 48 kHz, exactly as SiFi-GAN+ is to SiFi-GAN. `apex-gan`'s
+resolutions are UnivNet's 24 kHz `[[1024,120,600],[2048,240,1200],[512,50,240]]`, so at
+48 kHz each window spans 12.5 / 25 / 5 ms instead of the 25 / 50 / 10 ms it was designed for,
+and each bin is twice as wide. `apex-gan-48k` doubles them to
+`[[2048,240,1200],[4096,480,2400],[1024,100,480]]` - v3-48k's and codename-ringformer's -
+through a **Hann** window. The five periods and the four sub-band discriminators are
+`apex-gan`'s, unchanged. **An experiment to A/B against APEX-GAN, not a known improvement**:
+whether it sounds better is unmeasured.
+
+**The Codename fork tried this and reverted it, without saying why.** From its history
+(DanielNawa/codename-rvc-fork-4): `7bd0f6c2` (2025-08-06) gave its 48 kHz RingFormer exactly
+these doubled resolutions with a Hann window ("more aligned with the paper") and shipped both
+configs side by side; `0fd20e80` (v4.0.3, 2025-08-13) says only "resolutions reverted to
+original values", and every config since, at every sample rate, uses the 24 kHz values. Then
+`ef613f90` (2026-07-17) changed its resolution discriminator's window from `hann_window` to
+`ones` in a one-line, unmentioned change - the same commit that added APEX-GAN's
+`MPD_SBD_MRD_Combined`, rectangular from the start. Neither change gives a reason. A
+rectangular window is also what BigVGAN (no `window` passed to `torch.stft`), UnivNet and
+upstream Applio's v3 use. Hann was chosen here because SiFi-GAN+ and codename-ringformer use
+it, so do SiFi-GAN's official config and Vocos (DAC uses a square-root Hann - tapered too),
+its -31 dB sidelobes (against -13 dB) leak less harmonic energy into the bins between
+harmonics, and nothing recorded argues against it.
+The price is that an A/B against APEX-GAN changes the resolutions and the window together.
+
+**It is a training recipe, not a vocoder**, wired exactly like SiFi-GAN+:
+`generator_vocoder("APEX-GAN+")` is `"APEX-GAN"`, `discriminator_version` is
+`"apex-gan-48k"`, `pretrained_dir_name` is `apex-gan-plus` (falling back to the HiFi-GAN
+pretrain, like every other recipe). Every `G_*.pth`, `D_*.pth` and exported `.pth` says
+`vocoder: "APEX-GAN"`, so inference, realtime, export and the blender needed no change;
+only `disc_version` tells the two recipes' checkpoints apart. train.py, reset_run.py and
+warm_start.py needed no change either - only the recipe tables, the layout, the tab / CLI
+choice and the resume hint. 48 kHz only: `sample_rate_error` refuses 32 and 40 kHz with
+APEX-GAN's own reason (its decoder config), which it now looks up through the generator
+when the recipe has none.
+
+**`apex-gan-48k` is `always_recorded`**, for v3-48k's reason: its weights are shaped exactly
+like `apex-gan`'s. Every APEX-GAN D this fork has written records `apex-gan` (checked on
+`naru_20261009_48k_APEX_..._kushinada/D_2333333.pth`), and an unrecorded one - the Codename
+fork's own - still resolves to `apex-gan`. Built in the same order, the same seed initialises
+both layouts bit for bit identically, so an A/B is fair from the first step.
+
+Warm starts (`tests/test_apex_gan_plus.py` pins each):
+
+| from -> APEX-GAN+ | G | D |
+|---|---|---|
+| APEX-GAN | 100% | P5 + SB4; the three R fresh, apex-gan's three R not used. Measured on the real `naru_20261009_48k_APEX_..._kushinada`: 342 of 396 tensors, **99.5%** of parameters (each R is 93,634) |
+| SiFi-GAN+ (v3-48k) | what APEX-GAN gets | P5 + the three R (resolution *and* window match); S not used, SB4 fresh |
+| CodenameRingFormer / RingFormer+ | what APEX-GAN gets | P5 + the three R; S, P17/23/37 (and the CQTs) not used, SB4 fresh |
+| HiFi-GAN (v2) | what APEX-GAN gets | P5; S and P17/23/37 not used, R3 + SB4 fresh |
+| APEX-GAN+ -> APEX-GAN | 100% | P5 + SB4; the three R fresh |
+
+**The fresh resolution discriminators do not knock an inherited generator off.** Gradient
+norm of each generator term on `y_hat` before any step, 16 real clips of that folder, fp32,
+both recipes warm started from its G/D:
+
+| term | APEX-GAN | APEX-GAN+ |
+|---|---|---|
+| mel | 140.9 | 140.9 |
+| fm, periods + sub-bands (inherited) | 11.71 | 11.71 |
+| adv, periods + sub-bands (inherited) | 61.85 | 61.85 |
+| fm, resolution x3 | 15.87 (trained) | **0.067** (fresh) |
+| adv, resolution x3 | 11.31 (trained) | **0.0011** (fresh) |
+
+**Resume and reset** behave as for SiFi-GAN <-> SiFi-GAN+: `assert_resumable` refuses
+"discriminator version apex-gan -> apex-gan-48k" and suggests the reset, which keeps G bit for
+bit and rebuilds D in the recipe's layout through the common warm start.
+
+**Cost: none measurable.** `tools/benchmark_recipe_load.py --model
+naru_20261009_48k_APEX_1100_rmvpe112ali_kushinada` (RTX 4090, fp16 + GradScaler, cuDNN
+autotuned, batch 24 x 2 s real clips, warm started from the folder's G/D, 15 + 50 steps, each
+run a fresh process, two alternating runs per recipe, no torch.compile, with ~25% background
+GPU load from other applications):
+
+| | step median (ms) | peak allocated / reserved (GiB) | D alone (ms) | inference, 10 s fp32 (ms) |
+|---|---|---|---|---|
+| APEX-GAN | 574.1 / 606.0 | 10.83 / 11.49 | 171.3 / 182.0 | 64.1 / 69.2 |
+| APEX-GAN+ | 619.4 / 578.0 | 10.84 / 11.52 | 168.3 / 166.4 | 62.6 / 63.4 |
+
+The run-to-run spread is larger than any difference between the recipes. That is what the
+arithmetic says: doubling the FFT doubles the bins and doubling the hop halves the frames,
+so the spectrograms keep the same pixel count (513 x 144 + 1025 x 72 + 257 x 345 against
+1025 x 72 + 2049 x 36 + 513 x 172, both about 236k at 17280 samples). Inference is the same
+by construction - the exported model is the same APEX-GAN generator.
+
+Verified end to end through `core.py` on a scratch folder (64 clips of that run): APEX-GAN+
+warm started from its G/D with the numbers above, trained 2 epochs, stamped `vocoder:
+APEX-GAN` / `disc_version: apex-gan-48k`, exported (`gen_istft_n_fft` 32 / `hop_size` 4) and
+built its index; `core.py infer` converted the 34.86 s reference clip to 34.84 s; switching
+the folder to APEX-GAN was refused with the reset hint; and the reset installed a `G_0`
+bit-identical to the old generator with an `apex-gan` `D_0`, and the next run trained from
+them.
+
+**Removing one of the two later.** To drop APEX-GAN+: its Training tab choice and help entry
+(en_US / ja_JA keys too), the `--vocoder` choice, `APEX_GAN_PLUS` with its four table rows in
+`vocoder_recipe.py`, this section and `tests/test_apex_gan_plus.py`. Keep `apex-gan-48k` in
+`DISCRIMINATOR_VERSIONS` for as long as any APEX-GAN+ D may be warm started from or reset.
+To drop the `apex-gan` recipe instead: either keep the name APEX-GAN+, or point `APEX_GAN` at
+`apex-gan-48k` in `_DISCRIMINATOR_VERSIONS` and remove the `+` (old folders are then refused
+on resume and move over with the reset). Keep `apex-gan` itself as a warm start source, and
+move `tests/test_apex_gan.py`'s discriminator tests off it.
 
 ### Warm starting across embedders and vocoders
 `rvc/train/warm_start.py` is the single place that decides what a pretrained G / D may
@@ -1440,9 +1554,9 @@ contribute. It works from meaning, not from shape equality:
   periods** match by descriptor, so only the three resolution discriminators start fresh and
   nothing from the pretrain is dropped. The resolution descriptor carries its window, so
   v3's `[2048, 240, 1200]` and this layout's are not confused for one another. The weights
-  carry neither resolution nor window, so layouts that differ only there (v3 and v3-48k)
-  are told apart by the recorded `disc_version`; a D that records none is never a layout
-  marked `always_recorded`. A CQT discriminator (`Q`, RingFormer+ only) matches by hop,
+  carry neither resolution nor window, so layouts that differ only there (v3 and v3-48k,
+  apex-gan and apex-gan-48k) are told apart by the recorded `disc_version`; a D that records
+  none is never a layout marked `always_recorded`. A CQT discriminator (`Q`, RingFormer+ only) matches by hop,
   octaves, bins per octave and fmin; from any other layout the three start fresh. A
   sub-band discriminator (`B`, APEX-GAN only) matches by PQMF band count, band range and
   orientation; `apex-gan` has no scale discriminator, so from v2 that one is dropped

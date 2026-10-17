@@ -4,9 +4,10 @@ train.py decides this for the run it is about to start, and reset_run.py has to 
 same thing for the checkpoints it installs ahead of that run, so it lives in one place
 rather than in two that can drift apart.
 
-What the Training tab and --vocoder offer is a training recipe. For every vocoder but two
-the recipe is just the vocoder's name; SiFi-GAN+ is the SiFi-GAN generator and RingFormer+
-the CodenameRingFormer generator, each trained against a different discriminator.
+What the Training tab and --vocoder offer is a training recipe. For every vocoder but three
+the recipe is just the vocoder's name; SiFi-GAN+ is the SiFi-GAN generator, RingFormer+
+the CodenameRingFormer generator and APEX-GAN+ the APEX-GAN generator, each trained against
+a different discriminator.
 Everything that builds or describes a generator works with
 generator_vocoder(recipe), so a recipe never reaches Synthesizer, which would quietly build
 a HiFi-GAN decoder for a name it does not know.
@@ -29,10 +30,16 @@ SIFIGAN_PLUS = "SiFi-GAN+"
 # the two recipes apart.
 RINGFORMER_PLUS = "RingFormer+"
 
+# APEX-GAN with its resolution discriminators made for 48 kHz ("apex-gan-48k"), as SiFi-GAN+
+# is to SiFi-GAN. Generator, decoder config and losses are APEX-GAN's; checkpoints and
+# exported models record "APEX-GAN", and only disc_version tells the two recipes apart.
+APEX_GAN_PLUS = "APEX-GAN+"
+
 # The generator each recipe trains, when it is not the recipe's own name.
 _GENERATOR_VOCODERS = {
     SIFIGAN_PLUS: SIFIGAN,
     RINGFORMER_PLUS: CODENAME_RINGFORMER,
+    APEX_GAN_PLUS: APEX_GAN,
 }
 
 # Upstream Applio trains RefineGAN against the v3 discriminator (five periods plus three
@@ -55,6 +62,7 @@ _DISCRIMINATOR_VERSIONS = {
     CODENAME_RINGFORMER: "codename-ringformer",
     RINGFORMER_PLUS: "codename-ringformer-cqt",
     APEX_GAN: "apex-gan",
+    APEX_GAN_PLUS: "apex-gan-48k",
 }
 # Keyed by generator: a recipe that trains the SiFi-GAN generator trains it with SiFi-GAN's
 # losses.
@@ -64,13 +72,17 @@ _MULTISCALE_MEL_LOSS = (REFINEGAN, SIFIGAN)
 # doubled for 48 kHz; at 32 or 40 kHz they would be neither v3 nor 48 kHz's. RingFormer+
 # needs no entry: its CQT discriminators resample to twice the sample rate before the
 # transform, which keeps its ~16.5 kHz top bin below Nyquist at 32, 40 and 48 kHz alike.
-# APEX-GAN has a decoder config for 48 kHz only (rvc/configs/apex_gan/).
+# APEX-GAN has a decoder config for 48 kHz only (rvc/configs/apex_gan/), and so does
+# APEX-GAN+, whose apex-gan-48k is made for 48 kHz as well.
 _SAMPLE_RATES = {
     SIFIGAN_PLUS: (48000,),
     APEX_GAN: (48000,),
+    APEX_GAN_PLUS: (48000,),
 }
 
 # Why a recipe in _SAMPLE_RATES is limited, when it is not its discriminator's resolutions.
+# Looked up by recipe, then by the generator it trains: APEX-GAN+ is limited by APEX-GAN's
+# decoder before its discriminator matters.
 _SAMPLE_RATE_REASONS = {
     APEX_GAN: (
         "Only its 48 kHz decoder config is ported: the Codename RVC fork's 32 and 40 kHz "
@@ -84,6 +96,7 @@ _SAMPLE_RATE_REASONS = {
 _PRETRAINED_DIRS = {
     SIFIGAN_PLUS: "sifi-gan-plus",
     RINGFORMER_PLUS: "ringformer-plus",
+    APEX_GAN_PLUS: "apex-gan-plus",
 }
 
 
@@ -108,7 +121,10 @@ def sample_rate_error(recipe, sample_rate):
     if rates is None or int(sample_rate) in rates:
         return None
     supported = " / ".join(f"{rate // 1000} kHz" for rate in rates)
-    reason = _SAMPLE_RATE_REASONS.get(recipe) or (
+    reason = (
+        _SAMPLE_RATE_REASONS.get(recipe)
+        or _SAMPLE_RATE_REASONS.get(generator_vocoder(recipe))
+    ) or (
         f"Its discriminator's STFT resolutions are chosen for {supported}; use "
         f"{generator_vocoder(recipe)} at other sample rates."
     )

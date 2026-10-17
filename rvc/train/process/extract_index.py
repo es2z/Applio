@@ -9,6 +9,10 @@ from sklearn.cluster import MiniBatchKMeans
 # Parse command line arguments
 exp_dir = str(sys.argv[1])
 index_algorithm = str(sys.argv[2])
+# Optional: build the index from one speaker's features only. Feature files are named
+# "<sid>_<file>_<slice>.npy" by preprocess, so the speaker is the part before the first
+# underscore. Empty or absent means every speaker, as before.
+speaker_id = sys.argv[3].strip() if len(sys.argv) > 3 else ""
 
 try:
     feature_dir = os.path.join(exp_dir, f"extracted")
@@ -20,18 +24,29 @@ try:
         )
         sys.exit(1)
 
-    index_filename_added = f"{model_name}.index"
+    if speaker_id:
+        index_filename_added = f"{model_name}_spk{speaker_id}.index"
+    else:
+        index_filename_added = f"{model_name}.index"
     index_filepath_added = os.path.join(exp_dir, index_filename_added)
 
     if os.path.exists(index_filepath_added):
-        pass
+        print(
+            f"Index file '{index_filepath_added}' already exists, so it was not "
+            "generated again. Delete it to rebuild it."
+        )
     else:
         npys = []
         listdir_res = sorted(os.listdir(feature_dir))
+        speakers_found = set()
 
         for name in listdir_res:
             # Skip non-.npy files and directories
             if not name.endswith('.npy'):
+                continue
+
+            speakers_found.add(name.split("_")[0])
+            if speaker_id and name.split("_")[0] != speaker_id:
                 continue
 
             file_path = os.path.join(feature_dir, name)
@@ -47,12 +62,24 @@ try:
                 print(f"Warning: Could not load {file_path}: {e}")
                 continue
 
+        if len(npys) == 0 and speaker_id:
+            print(
+                f"Error: No features for speaker {speaker_id} in {feature_dir}. "
+                f"Speakers found: {', '.join(sorted(speakers_found, key=lambda x: (len(x), x)))}"
+            )
+            sys.exit(1)
+
         if len(npys) == 0:
             print(f"Error: No valid .npy files found in {feature_dir}")
             print(f"Directory contents: {listdir_res}")
             sys.exit(1)
 
         big_npy = np.concatenate(npys, axis=0)
+        if speaker_id:
+            print(
+                f"Building the index from speaker {speaker_id} only: "
+                f"{len(npys)} files, {big_npy.shape[0]} frames"
+            )
 
         big_npy_idx = np.arange(big_npy.shape[0])
         np.random.shuffle(big_npy_idx)

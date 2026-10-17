@@ -45,6 +45,7 @@ SiFi-GAN と SiFi-GAN+ は mel 損失が同じ関数なので `mel` は比べて
 `sd` は同じ関数なので比べてよいが、RingFormer+ は判別器に CQT 識別器が 3 つ多く（12 → 15）、
 `fm` / `g_adv` / `d_adv` はその分の和なので比べられない。
 APEX-GAN は HiFi-GAN と同じシングルスケール mel なので `mel` は HiFi-GAN と比べてよいが、判別器（`apex-gan`: scale なし・5 period・3 解像度・sub-band 4 つ）が違うので `fm` / `g_adv` / `d_adv` は比べられない。
+APEX-GAN と APEX-GAN+ も同じで、`mel` は同じ関数なので比べてよいが、APEX-GAN+ の判別器（`apex-gan-48k`）は解像度識別器 3 つの STFT 解像度と窓が違う（数は同じ 12）ので `fm` / `g_adv` / `d_adv` は比べられない。
 
 - **`kl` は比較できる**。vocoder に依らず `kl_loss × c_kl` で、`c_kl` は全 config で 1.0。
 - **評価セットを使った学習には `eval/` の指標がある**（`rvc/train/evaluation.py`）。学習データの

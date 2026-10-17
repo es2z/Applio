@@ -217,7 +217,7 @@ def assert_resumable(experiment_dir, embedder_identity, architecture_identity=No
         ):
             print(
                 "For a discriminator change alone (e.g. SiFi-GAN <-> SiFi-GAN+, "
-                "CodenameRingFormer <-> RingFormer+), tick the "
+                "CodenameRingFormer <-> RingFormer+, APEX-GAN <-> APEX-GAN+), tick the "
                 "training reset (重みを引き継いで学習をリセット / --reset_training): it "
                 "keeps the generator and rebuilds the discriminator in the new layout, "
                 "inheriting every sub-discriminator the two layouts share."

@@ -607,8 +607,9 @@ class DiscriminatorTest(unittest.TestCase):
             MultiPeriodDiscriminator(False, version=version)
 
     def test_the_other_versions_keep_their_scale_discriminator(self):
+        # apex-gan-48k is APEX-GAN+'s: apex-gan with other resolutions, so the same kinds.
         for version in DISCRIMINATOR_VERSIONS:
-            if version == VERSION:
+            if version in (VERSION, "apex-gan-48k"):
                 continue
             layout = discriminator_layout(version)
             self.assertEqual(layout[0], ("S",), version)

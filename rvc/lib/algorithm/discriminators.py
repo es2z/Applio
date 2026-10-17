@@ -68,13 +68,33 @@ DISCRIMINATOR_VERSIONS = {
     # window - and Avocodo's sub-band discriminator, whose four blocks are
     # sub-discriminators here (see rvc/lib/algorithm/subband_discriminator.py).
     #
-    # Not always_recorded: no other version lacks the scale discriminator or has a
-    # sub-band one, so its weights alone tell it apart.
+    # Not always_recorded: apex-gan-48k below shares its weights exactly, but was added
+    # later and is always_recorded itself, so a checkpoint that records nothing is this.
     "apex-gan": {
         "scale": False,
         "periods": [2, 3, 5, 7, 11],
         "resolutions": [[1024, 120, 600], [2048, 240, 1200], [512, 50, 240]],
         "subbands": True,
+    },
+    # What APEX-GAN+ trains against: apex-gan with its resolution discriminators made for
+    # 48 kHz, as v3-48k is to v3 - the UnivNet 24 kHz resolutions doubled, so each window
+    # spans the 25 / 50 / 10 ms it was designed for rather than half of it, through a Hann
+    # window. The periods and the sub-band discriminators are apex-gan's, unchanged.
+    #
+    # The Codename RVC fork tried these resolutions for its 48 kHz RingFormer on
+    # 2025-08-06 and reverted them a week later without saying why; its current code also
+    # moved every resolution discriminator from Hann to a rectangular window, unexplained.
+    # So this is an experiment to A/B against apex-gan, not a known improvement.
+    #
+    # always_recorded: shaped exactly like apex-gan, for the same reason v3-48k is shaped
+    # like v3, and added after every APEX-GAN checkpoint started recording disc_version.
+    "apex-gan-48k": {
+        "scale": False,
+        "periods": [2, 3, 5, 7, 11],
+        "resolutions": [[2048, 240, 1200], [4096, 480, 2400], [1024, 100, 480]],
+        "window": "hann",
+        "subbands": True,
+        "always_recorded": True,
     },
 }
 
