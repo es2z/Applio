@@ -34,6 +34,15 @@ GAIN_MODES = ("legacy", "aligned")
 # what training and every earlier version do) or a fixed reference ("fixed").
 APEX_NOISE_ENVELOPES = ("window", "fixed")
 
+# Audio transport: callbacks of Chunk Size that run inference ("legacy") or small host
+# callbacks around ring buffers with inference on its own thread ("ring").
+TRANSPORTS = ("legacy", "ring")
+
+# Ring transport stream layout: one duplex stream when both devices share a host API
+# ("auto", what new_main_testversion did) or always two streams with clock drift
+# compensation ("separate").
+RING_STREAM_MODES = ("auto", "separate")
+
 
 def _choice(value, allowed, default):
     return value if value in allowed else default
@@ -62,6 +71,8 @@ class RealtimeOptions:
     gain_mode: str = "legacy"
     apex_noise_envelope: str = "window"
     apex_noise_voiced_ratio: float = 0.65
+    transport: str = "legacy"
+    ring_stream_mode: str = "auto"
 
     @classmethod
     def from_dict(cls, data):
@@ -90,6 +101,10 @@ class RealtimeOptions:
                 default.apex_noise_voiced_ratio,
                 0.0,
                 1.0,
+            ),
+            transport=_choice(data.get("transport"), TRANSPORTS, default.transport),
+            ring_stream_mode=_choice(
+                data.get("ring_stream_mode"), RING_STREAM_MODES, default.ring_stream_mode
             ),
         )
 

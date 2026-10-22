@@ -70,7 +70,21 @@ class AudioCallbacks:
             fcn_profile=fcn_profile,
             options=self.options,
         )
-        self.audio = Audio(
+        ring = self.options.transport == "ring"
+
+        # Warm up with the same shapes and grad mode as the audio callback, before
+        # opening any audio device (rvc/realtime/warmup.py says why it always runs).
+        # The ring transport also times a few blocks for its initial output reserve.
+        warmup_timings = []
+        if not pass_through:
+            warmup_timings = warm_up(
+                self.vc, f0_up_key, index_rate, protect, volume_envelope,
+                f0_autotune, f0_autotune_strength, proposed_pitch,
+                proposed_pitch_threshold,
+                timing_blocks=5 if ring else 0,
+            )
+
+        audio_args = (
             self,
             f0_up_key,
             index_rate,
@@ -85,15 +99,18 @@ class AudioCallbacks:
             monitor_audio_gain,
             monitor,
         )
+        if ring:
+            from rvc.realtime.ring_transport import RingAudio
 
-        # Warm up with the same shapes and grad mode as the audio callback, before
-        # opening any audio device (rvc/realtime/warmup.py says why it always runs).
-        if not pass_through:
-            warm_up(
-                self.vc, f0_up_key, index_rate, protect, volume_envelope,
-                f0_autotune, f0_autotune_strength, proposed_pitch,
-                proposed_pitch_threshold,
+            self.audio = RingAudio(
+                *audio_args,
+                block_frame=self.vc.block_frame,
+                stream_mode=self.options.ring_stream_mode,
+                warmup_timings_ms=warmup_timings,
+                algorithmic_delay_ms=getattr(self.vc.vc_model, "algorithmic_delay_ms", 0.0),
             )
+        else:
+            self.audio = Audio(*audio_args)
 
         # Last, so the stream starts from the same RNG state however much randomness
         # model and kernel setup happened to consume above.

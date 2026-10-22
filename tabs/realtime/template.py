@@ -276,5 +276,7 @@ class RealtimeTemplateManager:
                 update = gr.update(value=value, visible=options.output_position == "trim")
             elif name == "apex_noise_voiced_ratio":
                 update = gr.update(value=value, visible=options.apex_noise_envelope == "fixed")
+            elif name == "ring_stream_mode":
+                update = gr.update(value=value, visible=options.transport == "ring")
             updates.append(update)
         return updates

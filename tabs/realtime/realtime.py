@@ -26,6 +26,8 @@ from rvc.realtime.options import (
     INPUT_RESAMPLES,
     OUTPUT_POSITIONS,
     PROTECT_VOICINGS,
+    RING_STREAM_MODES,
+    TRANSPORTS,
     RealtimeOptions,
 )
 from rvc.realtime.core import AUDIO_SAMPLE_RATE
@@ -557,6 +559,13 @@ def start_realtime(
         elif hasattr(audio_manager, "reconnect_in_progress") and audio_manager.reconnect_in_progress:
             # Reconnection in progress
             yield "Reconnecting...", interactive_false, interactive_true
+        elif hasattr(audio_manager, "status_text"):
+            # Ring transport: its own line carries p50/p95, reserve, I/O and the total.
+            yield (
+                audio_manager.status_text() + seed_status + compile_session.status(),
+                interactive_false,
+                interactive_true,
+            )
         elif hasattr(audio_manager, "latency"):
             # Normal operation - show latency
             yield (
@@ -1167,6 +1176,26 @@ def realtime_tab():
                             visible=default_options.apex_noise_envelope == "fixed",
                             interactive=True,
                         )
+                    with gr.Row():
+                        opt_transport = gr.Radio(
+                            choices=list(TRANSPORTS),
+                            value=default_options.transport,
+                            label=i18n("Audio transport"),
+                            info=i18n(
+                                "legacy: device callbacks of Chunk Size run the conversion, so the output waits about one more chunk. ring: small device callbacks around ring buffers, conversion on its own thread, output reserve only as long as the processing needs."
+                            ),
+                            interactive=True,
+                        )
+                        opt_ring_stream_mode = gr.Radio(
+                            choices=list(RING_STREAM_MODES),
+                            value=default_options.ring_stream_mode,
+                            label=i18n("Ring transport streams"),
+                            info=i18n(
+                                "auto: one duplex stream when both devices share a host API. separate: always two streams with clock drift compensation (safer when input and output are different devices)."
+                            ),
+                            visible=default_options.transport == "ring",
+                            interactive=True,
+                        )
                 option_controls = [
                     opt_output_position,
                     opt_lookahead,
@@ -1175,6 +1204,8 @@ def realtime_tab():
                     opt_gain_mode,
                     opt_apex_noise_envelope,
                     opt_apex_noise_voiced_ratio,
+                    opt_transport,
+                    opt_ring_stream_mode,
                 ]
                 assert len(option_controls) == len(OPTION_FIELDS)
                 opt_output_position.change(
@@ -1186,6 +1217,11 @@ def realtime_tab():
                     fn=lambda value: gr.update(visible=value == "fixed"),
                     inputs=[opt_apex_noise_envelope],
                     outputs=[opt_apex_noise_voiced_ratio],
+                )
+                opt_transport.change(
+                    fn=lambda value: gr.update(visible=value == "ring"),
+                    inputs=[opt_transport],
+                    outputs=[opt_ring_stream_mode],
                 )
 
         def enforce_terms(terms_accepted, *args):

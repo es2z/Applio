@@ -450,5 +450,9 @@
     "APEX-GAN noise envelope": "APEX-GAN noise envelope",
     "window: normalised by this window's own mean (as in training; with gaps-filled F0 the window is all voiced, which makes the voiced noise 3-6x stronger than in training). fixed: normalised by the mean a training batch with the voiced ratio below would have.": "window: normalised by this window's own mean (as in training; with gaps-filled F0 the window is all voiced, which makes the voiced noise 3-6x stronger than in training). fixed: normalised by the mean a training batch with the voiced ratio below would have.",
     "Voiced ratio of the training data": "Voiced ratio of the training data",
-    "fixed only. tools/apex_noise_voiced_ratio.py prints it for a training folder.": "fixed only. tools/apex_noise_voiced_ratio.py prints it for a training folder."
+    "fixed only. tools/apex_noise_voiced_ratio.py prints it for a training folder.": "fixed only. tools/apex_noise_voiced_ratio.py prints it for a training folder.",
+    "Audio transport": "Audio transport",
+    "legacy: device callbacks of Chunk Size run the conversion, so the output waits about one more chunk. ring: small device callbacks around ring buffers, conversion on its own thread, output reserve only as long as the processing needs.": "legacy: device callbacks of Chunk Size run the conversion, so the output waits about one more chunk. ring: small device callbacks around ring buffers, conversion on its own thread, output reserve only as long as the processing needs.",
+    "Ring transport streams": "Ring transport streams",
+    "auto: one duplex stream when both devices share a host API. separate: always two streams with clock drift compensation (safer when input and output are different devices).": "auto: one duplex stream when both devices share a host API. separate: always two streams with clock drift compensation (safer when input and output are different devices)."
 }

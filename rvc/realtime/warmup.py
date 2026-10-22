@@ -5,6 +5,8 @@ starts a session exactly the way the Realtime tab does without importing the aud
 device layer.
 """
 
+import time
+
 import numpy as np
 import torch
 
@@ -19,8 +21,13 @@ def warm_up(
     f0_autotune_strength=1,
     proposed_pitch=False,
     proposed_pitch_threshold=155.0,
+    timing_blocks=0,
 ):
     """Run the conversion a few times before any audio device opens.
+
+    `timing_blocks` more blocks are run after the warm-up proper and their wall times
+    returned (ms), for the ring transport's initial output reserve. With the default 0
+    nothing extra runs and an empty list is returned.
 
     Same shapes and grad mode as the audio callback, fed a tone, since silence can
     bypass F0. This runs even without compilation: it is what builds the lazily created
@@ -43,6 +50,7 @@ def warm_up(
     # Do not feed synthetic audio into the stateful speech detector.
     vad = runtime.vad
     runtime.vad = None
+    timings = []
     try:
         with torch.random.fork_rng(devices=devices), torch.no_grad():
             warmup_blocks = 3 if compiling else 1
@@ -66,6 +74,22 @@ def warm_up(
                 )
             if devices:
                 torch.cuda.synchronize(runtime.device)
+            for _ in range(int(timing_blocks)):
+                started = time.perf_counter()
+                runtime.inference(
+                    tone,
+                    f0_up_key,
+                    index_rate,
+                    protect,
+                    volume_envelope,
+                    f0_autotune,
+                    f0_autotune_strength,
+                    proposed_pitch,
+                    proposed_pitch_threshold,
+                )
+                if devices:
+                    torch.cuda.synchronize(runtime.device)
+                timings.append((time.perf_counter() - started) * 1000.0)
     finally:
         runtime.vad = vad
         runtime.flush_buffers()
@@ -74,3 +98,4 @@ def warm_up(
         if hasattr(runtime, "reset_stream_state"):
             runtime.reset_stream_state()
         runtime.consecutive_silence_frames = 0
+    return timings

@@ -83,6 +83,7 @@ class OptionsTests(unittest.TestCase):
     def test_defaults_are_the_legacy_behaviour(self):
         options = RealtimeOptions()
         self.assertEqual(options.output_position, "legacy")
+        self.assertEqual(options.transport, "legacy")
         self.assertFalse(options.needs_realtime_synthesis)
         self.assertEqual(options.changed(), [])
 

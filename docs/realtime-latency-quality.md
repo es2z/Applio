@@ -22,13 +22,13 @@ Realtime タブ > Performance Settings > **遅延・音質の実験的オプシ�
 変換を恒等写像に置き換えたシミュレーションで実測した値です
 （`tests/test_realtime_options.py`）。
 
-| | 従来 | 出力位置 trim |
-|---|---|---|
-| ブロックを集める | 960 | 960 |
-| ウィンドウ遅延 | **370** | **150** |
-| 出力側の待ち | **約 960**（1 チャンク） | 約 960 |
-| デバイス | 数 ms〜数十 ms | 同左 |
-| 合計（目安） | 約 2.3 s | 約 2.1 s |
+| | 従来 | 出力位置 trim | trim + ring 転送 |
+|---|---|---|---|
+| ブロックを集める | 960 | 960 | 960 |
+| ウィンドウ遅延 | **370** | **150** | 150 |
+| 出力側の待ち | **約 960**（1 チャンク） | 約 960 | **処理時間 p95 + 10 ms 程度** |
+| デバイス | 数 ms〜数十 ms | 同左 | 同左 |
+| 合計（目安） | 約 2.3 s | 約 2.1 s | 約 1.2 s |
 
 - ウィンドウ遅延 370 ms = Extra 220 + Crossfade 138 + SOLA 10（を 10 ms 単位に丸め）。
   従来の配置は変換ウィンドウの**最も古い部分**を再生するため、Extra が「先読み」として
@@ -38,7 +38,11 @@ Realtime タブ > Performance Settings > **遅延・音質の実験的オプシ�
 - 出力側の約 1 チャンクは、従来の転送（`rvc/realtime/audio.py`）がデバイスを
   blocksize = Chunk で開き、コールバック内で変換するためです。変換したブロックは
   「次に再生するバッファ」として渡されるので、もう 1 チャンク待ちます。WDM-KS 出力を
-  使っていたのはこの一部を隠すためでした。
+  使っていたのはこの一部を隠すためでした。ring 転送（段階 2）はこれを処理時間程度まで縮めます。
+
+※ ring 転送の行は、シミュレーション（`tests/test_realtime_ring_transport.py`）で
+「チャンク + 処理時間 + 予備 10 ms」になることを確認した値です。実機では
+ステータスの `est. total` を見てください。
 
 ## 段階 1: 窓の配置・入力・ゲイン・APEX-GAN ノイズ
 
@@ -100,6 +104,49 @@ Realtime タブ > Performance Settings > **遅延・音質の実験的オプシ�
 - 今まで聴いてきた音は window の方です。fixed は「学習時と同じ」ですが、聴感上
   良くなるかは未確認です。必ず A/B してください。APEX-GAN 以外のモデルでは無視されます。
 
+## 段階 2: ring 転送（WASAPI → WASAPI の遅延減少）とドリフト補正
+
+### オーディオ転送方式（`transport`: legacy / ring）
+
+`rvc/realtime/ring_transport.py`。破棄した `new_main_testversion`（29eae3d）の転送層を
+移植し、出力予備の制御を書き直したものです。
+
+- デバイスは小さいバッファ（blocksize 0 / latency "low"）で開き、コールバックは
+  リングバッファへのコピーだけを行います。変換は専用スレッドで、ブロックが揃った
+  瞬間に実行し、出力リングへ書きます。
+- 出力リングに残す量（予備）は「処理時間の p95 + 10 ms」を目標にします。開始前に
+  5 ブロックの処理時間を測り（RNG を消費しない形で）、最初のブロックの前にだけ
+  必要な無音を入れます。アンダーフローが起きたら予備を 10 ms 増やし（2 秒に 1 回まで）、
+  5 秒起きず 1 秒静かなら 10 ms 戻します。
+- **変換に渡るものは従来と同じ**です（Chunk Size ぶんの 48 kHz モノラル、入力ゲイン適用、
+  チャンネル数も従来と同じ開き方）。音が変わり得るのは次の 2 点だけです。
+  - 予備のずれの補正: **-60 dBFS 未満の静かな出力ブロックだけ**、その中で最も静かな
+    区間を短いクロスフェードで切り取る／繰り返す。声には触れません。
+  - separate のときの可変レート・リサンプラ（下記）: 21 kHz まで平坦、22 kHz で -0.4 dB。
+- ステータス行: 経路（`ring duplex/...` か `ring separate/... -> ...`）、処理時間 p50/p95、
+  予備と出力リングの量、ウィンドウ遅延、デバイス遅延、**推定の総遅延（est. total）**、
+  入出力の xrun 数、静音補正の回数、（separate のとき）ドリフト補正量。
+- コールバックが数 ms ごとに GIL を取れるよう、ring 使用中は Python のスレッド切替間隔を
+  1 ms にしています（停止時に戻します）。
+
+### ring のストリーム（`ring_stream_mode`: auto / separate）
+
+- **auto**: 入出力が同じホスト API なら全二重ストリーム 1 本（失敗したら 2 本に
+  フォールバック）。1 本なら入出力は同じクロックで動くのでドリフト補正は不要です。
+- **separate**: 常にストリーム 2 本。入力と出力が**別の機器**（クロックが別）なら
+  こちらが安全です。出力リングの量から**ドリフト補正**（出力のリサンプル比を
+  ±1000 ppm 以内で PI 制御、1000 ppm でも 1.7 セント）を行い、2 つのクロックの差を
+  吸収します。シミュレーションで入力 +200 ppm を -200 ppm 前後に収束させ、
+  アンダーフローなしを確認しています。
+- 排他モードが拒否されたら共有モードで開き直し、ステータスに表示します。
+
+### 使い方の目安
+
+- まず auto で開始し、ステータスの `xruns in/out` が増え続けないか見てください。
+  増える場合は separate、排他モードの切り替え、Chunk を変えて試してください。
+- 入力と出力が別のオーディオ機器なら separate を推奨します（auto でも 2 機器を
+  全二重 1 本で開けることはありますが、その場合 2 つのクロックの差は補正されません）。
+
 ## A/B の手順
 
 ### 1. オフライン（デバイスなし、同じ録音で比較）
@@ -140,6 +187,7 @@ env\python.exe -X utf8 tools\realtime_stream_eval.py --template <テンプレー
 3. + ゲイン aligned
 4. APEX-GAN ノイズ window と fixed（有声率はツールで計算した値）
 5. Protect を 0.5 未満で使う場合だけ、f0 と unfilled
+6. 転送を ring（auto → 必要なら separate）
 
 ## ファイル
 
@@ -151,6 +199,8 @@ env\python.exe -X utf8 tools\realtime_stream_eval.py --template <テンプレー
   最新部分だけを生成）
 - `rvc/lib/algorithm/generators/apex_gan.py`: ノイズ包絡の固定参照値
 - `rvc/realtime/resample.py`: stateful リサンプラ
+- `rvc/realtime/ring_transport.py`, `rvc/realtime/ring_buffer.py`: ring 転送
 - `rvc/realtime/stream_eval.py`, `tools/realtime_stream_eval.py`: オフライン A/B
 - `tools/apex_noise_voiced_ratio.py`: 学習データの有声率
-- テスト: `tests/test_realtime_options.py`, `tests/test_realtime_synthesis.py`
+- テスト: `tests/test_realtime_options.py`, `tests/test_realtime_synthesis.py`,
+  `tests/test_realtime_ring_transport.py`
