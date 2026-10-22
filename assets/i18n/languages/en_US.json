@@ -434,5 +434,21 @@
     "Index One Speaker Only": "Index One Speaker Only",
     "Build the index from one speaker's training data only, saved as (model name)_spk(number).index next to the full one. Quicker than the full index on a large multi-speaker dataset.": "Build the index from one speaker's training data only, saved as (model name)_spk(number).index next to the full one. Quicker than the full index on a large multi-speaker dataset.",
     "Index Speaker Number": "Index Speaker Number",
-    "The dataset folder number of the speaker. Files directly in the dataset folder are speaker 0.": "The dataset folder number of the speaker. Files directly in the dataset folder are speaker 0."
+    "The dataset folder number of the speaker. Files directly in the dataset folder are speaker 0.": "The dataset folder number of the speaker. Files directly in the dataset folder are speaker 0.",
+    "Latency / quality experiments (defaults = current behaviour)": "Latency / quality experiments (defaults = current behaviour)",
+    "Every option starts at the behaviour realtime always had, so nothing changes until you switch one. They are saved in templates. docs/realtime-latency-quality.md explains each one and how to A/B them.": "Every option starts at the behaviour realtime always had, so nothing changes until you switch one. They are saved in templates. docs/realtime-latency-quality.md explains each one and how to A/B them.",
+    "Output position": "Output position",
+    "legacy: plays the oldest part of the conversion window, so Extra Conversion Size works as look-ahead and adds to the latency. trim: Extra Conversion Size becomes past context only and the newest part is played (about 0.22 s less latency with the reference template).": "legacy: plays the oldest part of the conversion window, so Extra Conversion Size works as look-ahead and adds to the latency. trim: Extra Conversion Size becomes past context only and the newest part is played (about 0.22 s less latency with the reference template).",
+    "Look-ahead (s)": "Look-ahead (s)",
+    "trim only: how much future audio the newest played sample may still hear. Adds to the latency one for one.": "trim only: how much future audio the newest played sample may still hear. Adds to the latency one for one.",
+    "48 kHz -> 16 kHz input conversion": "48 kHz -> 16 kHz input conversion",
+    "stateless: each block on its own, which leaves a small discontinuity at every block boundary. stateful: one continuous stream (0.5 ms of delay).": "stateless: each block on its own, which leaves a small discontinuity at every block boundary. stateful: one continuous stream (0.5 ms of delay).",
+    "Voicing used by Protect": "Voicing used by Protect",
+    "f0: the F0 handed to the model; with a gaps-filled F0 method every frame is voiced, so Protect does nothing. unfilled: the predictor's voicing before the gap fill.": "f0: the F0 handed to the model; with a gaps-filled F0 method every frame is voiced, so Protect does nothing. unfilled: the predictor's voicing before the gap fill.",
+    "Output gain": "Output gain",
+    "legacy: one gain per block from the newest input block, applied to older audio. aligned: the same sqrt(RMS) gain, measured around the moments it is applied to and changing smoothly.": "legacy: one gain per block from the newest input block, applied to older audio. aligned: the same sqrt(RMS) gain, measured around the moments it is applied to and changing smoothly.",
+    "APEX-GAN noise envelope": "APEX-GAN noise envelope",
+    "window: normalised by this window's own mean (as in training; with gaps-filled F0 the window is all voiced, which makes the voiced noise 3-6x stronger than in training). fixed: normalised by the mean a training batch with the voiced ratio below would have.": "window: normalised by this window's own mean (as in training; with gaps-filled F0 the window is all voiced, which makes the voiced noise 3-6x stronger than in training). fixed: normalised by the mean a training batch with the voiced ratio below would have.",
+    "Voiced ratio of the training data": "Voiced ratio of the training data",
+    "fixed only. tools/apex_noise_voiced_ratio.py prints it for a training folder.": "fixed only. tools/apex_noise_voiced_ratio.py prints it for a training folder."
 }

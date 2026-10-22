@@ -380,9 +380,18 @@ class APEXGANGenerator(nn.Module):
         )
 
     def forward(
-        self, x: torch.Tensor, f0: torch.Tensor, g: Optional[torch.Tensor] = None
+        self,
+        x: torch.Tensor,
+        f0: torch.Tensor,
+        g: Optional[torch.Tensor] = None,
+        envelope_reference: Optional[float] = None,
     ) -> torch.Tensor:
-        """x [B, C, T], f0 [B, T] in Hz, g [B, gin, 1] -> waveform [B, 1, T * full_hop]."""
+        """x [B, C, T], f0 [B, T] in Hz, g [B, gin, 1] -> waveform [B, 1, T * full_hop].
+
+        envelope_reference is a realtime override (rvc/realtime/synthesis.py); training
+        and offline conversion do not pass it and get exactly the function upstream
+        defines.
+        """
         sine_only, noise_only = self.excitation_synthesizer(f0)
 
         # Pure voiced sine at unit peak -> STFT -> keep the phase, discard the magnitude.
@@ -397,7 +406,12 @@ class APEXGANGenerator(nn.Module):
         noise_mag = noise_mag.to(x.dtype)
         noise_phase = noise_phase.to(x.dtype)
         envelope = noise_mag.mean(dim=1, keepdim=True)
-        envelope = envelope / (envelope.mean() + 1e-8)
+        if envelope_reference is None:
+            envelope = envelope / (envelope.mean() + 1e-8)
+        else:
+            # A fixed reference instead of this input's own mean, which a realtime
+            # window of gap-filled F0 (all voiced) drives far from training's batches.
+            envelope = envelope / (envelope_reference + 1e-8)
         har_noise = torch.cat([noise_mag, noise_phase * envelope], dim=1)
 
         x = self.conv_pre(x)
@@ -437,6 +451,27 @@ class APEXGANGenerator(nn.Module):
             spec = torch.exp(x[:, : n_fft // 2 + 1, :])
             phase = torch.sin(x[:, n_fft // 2 + 1 :, :])
             return self.stft.inverse(spec, phase)
+
+    @torch.no_grad()
+    def noise_envelope_reference(self, voiced_ratio: float, seconds: float = 4.0):
+        """The window-mean envelope this decoder would see on an input whose frames are
+        voiced in the given ratio - what a training batch with that voicing gives.
+
+        The envelope is linear in the noise level, so its mean per unit of noise is
+        measured once on fixed-seed white noise and scaled by the voiced (add_noise_std)
+        and unvoiced (sine_amp / 3) levels ExcitationSynthesizer uses.
+        """
+        synth = self.excitation_synthesizer
+        generator = torch.Generator(device="cpu").manual_seed(0)
+        samples = int(seconds * synth.sample_rate)
+        unit = torch.randn(1, samples, generator=generator).to(
+            device=self.stft.window.device
+        )
+        magnitude, _ = self.stft.transform(unit)
+        per_unit = float(magnitude.mean(dim=1).mean())
+        ratio = min(max(float(voiced_ratio), 0.0), 1.0)
+        level = ratio * synth.add_noise_std + (1.0 - ratio) * (synth.sine_amp / 3.0)
+        return per_unit * level
 
     def remove_weight_norm(self):
         remove_weight_norm_legacy_safe(self.conv_pre)

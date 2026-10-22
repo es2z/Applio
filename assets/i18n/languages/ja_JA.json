@@ -434,5 +434,21 @@
     "Index One Speaker Only": "対象話者だけのIndexを作る",
     "Build the index from one speaker's training data only, saved as (model name)_spk(number).index next to the full one. Quicker than the full index on a large multi-speaker dataset.": "1人の話者の学習データだけでIndexを作り、（モデル名）_spk（番号）.index として全体のIndexと同じ場所に保存します。話者の多い大きなデータセットでは、全体のIndexより早く作れます。",
     "Index Speaker Number": "Indexを作る話者の番号",
-    "The dataset folder number of the speaker. Files directly in the dataset folder are speaker 0.": "データセットのフォルダ番号です。データセットのフォルダ直下に置いたファイルは話者0です。"
+    "The dataset folder number of the speaker. Files directly in the dataset folder are speaker 0.": "データセットのフォルダ番号です。データセットのフォルダ直下に置いたファイルは話者0です。",
+    "Latency / quality experiments (defaults = current behaviour)": "遅延・音質の実験的オプション（初期値 = 従来の動作）",
+    "Every option starts at the behaviour realtime always had, so nothing changes until you switch one. They are saved in templates. docs/realtime-latency-quality.md explains each one and how to A/B them.": "どのオプションも初期値は従来のリアルタイム変換と同じ動作なので、切り替えるまで何も変わりません。テンプレートに保存されます。各項目の説明とA/B比較の手順は docs/realtime-latency-quality.md にあります。",
+    "Output position": "出力位置",
+    "legacy: plays the oldest part of the conversion window, so Extra Conversion Size works as look-ahead and adds to the latency. trim: Extra Conversion Size becomes past context only and the newest part is played (about 0.22 s less latency with the reference template).": "legacy: 変換ウィンドウの最も古い部分を再生します。そのため追加変換サイズが先読みとして働き、遅延に加算されます。trim: 追加変換サイズは過去の文脈としてだけ使い、最新の部分を再生します（基準テンプレートで約0.22秒の遅延減）。",
+    "Look-ahead (s)": "先読み (秒)",
+    "trim only: how much future audio the newest played sample may still hear. Adds to the latency one for one.": "trim のみ: 再生する最新のサンプルが、さらにどれだけ先の音声を参照できるか。値はそのまま遅延に加算されます。",
+    "48 kHz -> 16 kHz input conversion": "入力の 48 kHz → 16 kHz 変換",
+    "stateless: each block on its own, which leaves a small discontinuity at every block boundary. stateful: one continuous stream (0.5 ms of delay).": "stateless: ブロックごとに単独で変換するため、ブロック境界ごとに小さな不連続が残ります。stateful: 1本の連続したストリームとして変換します（遅延0.5 ms）。",
+    "Voicing used by Protect": "Protect が使う有声判定",
+    "f0: the F0 handed to the model; with a gaps-filled F0 method every frame is voiced, so Protect does nothing. unfilled: the predictor's voicing before the gap fill.": "f0: モデルに渡すF0を使います。gaps-filled のF0手法では全フレームが有声になるため、Protect は何もしません。unfilled: 穴埋め前の推定器の有声判定を使います。",
+    "Output gain": "出力ゲイン",
+    "legacy: one gain per block from the newest input block, applied to older audio. aligned: the same sqrt(RMS) gain, measured around the moments it is applied to and changing smoothly.": "legacy: 最新の入力ブロックから求めたゲインをブロックごとに1つ、より古い音声に掛けます。aligned: 同じ sqrt(RMS) ゲインを、掛ける位置の周辺で測り、滑らかに変化させます。",
+    "APEX-GAN noise envelope": "APEX-GAN ノイズ包絡",
+    "window: normalised by this window's own mean (as in training; with gaps-filled F0 the window is all voiced, which makes the voiced noise 3-6x stronger than in training). fixed: normalised by the mean a training batch with the voiced ratio below would have.": "window: そのウィンドウ自身の平均で正規化します（学習時と同じ方式。gaps-filled のF0ではウィンドウ全体が有声になるため、有声部のノイズが学習時の3〜6倍になります）。fixed: 下の有声率を持つ学習バッチの平均で正規化します。",
+    "Voiced ratio of the training data": "学習データの有声率",
+    "fixed only. tools/apex_noise_voiced_ratio.py prints it for a training folder.": "fixed のみ。tools/apex_noise_voiced_ratio.py で学習フォルダの値を表示できます。"
 }

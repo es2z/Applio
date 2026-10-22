@@ -13,6 +13,12 @@ sys.path.append(now_dir)
 
 from rvc.realtime.utils.torch import circular_write
 from rvc.realtime.compile_session import CompileSession, load_settings
+from rvc.realtime.options import RealtimeOptions
+from rvc.realtime.synthesis import (
+    SynthesisPlan,
+    realtime_infer,
+    supports_excitation_control,
+)
 from rvc.configs.config import Config
 from rvc.infer.pipeline import Autotune, AudioProcessor
 from rvc.lib.algorithm.synthesizers import Synthesizer
@@ -59,6 +65,9 @@ class RealtimeVoiceConverter:
         self.cpt = None  # Checkpoint for loading model weights
         self.version = None  # Model version
         self.use_f0 = None  # Whether the model uses F0
+        # None: Synthesizer.infer exactly as always. A SynthesisPlan: the realtime call
+        # in rvc/realtime/synthesis.py. Set once per session, before any compilation.
+        self.synthesis = None
         # load weights and setup model network.
         self.load_model(weight_root)
         self.setup_network()
@@ -128,7 +137,11 @@ class RealtimeVoiceConverter:
         return torch.clip(output, -1.0, 1.0, out=output)
 
     def infer_audio(self, feats, p_len, pitch, pitchf, sid):
-        return self.net_g.infer(feats, p_len, pitch, pitchf, sid)[0][0, 0]
+        if self.synthesis is None:
+            return self.net_g.infer(feats, p_len, pitch, pitchf, sid)[0][0, 0]
+        return realtime_infer(
+            self.net_g, feats, p_len, pitch, pitchf, sid, self.synthesis
+        )[0, 0]
 
 
 class Realtime_Pipeline:
@@ -142,8 +155,15 @@ class Realtime_Pipeline:
         sid: int = 0,
         hybrid_blend_ratio: float = 0.5,
         fcn_profile=None,
+        options: RealtimeOptions = None,
     ):
         self.vc = vc
+        self.options = options or RealtimeOptions()
+        # Per-session stream layout behind the opt-in options; configure_stream fills
+        # it in once the window size is known.
+        self.stream = None
+        self.voiced_buffer = None
+        self._last_voiced = None
         self.hubert_model = hubert_model
         self.index = index
         self.big_npy = big_npy
@@ -218,6 +238,62 @@ class Realtime_Pipeline:
             self.device,
             f0=getattr(self.f0_model, "compile_path", None),
         )
+
+    def configure_stream(
+        self,
+        p_len: int,
+        skip_head: int,
+        return_length: int,
+        shift_frames,
+        trim: bool,
+    ):
+        """Fix the window layout for this session and set up the opt-in state.
+
+        p_len: frames (100 Hz) in the conversion window. skip_head / return_length: the
+        frames the "trim" output position leaves as context / renders. shift_frames: how
+        many frames the window moves per block, or None when a block is not a whole
+        number of 10 ms frames.
+        """
+        options = self.options
+        self.stream = {
+            "p_len": int(p_len),
+            "skip_head": int(skip_head),
+            "return_length": int(return_length),
+            "shift": shift_frames,
+            "trim": bool(trim),
+        }
+        net_g = self.vc.net_g
+        excitation = supports_excitation_control(net_g) and bool(self.use_f0)
+        if options.apex_noise_envelope != "window" and not excitation:
+            print(
+                "[Realtime] The APEX-GAN noise envelope applies to APEX-GAN models only; "
+                "this model ignores it."
+            )
+
+        envelope_reference = None
+        if excitation and options.apex_noise_envelope == "fixed":
+            envelope_reference = net_g.dec.noise_envelope_reference(
+                options.apex_noise_voiced_ratio
+            )
+            print(
+                f"[Realtime] APEX-GAN noise envelope reference {envelope_reference:.6g} "
+                f"(voiced ratio {options.apex_noise_voiced_ratio:.2f})."
+            )
+
+        if options.needs_realtime_synthesis:
+            self.vc.synthesis = SynthesisPlan(
+                skip_head=int(skip_head) if trim else None,
+                return_length=int(return_length) if trim else None,
+                envelope_reference=envelope_reference,
+            )
+        else:
+            self.vc.synthesis = None
+        self.voiced_buffer = None
+
+    def reset_stream_state(self):
+        """Forget the streaming state, e.g. after the warm-up's synthetic tone."""
+        if self.voiced_buffer is not None:
+            self.voiced_buffer.zero_()
 
     def get_f0(
         self,
@@ -325,6 +401,8 @@ class Realtime_Pipeline:
                 x.shape[0] // self.window,
                 model=model_size,
             )
+        # The predictor's own voicing, before any gap fill: what "protect" can use.
+        self._last_voiced = (voiced if voiced is not None else f0 > 0).copy()
         if self.f0_method in GAP_FILLED_METHODS:
             # The whole window is recomputed each block, so this fills the window.
             f0 = fill_unvoiced_gaps(f0)
@@ -379,6 +457,13 @@ class Realtime_Pipeline:
         if pitch is not None and pitchf is not None:
             circular_write(f0_coarse, pitch)
             circular_write(f0, pitchf)
+            if self.options.protect_voicing == "unfilled":
+                if self.voiced_buffer is None or self.voiced_buffer.shape != pitchf.shape:
+                    self.voiced_buffer = torch.zeros_like(pitchf)
+                voiced_now = torch.from_numpy(
+                    self._last_voiced.astype(np.float32)
+                ).to(self.device)
+                circular_write(voiced_now, self.voiced_buffer)
         else:
             pitch = f0_coarse
             pitchf = f0
@@ -431,6 +516,7 @@ class Realtime_Pipeline:
         feats = audio.view(1, -1).to(self.device)
 
         formant_length = int(np.ceil(return_length * 1.0))
+        plan = self.vc.synthesis
 
         pitch, pitchf = (
             self.get_f0(
@@ -462,8 +548,12 @@ class Realtime_Pipeline:
         if (
             self.index
         ):  # set by parent function, only true if index is available, loaded, and index rate > 0
+            # Legacy plays the oldest part of the window yet blends the index only from
+            # skip_head on - kept as it was. "trim" blends every frame the rendered
+            # region is computed from, flow margin included.
+            index_head = plan.flow_head if plan is not None and plan.skip_head is not None else skip_head
             feats = self._retrieve_speaker_embeddings(
-                skip_head, feats, self.index, self.big_npy, index_rate
+                index_head, feats, self.index, self.big_npy, index_rate
             )
         # feature upsampling
         feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)[
@@ -480,9 +570,22 @@ class Realtime_Pipeline:
 
             # Pitch protection blending
             if protect < 0.5:
-                pitchff = pitchf.detach().clone()
-                pitchff[pitchf > 0] = 1
-                pitchff[pitchf < 1] = protect
+                if (
+                    self.options.protect_voicing == "unfilled"
+                    and self.voiced_buffer is not None
+                ):
+                    # The predictor's voicing before any gap fill, so protect still
+                    # finds consonants and breaths when the F0 itself is filled.
+                    voiced = self.voiced_buffer[-p_len:].unsqueeze(0)
+                    pitchff = torch.where(
+                        voiced > 0,
+                        torch.ones_like(voiced),
+                        torch.full_like(voiced, protect),
+                    )
+                else:
+                    pitchff = pitchf.detach().clone()
+                    pitchff[pitchf > 0] = 1
+                    pitchff[pitchf < 1] = protect
                 feats = feats * pitchff.unsqueeze(-1) + feats0 * (
                     1 - pitchff.unsqueeze(-1)
                 )
@@ -496,8 +599,14 @@ class Realtime_Pipeline:
             infer_audio=self.compile_session.rvc,
         ).float()
         if volume_envelope != 1:
+            # The rendered region only, when "trim" leaves the past context unrendered.
+            source = (
+                audio[plan.skip_head * self.window :]
+                if plan is not None and plan.skip_head is not None
+                else audio
+            )
             out_audio = AudioProcessor.change_rms(
-                audio, self.sample_rate, out_audio, self.tgt_sr, volume_envelope
+                source, self.sample_rate, out_audio, self.tgt_sr, volume_envelope
             )
 
         scaled_window = int(np.floor(1.0 * self.model_window))
@@ -570,6 +679,7 @@ def create_pipeline(
     hybrid_blend_ratio: float = 0.5,
     embedder_precision: str = "fp32",
     fcn_profile=None,
+    options: RealtimeOptions = None,
 ):
     """
     Initialize real-time voice conversion pipeline.
@@ -606,6 +716,7 @@ def create_pipeline(
         sid,
         hybrid_blend_ratio,
         fcn_profile,
+        options,
     )
 
     return pipeline

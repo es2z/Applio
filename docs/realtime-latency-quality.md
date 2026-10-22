@@ -1,0 +1,156 @@
+# リアルタイム変換: 遅延と音質の実験的オプション
+
+Realtime タブ > Performance Settings > **遅延・音質の実験的オプション（初期値 = 従来の動作）**
+（`rvc/realtime/options.py` の `RealtimeOptions`）。
+
+- **すべてオプトイン**で、初期値は従来の動作そのものです。全オプションが初期値のとき、
+  出力は変更前の main と**ビット単位で同一**です（CPU 上の APEX-GAN による
+  エンドツーエンド比較で確認。`tests/test_realtime_options.py` の各テストも初期値の
+  レイアウト・遅延が従来どおりであることを固定しています）。
+- オプションは **Start 時に適用**されます。変えたら Stop → Start。
+- **テンプレートに保存**されます（YAML の `experimentTab`）。オプション導入前に保存した
+  テンプレートを読み込むと、全オプションが初期値（= 従来動作）になります。
+- Start 後のステータスに `Options: <初期値から変えた項目>` と
+  `window delay <ms>`（変換ウィンドウ自体が生む遅延）が出ます。
+- 入力のハイパス（レポートの IO1）は、ノイズ除去済みで音色が変わる懸念があるため
+  **実装していません**。
+
+## 遅延の内訳（Chunk 960 ms で 2 秒を超えていた理由）
+
+基準テンプレート（Chunk 960 ms / Crossfade 0.138 s / Extra 0.22 s）での内訳です。
+「ウィンドウ遅延」はデバイスも処理時間も含まない、窓の配置だけで決まる遅延で、
+変換を恒等写像に置き換えたシミュレーションで実測した値です
+（`tests/test_realtime_options.py`）。
+
+| | 従来 | 出力位置 trim |
+|---|---|---|
+| ブロックを集める | 960 | 960 |
+| ウィンドウ遅延 | **370** | **150** |
+| 出力側の待ち | **約 960**（1 チャンク） | 約 960 |
+| デバイス | 数 ms〜数十 ms | 同左 |
+| 合計（目安） | 約 2.3 s | 約 2.1 s |
+
+- ウィンドウ遅延 370 ms = Extra 220 + Crossfade 138 + SOLA 10（を 10 ms 単位に丸め）。
+  従来の配置は変換ウィンドウの**最も古い部分**を再生するため、Extra が「先読み」として
+  そのまま遅延に乗っていました。trim では最新の部分を再生し、Extra は過去の文脈になる
+  ので 150 ms（= Crossfade + SOLA を丸めたもの）になります。Extra を 1.0 s にすると
+  従来は 1150 ms、trim は 150 ms のまま（実測）。
+- 出力側の約 1 チャンクは、従来の転送（`rvc/realtime/audio.py`）がデバイスを
+  blocksize = Chunk で開き、コールバック内で変換するためです。変換したブロックは
+  「次に再生するバッファ」として渡されるので、もう 1 チャンク待ちます。WDM-KS 出力を
+  使っていたのはこの一部を隠すためでした。
+
+## 段階 1: 窓の配置・入力・ゲイン・APEX-GAN ノイズ
+
+### 出力位置（`output_position`: legacy / trim）と先読み（`lookahead_s`）
+
+- **legacy**: 従来どおり。再生する部分は約 220 ms（Extra）先の音声まで参照できます。
+- **trim**: 変換ウィンドウの最新の「ブロック + Crossfade + SOLA + 先読み」だけを生成して
+  再生します（RVC WebUI と同じ配置。flow の端の影響を避けるため 24 フレームの余白を
+  付けて生成）。Extra は過去の文脈になり、遅延に加算されなくなります。
+- **音への影響**: 再生する部分が参照できる「未来」の音声は、trim では Crossfade + 先読み
+  だけになります（HuBERT と RMVPE は前後両方の文脈を使います）。最新端の子音や
+  音の立ち上がりで差が出る可能性があります。その場合は **先読み** を 0.05〜0.1 s
+  にして聴き比べてください（1:1 で遅延が増えます）。trim のときだけ有効です。
+- 付随する変更（trim のときのみ）: Index のブレンド範囲を生成に使う全フレームに合わせ、
+  RMS ミックス（`volume_envelope`）の参照区間を生成区間に合わせています。legacy では
+  従来のまま（従来は再生しない区間にだけ Index をブレンドしていました）。
+
+### 入力の 48 kHz → 16 kHz 変換（`input_resample`: stateless / stateful）
+
+- **stateless**: 従来どおり、ブロックごとに単独でリサンプル。ブロック境界ごとに
+  フィルタの端の不連続が入ります（境界で 1e-2 以上の誤差、実測）。
+- **stateful**: 1 本の連続した信号としてリサンプル（全体を一括でリサンプルしたものを
+  24 サンプル = 0.5 ms 遅らせたものと 1e-5 以内で一致、実測）。
+- FCN 系の F0 手法は自前の連続リサンプラを持つため対象外です。ブロックが 3 の倍数
+  サンプルでない場合も従来の方式になります（ログに出ます）。
+
+### Protect が使う有声判定（`protect_voicing`: f0 / unfilled）
+
+- gaps-filled 系の F0 手法（`hpa-rmvpe-112000-aligned-filled` など）では全フレームが
+  有声になるため、**従来は Protect が何もしていません**（穴埋めの意図どおりの動作）。
+- **unfilled** にすると、穴埋め前の推定器の有声判定で Protect が働きます。子音や息の
+  部分の特徴量が元の声側へブレンドされます。
+- **Protect が 0.5 のときは何も変わりません**（Protect は 0.5 未満でのみ働く）。
+  Protect を 0.5 未満にして使うときだけ意味があります。元の声の成分が子音に残る方向の
+  変化なので、好みで判断してください。
+
+### 出力ゲイン（`gain_mode`: legacy / aligned）
+
+- この fork はリアルタイム出力に入力の sqrt(RMS) を掛けています。
+- **legacy**: 最新の入力ブロック（+ Crossfade）から求めたゲインを、ブロックごとに 1 つ、
+  ウィンドウ遅延ぶん古い音声に掛けます（ゲインの時刻がずれている）。
+- **aligned**: 同じ sqrt(RMS) を、掛ける位置を中心に同じ長さで測り、10 ms ごとに
+  滑らかに変化させます。定常的な入力では legacy と同じ音量になります（5% 以内、実測）。
+  音量の時間的な追従が変わるので、語頭・語尾の音量感を聴き比べてください。
+
+### APEX-GAN のノイズ包絡（`apex_noise_envelope`: window / fixed）と学習データの有声率
+
+- APEX-GAN はノイズ包絡（有声 0.003 / 無声 0.033）を**バッチ全体の平均で割って**
+  正規化します（学習時の実装をそのまま移植）。学習バッチは有声・無声が混ざるので
+  平均は大きめになります。
+- リアルタイムではウィンドウ 1 つが「バッチ」で、gaps-filled の F0 では**ウィンドウ全体が
+  有声**になるため、平均が小さくなり、有声部のノイズが**学習時の 3〜6 倍**
+  （有声率 0.8〜0.5 の場合）で入っています。これが **window**（従来どおり）です。
+- **fixed**: 「学習データの有声率」を持つバッチで得られる平均（固定値）で割ります。
+  学習時と同じノイズ量に戻す設定です。固定値は Start 時にログに出ます。
+- 有声率は `env\python.exe -X utf8 tools\apex_noise_voiced_ratio.py <モデル名>` で
+  学習フォルダ（`logs/<モデル名>`）から計算できます（学習で使う F0 = 穴埋め前の
+  aligned F0 から、学習と同じ 36 フレームの窓で計算）。初期値 0.65。
+- 今まで聴いてきた音は window の方です。fixed は「学習時と同じ」ですが、聴感上
+  良くなるかは未確認です。必ず A/B してください。APEX-GAN 以外のモデルでは無視されます。
+
+## A/B の手順
+
+### 1. オフライン（デバイスなし、同じ録音で比較）
+
+`tools/realtime_stream_eval.py` は Realtime タブと同じ VoiceChanger・ウォームアップ・
+RNG シードで、録音をブロックごとに流して WAV と数値を書き出します。
+
+```
+env\python.exe -X utf8 tools\realtime_stream_eval.py --template <テンプレート名> ^
+    --input voice.wav --preset legacy --preset trim --preset stage1 --offline
+```
+
+- 組み込みプリセット: `legacy`（全オプション初期値）、`template`（テンプレートに保存した
+  オプション）、`trim`、`stage1`（trim + stateful + aligned）。
+- 任意の組み合わせ: `--preset "fixed065={\"output_position\": \"trim\", \"apex_noise_envelope\": \"fixed\", \"apex_noise_voiced_ratio\": 0.65}"`
+  （`chunk_ms` / `crossfade_s` / `extra_s` も上書き可）。プリセットは完全な設定で、
+  書いていないオプションは初期値です。
+- 出力: `logs/stream_eval/<日時>/<入力名>__<プリセット名>.wav` と `results.json`。
+  - `delay_ms`: ウィンドウ遅延。`p50_ms` / `p95_ms`: 1 ブロックの処理時間。
+  - `seam`: つなぎ目の前後でのスペクトル変化 ÷ それ以外での変化。1.0 ならつなぎ目が
+    区別できない。高いほどつなぎ目が目立つ。**どこを聴くかの目安**です。
+  - `mel_vs_offline`（`--offline` 指定時）: 同じ録音を一括変換したものとの log-mel 距離。
+    ストリーミングそのものによる劣化の目安です。
+- 音色は数値ではなく耳で決めてください。数値は「差がどこにあるか」の手がかりです。
+
+### 2. 実機
+
+- オプションを変えて Stop → Start。比較したい組み合わせをそれぞれテンプレートに
+  保存しておくと切り替えが楽です。
+- 同じ入力で比べるには、録音を仮想ケーブル（VB-Cable など）経由で入力デバイスに
+  流すのが確実です。
+- **RNG シード**を固定すると、乱数による差を除いて比べられます。
+
+### 進め方の例
+
+1. legacy と trim（先読み 0 / 0.05 / 0.1）
+2. + 入力 stateful
+3. + ゲイン aligned
+4. APEX-GAN ノイズ window と fixed（有声率はツールで計算した値）
+5. Protect を 0.5 未満で使う場合だけ、f0 と unfilled
+
+## ファイル
+
+- `rvc/realtime/options.py`: オプション（UI の並び順 = `FIELD_ORDER`）
+- `rvc/realtime/core.py`: 窓の配置（trim / 先読み）、stateful 入力、aligned ゲイン、
+  `algorithmic_delay_ms`
+- `rvc/realtime/pipeline.py`: `configure_stream`、Protect の有声判定
+- `rvc/realtime/synthesis.py`: trim 用の生成呼び出し（`Synthesizer.infer` と同じ計算で、
+  最新部分だけを生成）
+- `rvc/lib/algorithm/generators/apex_gan.py`: ノイズ包絡の固定参照値
+- `rvc/realtime/resample.py`: stateful リサンプラ
+- `rvc/realtime/stream_eval.py`, `tools/realtime_stream_eval.py`: オフライン A/B
+- `tools/apex_noise_voiced_ratio.py`: 学習データの有声率
+- テスト: `tests/test_realtime_options.py`, `tests/test_realtime_synthesis.py`

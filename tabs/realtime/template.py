@@ -131,14 +131,21 @@ class RealtimeTemplateManager:
         ptch, idx_rate, vol_env, prot,
         f0_meth, hybrid_ratio,
         emb_model, emb_custom, emb_precision,
-        chnk_size, cross_fade, extra_conv, silent_thresh, fcn_profile=""
+        chnk_size, cross_fade, extra_conv, silent_thresh, fcn_profile="",
+        options=None,
     ):
         """
         Create a settings dictionary from individual parameters.
 
+        `options` is a RealtimeOptions (the opt-in latency / quality experiments); it is
+        stored under "experimentTab". None stores the defaults, i.e. legacy behaviour.
+
         Returns:
             Dictionary in template format
         """
+        from rvc.realtime.options import RealtimeOptions
+
+        options = options if options is not None else RealtimeOptions()
         return {
             "audioTab": {
                 "input": {
@@ -191,6 +198,7 @@ class RealtimeTemplateManager:
                 "extra_convert_size": extra_conv,
                 "silence_threshold": silent_thresh,
             },
+            "experimentTab": options.to_dict(),
         }
 
     def extract_settings_to_gradio_updates(self, template_data):
@@ -249,3 +257,24 @@ class RealtimeTemplateManager:
             gr.update(value=perf.get("silence_threshold", -90)),
             gr.update(value=model.get("inference", {}).get("fcn_profile", "")),
         )
+
+    def extract_option_updates(self, template_data):
+        """
+        Gradio updates for the experiment controls, in rvc.realtime.options.FIELD_ORDER.
+
+        A template saved before the options existed has no "experimentTab"; it ran with
+        the legacy behaviour, which is what the defaults are, so that is what it loads.
+        """
+        from rvc.realtime.options import FIELD_ORDER, RealtimeOptions
+
+        options = RealtimeOptions.from_dict((template_data or {}).get("experimentTab"))
+        updates = []
+        for name, value in zip(FIELD_ORDER, options.values()):
+            update = gr.update(value=value)
+            # Dependent controls follow their parent's visibility in the tab.
+            if name == "lookahead_s":
+                update = gr.update(value=value, visible=options.output_position == "trim")
+            elif name == "apex_noise_voiced_ratio":
+                update = gr.update(value=value, visible=options.apex_noise_envelope == "fixed")
+            updates.append(update)
+        return updates

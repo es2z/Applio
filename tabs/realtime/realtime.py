@@ -19,6 +19,15 @@ from rvc.realtime.rng import (
 )
 from rvc.realtime.callbacks import AudioCallbacks
 from rvc.realtime.audio import list_audio_device
+from rvc.realtime.options import (
+    APEX_NOISE_ENVELOPES,
+    FIELD_ORDER as OPTION_FIELDS,
+    GAIN_MODES,
+    INPUT_RESAMPLES,
+    OUTPUT_POSITIONS,
+    PROTECT_VOICINGS,
+    RealtimeOptions,
+)
 from rvc.realtime.core import AUDIO_SAMPLE_RATE
 from rvc.configs.config_utils import load_config, save_config, update_nested_config
 from rvc.lib.predictors.crepe_models import CREPE_UI_METHODS
@@ -413,9 +422,12 @@ def start_realtime(
     embedder_model_custom: str = None,
     embedder_precision: str = "fp32",
     fcn_profile=None,
+    *option_values,
 ):
     global running, callbacks, audio_manager
     running = True
+    # The opt-in latency / quality options, in OPTION_FIELDS order (all off = legacy).
+    options = RealtimeOptions.from_values(*option_values)
 
     if not input_audio_device or not output_audio_device:
         yield (
@@ -491,6 +503,7 @@ def start_realtime(
             vad_frame_ms=30,
             sid=sid,
             hybrid_blend_ratio=hybrid_blend_ratio,
+            options=options,
         )
 
         audio_manager = callbacks.audio
@@ -514,6 +527,11 @@ def start_realtime(
         "\nRNG seed: {}".format(callbacks.seed)
         if callbacks.seed is not None
         else ""
+    )
+    changed = options.changed()
+    seed_status += "\nOptions: {} | window delay {:.0f} ms".format(
+        ", ".join(changed) if changed else "legacy",
+        getattr(callbacks.vc.vc_model, "algorithmic_delay_ms", 0.0),
     )
     yield (
         "Realtime is ready!" + seed_status + compile_session.status(),
@@ -1067,6 +1085,109 @@ def realtime_tab():
                     outputs=[], show_progress=False,
                 )
 
+                default_options = RealtimeOptions()
+                with gr.Accordion(
+                    i18n("Latency / quality experiments (defaults = current behaviour)"),
+                    open=False,
+                ):
+                    gr.Markdown(
+                        i18n(
+                            "Every option starts at the behaviour realtime always had, so nothing changes until you switch one. They are saved in templates. docs/realtime-latency-quality.md explains each one and how to A/B them."
+                        )
+                    )
+                    with gr.Row():
+                        opt_output_position = gr.Radio(
+                            choices=list(OUTPUT_POSITIONS),
+                            value=default_options.output_position,
+                            label=i18n("Output position"),
+                            info=i18n(
+                                "legacy: plays the oldest part of the conversion window, so Extra Conversion Size works as look-ahead and adds to the latency. trim: Extra Conversion Size becomes past context only and the newest part is played (about 0.22 s less latency with the reference template)."
+                            ),
+                            interactive=True,
+                        )
+                        opt_lookahead = gr.Slider(
+                            minimum=0.0,
+                            maximum=0.3,
+                            step=0.01,
+                            value=default_options.lookahead_s,
+                            label=i18n("Look-ahead (s)"),
+                            info=i18n(
+                                "trim only: how much future audio the newest played sample may still hear. Adds to the latency one for one."
+                            ),
+                            visible=default_options.output_position == "trim",
+                            interactive=True,
+                        )
+                    with gr.Row():
+                        opt_input_resample = gr.Radio(
+                            choices=list(INPUT_RESAMPLES),
+                            value=default_options.input_resample,
+                            label=i18n("48 kHz -> 16 kHz input conversion"),
+                            info=i18n(
+                                "stateless: each block on its own, which leaves a small discontinuity at every block boundary. stateful: one continuous stream (0.5 ms of delay)."
+                            ),
+                            interactive=True,
+                        )
+                        opt_protect_voicing = gr.Radio(
+                            choices=list(PROTECT_VOICINGS),
+                            value=default_options.protect_voicing,
+                            label=i18n("Voicing used by Protect"),
+                            info=i18n(
+                                "f0: the F0 handed to the model; with a gaps-filled F0 method every frame is voiced, so Protect does nothing. unfilled: the predictor's voicing before the gap fill."
+                            ),
+                            interactive=True,
+                        )
+                        opt_gain_mode = gr.Radio(
+                            choices=list(GAIN_MODES),
+                            value=default_options.gain_mode,
+                            label=i18n("Output gain"),
+                            info=i18n(
+                                "legacy: one gain per block from the newest input block, applied to older audio. aligned: the same sqrt(RMS) gain, measured around the moments it is applied to and changing smoothly."
+                            ),
+                            interactive=True,
+                        )
+                    with gr.Row():
+                        opt_apex_noise_envelope = gr.Radio(
+                            choices=list(APEX_NOISE_ENVELOPES),
+                            value=default_options.apex_noise_envelope,
+                            label=i18n("APEX-GAN noise envelope"),
+                            info=i18n(
+                                "window: normalised by this window's own mean (as in training; with gaps-filled F0 the window is all voiced, which makes the voiced noise 3-6x stronger than in training). fixed: normalised by the mean a training batch with the voiced ratio below would have."
+                            ),
+                            interactive=True,
+                        )
+                        opt_apex_noise_voiced_ratio = gr.Slider(
+                            minimum=0.0,
+                            maximum=1.0,
+                            step=0.01,
+                            value=default_options.apex_noise_voiced_ratio,
+                            label=i18n("Voiced ratio of the training data"),
+                            info=i18n(
+                                "fixed only. tools/apex_noise_voiced_ratio.py prints it for a training folder."
+                            ),
+                            visible=default_options.apex_noise_envelope == "fixed",
+                            interactive=True,
+                        )
+                option_controls = [
+                    opt_output_position,
+                    opt_lookahead,
+                    opt_input_resample,
+                    opt_protect_voicing,
+                    opt_gain_mode,
+                    opt_apex_noise_envelope,
+                    opt_apex_noise_voiced_ratio,
+                ]
+                assert len(option_controls) == len(OPTION_FIELDS)
+                opt_output_position.change(
+                    fn=lambda value: gr.update(visible=value == "trim"),
+                    inputs=[opt_output_position],
+                    outputs=[opt_lookahead],
+                )
+                opt_apex_noise_envelope.change(
+                    fn=lambda value: gr.update(visible=value == "fixed"),
+                    inputs=[opt_apex_noise_envelope],
+                    outputs=[opt_apex_noise_voiced_ratio],
+                )
+
         def enforce_terms(terms_accepted, *args):
             if not terms_accepted:
                 message = "You must agree to the Terms of Use to proceed."
@@ -1195,6 +1316,7 @@ def realtime_tab():
                 embedder_model_custom,
                 embedder_precision,
                 fcn_profile,
+                *option_controls,
             ],
             outputs=[latency_info, start_button, stop_button],
         )
@@ -1277,12 +1399,12 @@ def realtime_tab():
             """Load and apply template settings"""
             if not template_name:
                 gr.Warning("Please select a template first.")
-                return [gr.update()] * 33
+                return [gr.update()] * (33 + len(option_controls))
 
             template_data = template_manager.load_template(template_name)
             if not template_data:
                 gr.Warning(f"Template '{template_name}' not found.")
-                return [gr.update()] * 33
+                return [gr.update()] * (33 + len(option_controls))
 
             # Check if devices exist in current device list
             audio_tab = template_data.get("audioTab", {})
@@ -1314,13 +1436,15 @@ def realtime_tab():
                 "index_file": index_file or "",
             })
 
-            return template_manager.extract_settings_to_gradio_updates(template_data)
+            return tuple(
+                template_manager.extract_settings_to_gradio_updates(template_data)
+            ) + tuple(template_manager.extract_option_updates(template_data))
 
         def on_apply_template(template_name):
             """Apply template without confirmation"""
             if not template_name:
                 gr.Warning("Please select a template first.")
-                return [gr.update()] * 33
+                return [gr.update()] * (33 + len(option_controls))
 
             return apply_template_settings(template_name)
 
@@ -1348,9 +1472,11 @@ def realtime_tab():
             mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
             speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
             emb_model, emb_custom, emb_precision,
-            chnk_size, cross_fade, extra_conv, silent_thresh, fcn_profile_value
+            chnk_size, cross_fade, extra_conv, silent_thresh, fcn_profile_value,
+            *option_values
         ):
             """Handle save button in modal"""
+            options = RealtimeOptions.from_values(*option_values)
             if not operation_state:
                 return (
                     gr.update(visible=False),
@@ -1384,7 +1510,8 @@ def realtime_tab():
                     mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
                     speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
                     emb_model, emb_custom, emb_precision,
-                    chnk_size, cross_fade, extra_conv, silent_thresh, fcn_profile_value
+                    chnk_size, cross_fade, extra_conv, silent_thresh, fcn_profile_value,
+                    options=options,
                 )
                 template_manager.save_template(new_name, settings)
                 gr.Info(f"Template '{new_name}' saved successfully.")
@@ -1410,7 +1537,8 @@ def realtime_tab():
                     mdl_file, idx_file, atune, atune_str, prop_pitch, prop_pitch_thresh,
                     speaker_id, ptch, idx_rate, vol_env, prot, f0_meth, hybrid_ratio,
                     emb_model, emb_custom, emb_precision,
-                    chnk_size, cross_fade, extra_conv, silent_thresh, fcn_profile_value
+                    chnk_size, cross_fade, extra_conv, silent_thresh, fcn_profile_value,
+                    options=options,
                 )
                 template_manager.save_template(new_name, settings)
                 gr.Info(f"Template '{new_name}' created successfully.")
@@ -1494,6 +1622,7 @@ def realtime_tab():
                 extra_convert_size,
                 silent_threshold,
                 fcn_profile,
+                *option_controls,
             ],
         )
 
@@ -1553,6 +1682,7 @@ def realtime_tab():
                 extra_convert_size,
                 silent_threshold,
                 fcn_profile,
+                *option_controls,
             ],
             outputs=[template_name_input_row, template_dropdown, template_operation_state],
         )

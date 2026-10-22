@@ -12,6 +12,8 @@ sys.path.append(now_dir)
 from rvc.realtime.utils.torch import circular_write
 from rvc.realtime.utils.vad import VADProcessor
 from rvc.realtime.pipeline import create_pipeline
+from rvc.realtime.options import RealtimeOptions
+from rvc.realtime.resample import StatefulResampler
 
 SAMPLE_RATE = 16000
 AUDIO_SAMPLE_RATE = 48000
@@ -47,8 +49,11 @@ class Realtime:
         sid: int = 0,
         hybrid_blend_ratio: float = 0.5,
         fcn_profile=None,
+        options: RealtimeOptions = None,
         # device: str = "cuda",
     ):
+        self.options = options or RealtimeOptions()
+        self.stateful_in = None
         self.sample_rate = SAMPLE_RATE
         self.convert_buffer = None
         self.pitch_buffer = None
@@ -92,6 +97,7 @@ class Realtime:
             hybrid_blend_ratio=hybrid_blend_ratio,
             embedder_precision=embedder_precision,
             fcn_profile=fcn_profile,
+            options=self.options,
         )
         self.device = self.pipeline.device
         # Resampling of inputs and outputs.
@@ -120,12 +126,19 @@ class Realtime:
             sola_search_frame / AUDIO_SAMPLE_RATE * self.sample_rate
         )
         extra_frame_16k = int(extra_frame / AUDIO_SAMPLE_RATE * self.sample_rate)
+        trim = self.options.trims_output
+        # Look-ahead past the crossfade, "trim" only: what the newest rendered sample
+        # still gets to hear before it is played. It adds to the latency one for one.
+        lookahead_16k = (
+            int(round(self.options.lookahead_s * self.sample_rate)) if trim else 0
+        )
 
         convert_size_16k = (
             block_frame_16k
             + sola_search_frame_16k
             + extra_frame_16k
             + crossfade_frame_16k
+            + lookahead_16k
         )
         if (
             modulo := convert_size_16k % self.window_size
@@ -136,8 +149,21 @@ class Realtime:
             convert_size_16k, block_frame_16k
         )
 
-        self.skip_head = extra_frame_16k // self.window_size
-        self.return_length = self.convert_feature_size_16k - self.skip_head
+        if trim:
+            # Render the newest block + crossfade + SOLA + look-ahead; everything older
+            # is past context, which costs compute but no latency. The rounding to whole
+            # frames goes to the past context, not to the look-ahead.
+            rendered_16k = (
+                block_frame_16k
+                + crossfade_frame_16k
+                + sola_search_frame_16k
+                + lookahead_16k
+            )
+            self.return_length = -(-rendered_16k // self.window_size)
+            self.skip_head = self.convert_feature_size_16k - self.return_length
+        else:
+            self.skip_head = extra_frame_16k // self.window_size
+            self.return_length = self.convert_feature_size_16k - self.skip_head
         self.silence_front = (
             extra_frame_16k - (self.window_size * 5) if self.silence_front else 0
         )
@@ -167,6 +193,43 @@ class Realtime:
             self.fcn_session = FCNRealtimeSession(self.pipeline.f0_model, self.resample_in, convert_size_16k)
             print(f"[FCN] Synchronized audio/F0 holdback: {self.fcn_session.holdback_ms:.2f} ms")
 
+        # 48 kHz -> 16 kHz as one continuous stream instead of block by block. FCN keeps
+        # its own capture resampler, which already is one.
+        self.stateful_in = None
+        if self.options.input_resample == "stateful" and self.fcn_session is None:
+            if block_frame % 3 == 0:
+                self.stateful_in = StatefulResampler(self.resample_in, self.device)
+                print(
+                    f"[Realtime] Stateful input resampling ({self.stateful_in.delay_samples} "
+                    "samples of delay at 48 kHz)."
+                )
+            else:
+                print(
+                    "[Realtime] Stateful input resampling needs a block divisible by 3 "
+                    "samples at 48 kHz; using the per-block resampler."
+                )
+
+        shift_frames = (
+            block_frame_16k // self.window_size
+            if block_frame_16k % self.window_size == 0
+            else None
+        )
+        self.pipeline.configure_stream(
+            self.convert_feature_size_16k,
+            self.skip_head,
+            self.return_length,
+            shift_frames,
+            trim,
+        )
+        self.block_frame_16k = block_frame_16k
+        # How far behind the newest input the played audio starts, from the window
+        # layout alone (no devices, no processing): measured by the identity tests.
+        self.algorithmic_delay_ms = (
+            convert_size_16k
+            - (self.skip_head * self.window_size if trim else 0)
+            - block_frame_16k
+        ) / self.sample_rate * 1000.0
+
     def flush_buffers(self):
         """
         Flush all buffers to prevent old audio data from mixing with new audio.
@@ -186,6 +249,15 @@ class Realtime:
         if getattr(self, "fcn_session", None) is not None:
             self.fcn_session.reset()
             self.pipeline.fcn_pitch = None
+
+    def reset_stream_state(self):
+        """Forget the opt-in streaming state (resampler history, Protect's voicing),
+        e.g. after the warm-up or a reconnection."""
+        if self.stateful_in is not None:
+            self.stateful_in.reset()
+        reset = getattr(self.pipeline, "reset_stream_state", None)
+        if reset is not None:
+            reset()
 
     def inference(
         self,
@@ -208,6 +280,10 @@ class Realtime:
             self.convert_buffer.copy_(waveform)
             self.pipeline.fcn_pitch = pitch
             audio_input_16k = waveform[-max(1, len(audio_input) // 3):]
+        elif self.stateful_in is not None:
+            audio_input_16k = self.stateful_in.push(
+                torch.as_tensor(audio_input, dtype=torch.float32, device=self.device)
+            ).to(self.dtype)
         else:
             audio_input_16k = self.resample_in(
                 torch.as_tensor(audio_input, dtype=torch.float32, device=self.device)
@@ -290,8 +366,42 @@ class Realtime:
 
         # Output still has audio data (previous audio still being processed)
         # Continue outputting even if input is silent
-        audio_out: torch.Tensor = self.resample_out(audio_model * torch.sqrt(vol_t))
+        if self.options.gain_mode == "aligned":
+            gain = self.aligned_gain(audio_model.shape[0])
+        else:
+            gain = torch.sqrt(vol_t)
+        audio_out: torch.Tensor = self.resample_out(audio_model * gain)
         return audio_out, vol
+
+    def aligned_gain(self, rendered_samples):
+        """sqrt(RMS) of the input, as the legacy gain uses, but measured around each
+        moment it is applied to rather than over the newest block for the whole window.
+
+        The RMS is averaged over the same span the legacy gain uses (block + crossfade),
+        centred on each 10 ms frame of the rendered region, so a steady voice gets the
+        legacy level and only the timing changes.
+        """
+        hop = self.window_size
+        frames = self.convert_buffer.shape[0] // hop
+        power = (
+            self.convert_buffer[: frames * hop].float().reshape(frames, hop).square().mean(1)
+        )
+        span = max(1, self.audio_buffer.shape[0] // hop)
+        cumulative = torch.cat((power.new_zeros(1), power.cumsum(0)))
+        index = torch.arange(frames, device=power.device)
+        low = (index - span // 2).clamp(min=0)
+        high = (index - span // 2 + span).clamp(max=frames)
+        smoothed = (cumulative[high] - cumulative[low]) / (high - low).clamp(min=1)
+        gain = smoothed.clamp(min=0).sqrt().sqrt()
+        start = self.skip_head if self.options.trims_output else 0
+        rendered_frames = max(1, -(-rendered_samples * self.sample_rate // self.pipeline.tgt_sr) // hop)
+        gain = gain[start : start + rendered_frames]
+        if gain.shape[0] < rendered_frames:
+            gain = torch.cat((gain, gain[-1:].expand(rendered_frames - gain.shape[0])))
+        # Frame centres -> samples of the rendered audio.
+        return F.interpolate(
+            gain.view(1, 1, -1), size=rendered_samples, mode="linear", align_corners=False
+        ).view(-1).to(self.dtype)
 
     def track_input_silence(self, is_input_silent):
         """Count consecutive silent inputs; True once the whole window is silence."""
@@ -324,8 +434,10 @@ class VoiceChanger:
         sid: int = 0,
         hybrid_blend_ratio: float = 0.5,
         fcn_profile=None,
+        options: RealtimeOptions = None,
         # device: str = "cuda",
     ):
+        self.options = options or RealtimeOptions()
         self.block_frame = read_chunk_size * 128
         self.crossfade_frame = int(cross_fade_overlap_size * AUDIO_SAMPLE_RATE)
         self.extra_frame = int(extra_convert_size * AUDIO_SAMPLE_RATE)
@@ -345,6 +457,7 @@ class VoiceChanger:
             sid=sid,
             hybrid_blend_ratio=hybrid_blend_ratio,
             fcn_profile=fcn_profile,
+            options=self.options,
         )
         self.device = self.vc_model.device
         self.vc_model.realloc(
