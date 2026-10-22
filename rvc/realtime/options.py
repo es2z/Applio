@@ -43,6 +43,15 @@ TRANSPORTS = ("legacy", "ring")
 # compensation ("separate").
 RING_STREAM_MODES = ("auto", "separate")
 
+# Where the generator output is clipped to +-1: right after the generator, before the
+# input-level gain ("generator", as always), or only the final output ("output"). The
+# gain is sqrt(input RMS), well under 1, so with "output" a generator peak above 1 is
+# scaled down instead of flattened first.
+CLIP_STAGES = ("generator", "output")
+
+# Synthesizer.infer's latent temperature, which "latent_noise_scale" defaults to.
+DEFAULT_LATENT_NOISE_SCALE = 0.66666
+
 
 def _choice(value, allowed, default):
     return value if value in allowed else default
@@ -62,6 +71,14 @@ def _number(value, default, low=None, high=None):
     return value
 
 
+def _latent_scale(value):
+    """A slider with 0.01 steps shows 0.66666 as 0.67; that is the default, not a change."""
+    value = _number(value, DEFAULT_LATENT_NOISE_SCALE, 0.0, 1.0)
+    if abs(value - DEFAULT_LATENT_NOISE_SCALE) < 0.005:
+        return DEFAULT_LATENT_NOISE_SCALE
+    return value
+
+
 @dataclass(frozen=True)
 class RealtimeOptions:
     output_position: str = "legacy"
@@ -77,6 +94,11 @@ class RealtimeOptions:
     phase_continuity: bool = False
     f0_cache: bool = False
     f0_cache_margin_ms: float = 100.0
+    latent_noise_scale: float = DEFAULT_LATENT_NOISE_SCALE
+    input_highpass_hz: float = 0.0
+    clip_stage: str = "generator"
+    gate_fade_ms: float = 0.0
+    gate_hold: bool = False
 
     @classmethod
     def from_dict(cls, data):
@@ -116,6 +138,13 @@ class RealtimeOptions:
             f0_cache_margin_ms=_number(
                 data.get("f0_cache_margin_ms"), default.f0_cache_margin_ms, 0.0, 300.0
             ),
+            latent_noise_scale=_latent_scale(data.get("latent_noise_scale")),
+            input_highpass_hz=_number(
+                data.get("input_highpass_hz"), default.input_highpass_hz, 0.0, 200.0
+            ),
+            clip_stage=_choice(data.get("clip_stage"), CLIP_STAGES, default.clip_stage),
+            gate_fade_ms=_number(data.get("gate_fade_ms"), default.gate_fade_ms, 0.0, 200.0),
+            gate_hold=bool(data.get("gate_hold", default.gate_hold)),
         )
 
     @classmethod
@@ -143,6 +172,7 @@ class RealtimeOptions:
             or self.time_locked_noise
             or self.phase_continuity
             or self.apex_noise_envelope != "window"
+            or self.latent_noise_scale != DEFAULT_LATENT_NOISE_SCALE
         )
 
     def changed(self):

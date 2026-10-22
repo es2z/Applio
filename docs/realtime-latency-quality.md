@@ -184,6 +184,76 @@ Realtime タブ > Performance Settings > **遅延・音質の実験的オプシ�
 音への影響は「つなぎ目のゆらぎ・うなり・音色の揺れが減る」方向を期待していますが、
 ノイズの性質（ブロックごとの独立性）が変わるので、必ず A/B してください。
 
+## 段階 4: 入出力の処理（IO1・IO4・IO5）と潜在ノイズの温度（P1）
+
+どれも初期値は従来の動作です。IO3 は段階 1 の「入力の 48 kHz → 16 kHz 変換」
+（`input_resample`）がそれに当たります。
+
+### 入力のハイパス（`input_highpass_hz`、IO1）
+
+- 0 = オフ。48 にすると、学習時の前処理の「Noise filter」と同じフィルタ
+  （5 次バターワースのハイパス、48 kHz で設計、`rvc/train/preprocess/preprocess.py`）を、
+  入力に 1 本の連続したストリームとしてかけます（全体に一括でかけた結果と 1e-5 以内で
+  一致、実測）。
+- 学習時と一致するのは、データセットを Noise filter 付きで前処理した場合だけです。
+  付けずに前処理したモデルでは、学習時に無かった処理を足すことになります。
+- 外部でノイズ除去をしている場合も、低域のゴロゴロ（机の振動、吹かれ）は残ることが
+  あります。その場合に 48〜80 Hz で聴き比べる用途です。
+
+### 出力をクリップする位置（`clip_stage`、IO4）
+
+- **generator**（従来どおり）: 生成器の出力を、入力音量によるゲイン（sqrt(入力 RMS)）を
+  かける**前に** ±1 で切り落とします。生成器が 1 を超えた部分はここで平らになり、
+  そのあとゲインで小さくなるので、Applio の後ろのリミッタでは元に戻せません。
+- **output**: 生成器の出力は切らず、ゲインをかけた後の最終出力だけを ±1 で切ります。
+  ゲインはほぼ必ず 1 未満なので、実際には切られなくなります。
+- 生成器が 1 を超えているかは、下の「レベル表示」で確認できます。超えていなければ
+  どちらでも音は同じです。
+- Applio 内のリミッタ・ディエッサは**実装していません**。pedalboard の Limiter は
+  しきい値より小さい音でもゲインを上げて圧縮する（実測: しきい値 -1 dB で -20 dBFS の
+  正弦波が +4.8 dB）ため安全策として使えず、外部の VST の方が高機能だからです。
+
+### 無音ゲートのフェード（`gate_fade_ms`）と保持（`gate_hold`）（IO5）
+
+- **gate_fade_ms**: 0 = オフ。無音ゲートが閉じるとき、従来は最後に変換した音から
+  そのまま 0 に切り替わります。0 より大きいと、続くはずだった音（クロスフェード用に
+  取ってある部分）をこの長さで cos² のフェードアウトにします。その音は使い切るので、
+  再開時は無音からフェードインします。20〜50 ms が目安です。
+- **gate_hold**: オフ（従来どおり）では、無音中にバッファを消去するとき無音ブロックの
+  数え直しも行うため、**一定の部屋の雑音が続くと、ゲートが数ブロックごとに開いて
+  変換した雑音が短く出る**ことを確認しました（240 ms ブロック、Silence Threshold
+  -40 dB のシミュレーションで、閉じる 3 ブロック・開く 3 ブロックの繰り返し）。
+  オンにすると、入力が無音でなくなるまでゲートを閉じたままにします。
+
+### 潜在ノイズの温度（`latent_noise_scale`、P1）
+
+- flow に入れる潜在ノイズの倍率です。従来は `Synthesizer.infer` の 0.66666 固定で、
+  スライダーの 0.67 はこの従来値として扱います。
+- 下げると、ざらつきや息っぽさが減って安定する代わりに、平板に聞こえることがあります。
+  0.67 / 0.5 / 0.33 / 0 を、RNG シードを固定して聴き比べてください。
+- 生成器の呼び出し方が変わるだけで、学習・モデル・処理時間には影響しません。
+
+### レベル表示（常に表示、音は変えない）
+
+ステータスに次の行が出ます（直近約 3 秒の最大と、開始からの最大）。
+
+```
+Level: generator peak -6.2 dBFS (max -3.1, 0 blocks over 0 dBFS) | output peak -18.4 dBFS (max -14.0)
+```
+
+- generator peak: 生成器の出力そのもの（クリップ前）。0 dBFS を超えたブロック数も出ます。
+- output peak: Applio が出す音（Output Gain スライダーをかける前）。Applio の後ろに
+  置いたリミッタが働くかどうかは、この値とリミッタのしきい値・入力ゲインで決まります。
+
+### 実装しなかったもの: IO2（ノイズ抑制）
+
+- 入力のノイズ除去はすでに外部で行っているので、Applio 内で重ねると子音が削れやすく
+  なります（二重のノイズ除去は明瞭さを落とす典型的な原因です）。
+- 候補だった DeepFilterNet3 は、必要な `deepfilterlib` に Python 3.13 用の
+  ビルド済みパッケージが無く（`pip download` で確認するとソース配布だけで、Rust で
+  ビルドが必要）、手元に入っている noisereduce のスペクトルゲートは、外部の
+  ノイズ除去より品質が劣ります。
+
 ## A/B の手順
 
 ### 1. オフライン（デバイスなし、同じ録音で比較）
@@ -240,8 +310,9 @@ env\python.exe -X utf8 tools\realtime_stream_eval.py --template <テンプレー
 - `rvc/lib/algorithm/generators/apex_gan.py`: ノイズ包絡の固定参照値、
   与えられたノイズ・位相での生成（学習時の経路は変更なし）
 - `rvc/realtime/resample.py`: stateful リサンプラ
+- `rvc/realtime/io_processing.py`: 入力のハイパス、ゲートのフェード、レベル表示
 - `rvc/realtime/ring_transport.py`, `rvc/realtime/ring_buffer.py`: ring 転送
 - `rvc/realtime/stream_eval.py`, `tools/realtime_stream_eval.py`: オフライン A/B
 - `tools/apex_noise_voiced_ratio.py`: 学習データの有声率
 - テスト: `tests/test_realtime_options.py`, `tests/test_realtime_synthesis.py`,
-  `tests/test_realtime_ring_transport.py`
+  `tests/test_realtime_ring_transport.py`, `tests/test_realtime_io.py`

@@ -14,6 +14,7 @@ from rvc.realtime.utils.vad import VADProcessor
 from rvc.realtime.pipeline import create_pipeline
 from rvc.realtime.options import RealtimeOptions
 from rvc.realtime.resample import StatefulResampler
+from rvc.realtime.io_processing import InputHighpass, LevelMeter, gate_fade_out
 
 SAMPLE_RATE = 16000
 AUDIO_SAMPLE_RATE = 48000
@@ -243,7 +244,12 @@ class Realtime:
             self.pitch_buffer.zero_()
         if self.pitchf_buffer is not None:
             self.pitchf_buffer.zero_()
-        self.consecutive_input_silence = 0
+        # As always, a flush also restarts the count of silent input blocks - which,
+        # in steady room tone, reopens the gate for silence_blocks_to_stop blocks of
+        # converted room tone after every flush. "gate_hold" keeps it closed until the
+        # input is no longer silent.
+        if not self.options.gate_hold:
+            self.consecutive_input_silence = 0
 
     def reset_fcn_stream(self):
         if getattr(self, "fcn_session", None) is not None:
@@ -371,6 +377,9 @@ class Realtime:
         else:
             gain = torch.sqrt(vol_t)
         audio_out: torch.Tensor = self.resample_out(audio_model * gain)
+        if self.options.clip_stage == "output":
+            # The generator was left unclipped; only what reaches the device is.
+            audio_out.clamp_(-1.0, 1.0)
         return audio_out, vol
 
     def aligned_gain(self, rendered_samples):
@@ -467,6 +476,19 @@ class VoiceChanger:
             self.sola_search_frame,
         )
         self.generate_strength()
+        # Opt-in input / output processing (rvc/realtime/io_processing.py) and the
+        # level readout, which only measures.
+        self.highpass = (
+            InputHighpass(self.options.input_highpass_hz)
+            if self.options.input_highpass_hz > 0
+            else None
+        )
+        self.gate_fade_frames = int(round(self.options.gate_fade_ms * AUDIO_SAMPLE_RATE / 1000))
+        self.output_was_silent = True
+        self.levels = LevelMeter(self.block_frame / AUDIO_SAMPLE_RATE * 1000.0)
+
+    def level_status(self):
+        return self.levels.status()
 
     def generate_strength(self):
         self.fade_in_window: torch.Tensor = (
@@ -525,7 +547,17 @@ class VoiceChanger:
                         self.sola_buffer.zero_()
 
             # In case there's an actual silence - send full block with zeros
-            return np.zeros(block_size, dtype=np.float32), vol
+            silence = np.zeros(block_size, dtype=np.float32)
+            if self.gate_fade_frames and not self.output_was_silent and self.sola_buffer is not None:
+                # Gate fade: the audio that would have followed the last block, faded
+                # out, instead of a cut from the last sample to zero. The tail is then
+                # used up, so a restart fades in from silence rather than from it.
+                faded = gate_fade_out(self.sola_buffer, min(self.gate_fade_frames, block_size))
+                silence[: faded.shape[0]] = faded.detach().cpu().numpy()
+                self.sola_buffer.zero_()
+            self.output_was_silent = True
+            return silence, vol
+        self.output_was_silent = False
 
         conv_input = audio[None, None, : self.crossfade_frame + self.sola_search_frame]
         cor_nom = F.conv1d(conv_input, self.sola_buffer[None, None, :])
@@ -564,6 +596,8 @@ class VoiceChanger:
         start = (
             time.perf_counter()
         )  # Using perf_counter to measure real-time voice conversion latency.
+        if self.highpass is not None:
+            audio_input = self.highpass.process(audio_input)
         result, vol = self.process_audio(
             audio_input,
             f0_up_key,
@@ -576,5 +610,7 @@ class VoiceChanger:
             proposed_pitch_threshold,
         )
         end = time.perf_counter()
+        vc = getattr(getattr(self.vc_model, "pipeline", None), "vc", None)
+        self.levels.record(getattr(vc, "last_peak", None), result)
 
         return result, vol, [0, (end - start) * 1000, 0]

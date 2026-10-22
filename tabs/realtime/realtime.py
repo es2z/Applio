@@ -21,6 +21,7 @@ from rvc.realtime.callbacks import AudioCallbacks
 from rvc.realtime.audio import list_audio_device
 from rvc.realtime.options import (
     APEX_NOISE_ENVELOPES,
+    CLIP_STAGES,
     FIELD_ORDER as OPTION_FIELDS,
     GAIN_MODES,
     INPUT_RESAMPLES,
@@ -562,14 +563,14 @@ def start_realtime(
         elif hasattr(audio_manager, "status_text"):
             # Ring transport: its own line carries p50/p95, reserve, I/O and the total.
             yield (
-                audio_manager.status_text() + seed_status + compile_session.status(),
+                audio_manager.status_text() + callbacks.vc.level_status() + seed_status + compile_session.status(),
                 interactive_false,
                 interactive_true,
             )
         elif hasattr(audio_manager, "latency"):
             # Normal operation - show latency
             yield (
-                f"Processing: {audio_manager.latency:.2f} ms" + (f" | FCN holdback: {callbacks.vc.vc_model.fcn_session.holdback_ms:.2f} ms" if getattr(callbacks.vc.vc_model, "fcn_session", None) else "") + seed_status + compile_session.status(),
+                f"Processing: {audio_manager.latency:.2f} ms" + (f" | FCN holdback: {callbacks.vc.vc_model.fcn_session.holdback_ms:.2f} ms" if getattr(callbacks.vc.vc_model, "fcn_session", None) else "") + callbacks.vc.level_status() + seed_status + compile_session.status(),
                 interactive_false,
                 interactive_true,
             )
@@ -1233,6 +1234,59 @@ def realtime_tab():
                             visible=default_options.f0_cache,
                             interactive=True,
                         )
+                    with gr.Row():
+                        opt_latent_noise_scale = gr.Slider(
+                            minimum=0.0,
+                            maximum=1.0,
+                            step=0.01,
+                            value=default_options.latent_noise_scale,
+                            label=i18n("Latent noise scale (P1)"),
+                            info=i18n(
+                                "The temperature of the flow's latent noise. 0.67 is what Synthesizer.infer always used; lower is steadier and smoother but can sound flatter."
+                            ),
+                            interactive=True,
+                        )
+                        opt_input_highpass = gr.Slider(
+                            minimum=0,
+                            maximum=120,
+                            step=1,
+                            value=default_options.input_highpass_hz,
+                            label=i18n("Input high-pass (Hz, IO1)"),
+                            info=i18n(
+                                "0 = off. 48 is the training preprocess's Noise filter (5th order Butterworth); only matches training if the dataset was preprocessed with it. Applied to the input as one continuous stream."
+                            ),
+                            interactive=True,
+                        )
+                    with gr.Row():
+                        opt_clip_stage = gr.Radio(
+                            choices=list(CLIP_STAGES),
+                            value=default_options.clip_stage,
+                            label=i18n("Where the output is clipped (IO4)"),
+                            info=i18n(
+                                "generator: the generator output is clipped to +-1 before the input-level gain (as always), which a limiter after Applio cannot undo. output: only the final output is clipped, after the gain."
+                            ),
+                            interactive=True,
+                        )
+                        opt_gate_fade = gr.Slider(
+                            minimum=0,
+                            maximum=100,
+                            step=5,
+                            value=default_options.gate_fade_ms,
+                            label=i18n("Fade when the silence gate closes (ms, IO5)"),
+                            info=i18n(
+                                "0 = off: the output is cut from the last converted sample to silence. Above 0: the audio that would have followed is faded out over this time instead."
+                            ),
+                            interactive=True,
+                        )
+                    with gr.Row():
+                        opt_gate_hold = gr.Checkbox(
+                            value=default_options.gate_hold,
+                            label=i18n("Keep the gate closed through silence (IO5)"),
+                            info=i18n(
+                                "Off (as always): every buffer flush during silence reopens the silence gate for a few blocks, so steady room tone comes out as short faint bursts. On: the gate stays closed until the input is no longer silent."
+                            ),
+                            interactive=True,
+                        )
                 option_controls = [
                     opt_output_position,
                     opt_lookahead,
@@ -1247,6 +1301,11 @@ def realtime_tab():
                     opt_phase_continuity,
                     opt_f0_cache,
                     opt_f0_cache_margin,
+                    opt_latent_noise_scale,
+                    opt_input_highpass,
+                    opt_clip_stage,
+                    opt_gate_fade,
+                    opt_gate_hold,
                 ]
                 assert len(option_controls) == len(OPTION_FIELDS)
                 opt_output_position.change(

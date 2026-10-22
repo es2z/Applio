@@ -2,7 +2,7 @@
 `Synthesizer.infer`.
 
 `Synthesizer.infer` renders the whole conversion window with fresh noise every call.
-The opt-in options in rvc/realtime/options.py need three things it does not offer:
+The opt-in options in rvc/realtime/options.py need four things it does not offer:
 
 * render only the newest part of the window (output position "trim"), keeping
   `FLOW_MARGIN_FRAMES` frames in front of it so the flow still sees context. That is
@@ -11,7 +11,8 @@ The opt-in options in rvc/realtime/options.py need three things it does not offe
 * take the latent noise from the caller instead of `randn_like`, so the same instant
   gets the same noise in two overlapping windows;
 * pass APEX-GAN's decoder its excitation noise, starting phase and noise envelope
-  reference.
+  reference;
+* scale the latent noise by something other than 0.66666 (latent_noise_scale).
 
 With none of those, realtime keeps calling `Synthesizer.infer` exactly as before.
 """
@@ -39,6 +40,7 @@ class SynthesisPlan:
     return_length: Optional[int] = None  # frames rendered after skip_head
     flow_margin: int = FLOW_MARGIN_FRAMES
     envelope_reference: Optional[float] = None  # APEX-GAN only
+    latent_scale: float = LATENT_NOISE_SCALE  # Synthesizer.infer's 0.66666
 
     @property
     def flow_head(self):
@@ -79,7 +81,7 @@ def realtime_infer(
         x_mask = x_mask[:, :, flow_head:]
 
     noise = z_noise if z_noise is not None else torch.randn_like(m_p)
-    z_p = (m_p + torch.exp(logs_p) * noise * LATENT_NOISE_SCALE) * x_mask
+    z_p = (m_p + torch.exp(logs_p) * noise * plan.latent_scale) * x_mask
     z = net_g.flow(z_p, x_mask, g=g, reverse=True)
 
     if plan.skip_head is not None:

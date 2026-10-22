@@ -68,6 +68,10 @@ class RealtimeVoiceConverter:
         # None: Synthesizer.infer exactly as always. A SynthesisPlan: the realtime call
         # in rvc/realtime/synthesis.py. Set once per session, before any compilation.
         self.synthesis = None
+        # Clip the generator output to +-1 here (as always), or leave it to the final
+        # output (clip_stage "output"). Set once per session by configure_stream.
+        self.clip_output = True
+        self.last_peak = None
         # load weights and setup model network.
         self.load_model(weight_root)
         self.setup_network()
@@ -139,6 +143,11 @@ class RealtimeVoiceConverter:
         else:
             output = infer_audio(feats, p_len, pitch, pitchf, sid, *noise)
 
+        # The generator's own peak, before anything clips it, for the level readout.
+        # A device tensor: reading it is left to the status line, off the audio thread.
+        self.last_peak = output.detach().abs().amax()
+        if not getattr(self, "clip_output", True):
+            return output
         return torch.clip(output, -1.0, 1.0, out=output)
 
     def infer_audio(
@@ -314,9 +323,11 @@ class Realtime_Pipeline:
                 skip_head=int(skip_head) if trim else None,
                 return_length=int(return_length) if trim else None,
                 envelope_reference=envelope_reference,
+                latent_scale=float(options.latent_noise_scale),
             )
         else:
             self.vc.synthesis = None
+        self.vc.clip_output = options.clip_stage == "generator"
         plan = self.vc.synthesis
 
         rendered = int(return_length) if trim else int(p_len)
