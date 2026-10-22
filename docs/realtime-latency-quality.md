@@ -147,6 +147,43 @@ Realtime タブ > Performance Settings > **遅延・音質の実験的オプシ�
 - 入力と出力が別のオーディオ機器なら separate を推奨します（auto でも 2 機器を
   全二重 1 本で開けることはありますが、その場合 2 つのクロックの差は補正されません）。
 
+## 段階 3: 乱数・位相・F0 を時刻に固定
+
+`rvc/realtime/synthesis.py` と `rvc/realtime/pipeline.py`。どれも **Chunk Size が 40 ms の
+倍数**（10 ms フレームの整数倍、かつ 48 kHz で 128 サンプルの倍数）のときだけ有効で、
+そうでなければログに出して無効になります。960 ms は対象です。
+
+従来は毎ブロック、変換ウィンドウ全体を作り直し、乱数も引き直し、正弦波の位相も 0 から
+始めます。隣り合うブロックは同じ時刻の音を別々に生成し、クロスフェードでつないで
+いるので、重なり部分で波形が一致しません。
+
+- **ノイズを時刻に固定**（`time_locked_noise`）: flow の潜在ノイズと APEX-GAN の
+  ノイズを、時刻に結び付いたバッファから取ります。ブロックごとに 1 ブロックぶん
+  ずらし、新しい部分だけ引きます。RNG シード設定と併用すると再現性もあります。
+- **正弦波の位相を連続させる**（`phase_continuity`、APEX-GAN のみ）: 励起の正弦波の
+  位相を、前のブロックの生成区間の先頭から 1 ブロックぶん進めた値から始めます
+  （float64 で累積し、2 つの窓が同じサンプルに達するよう量子化）。
+- **F0 キャッシュ**（`f0_cache`）と **マージン**（`f0_cache_margin_ms`）:
+  「1 ブロック + マージン」より古いフレームの F0 は推定し直さず保持します。
+  マージンを先読み以下にすると、クロスフェード部分の F0 がそれを生成する 2 つの
+  ブロックで同じになります。大きくすると F0 がより先の音声を見られる代わりに、
+  クロスフェード部分で変わり得ます（初期値 100 ms）。
+  - 保持された F0 は「そのフレームが最新側にあったとき」に、マージンぶんの未来しか
+    見ずに推定した値です。出力位置 legacy では再生部分が窓の最も古い部分なので、
+    従来は Extra（220 ms）ぶんの未来を見て推定していた F0 が、マージンぶんだけの
+    推定に置き換わります。**F0 キャッシュは trim と組み合わせる**前提です。
+  - gaps-filled 系の F0 手法では、穴埋めもその時点の値で固定されます。マージンより
+    長い無声区間は、後から来る有声フレームとの補間ではなく、直前の値の保持になります。
+
+測定: 同じ時刻を重ねて生成した 2 つの窓の、重なり部分の相対誤差は、ノイズと位相を
+固定すると **0.0019**、固定しないと **1.28**（APEX-GAN デコーダ単体、
+`tests/test_realtime_synthesis.py`）。残る 0.0019 の大半はウィンドウ平均によるノイズ包絡の
+差で、APEX-GAN のノイズ包絡を **fixed** にすると **0.00037** まで下がります。
+そのため **時刻固定は fixed と組み合わせる**ことを勧めます。
+
+音への影響は「つなぎ目のゆらぎ・うなり・音色の揺れが減る」方向を期待していますが、
+ノイズの性質（ブロックごとの独立性）が変わるので、必ず A/B してください。
+
 ## A/B の手順
 
 ### 1. オフライン（デバイスなし、同じ録音で比較）
@@ -160,7 +197,8 @@ env\python.exe -X utf8 tools\realtime_stream_eval.py --template <テンプレー
 ```
 
 - 組み込みプリセット: `legacy`（全オプション初期値）、`template`（テンプレートに保存した
-  オプション）、`trim`、`stage1`（trim + stateful + aligned）。
+  オプション）、`trim`、`stage1`（trim + stateful + aligned）、`locked`
+  （stage1 + ノイズ fixed + 時刻固定 3 種）。
 - 任意の組み合わせ: `--preset "fixed065={\"output_position\": \"trim\", \"apex_noise_envelope\": \"fixed\", \"apex_noise_voiced_ratio\": 0.65}"`
   （`chunk_ms` / `crossfade_s` / `extra_s` も上書き可）。プリセットは完全な設定で、
   書いていないオプションは初期値です。
@@ -188,16 +226,19 @@ env\python.exe -X utf8 tools\realtime_stream_eval.py --template <テンプレー
 4. APEX-GAN ノイズ window と fixed（有声率はツールで計算した値）
 5. Protect を 0.5 未満で使う場合だけ、f0 と unfilled
 6. 転送を ring（auto → 必要なら separate）
+7. ノイズ fixed の上で、時刻固定 3 種（まとめて → 1 つずつ外す）
 
 ## ファイル
 
 - `rvc/realtime/options.py`: オプション（UI の並び順 = `FIELD_ORDER`）
 - `rvc/realtime/core.py`: 窓の配置（trim / 先読み）、stateful 入力、aligned ゲイン、
   `algorithmic_delay_ms`
-- `rvc/realtime/pipeline.py`: `configure_stream`、Protect の有声判定
+- `rvc/realtime/pipeline.py`: `configure_stream`、Protect の有声判定、
+  時刻固定の状態（ノイズ、位相、F0 キャッシュ）
 - `rvc/realtime/synthesis.py`: trim 用の生成呼び出し（`Synthesizer.infer` と同じ計算で、
   最新部分だけを生成）
-- `rvc/lib/algorithm/generators/apex_gan.py`: ノイズ包絡の固定参照値
+- `rvc/lib/algorithm/generators/apex_gan.py`: ノイズ包絡の固定参照値、
+  与えられたノイズ・位相での生成（学習時の経路は変更なし）
 - `rvc/realtime/resample.py`: stateful リサンプラ
 - `rvc/realtime/ring_transport.py`, `rvc/realtime/ring_buffer.py`: ring 転送
 - `rvc/realtime/stream_eval.py`, `tools/realtime_stream_eval.py`: オフライン A/B

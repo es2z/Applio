@@ -1196,6 +1196,43 @@ def realtime_tab():
                             visible=default_options.transport == "ring",
                             interactive=True,
                         )
+                    with gr.Row():
+                        opt_time_locked_noise = gr.Checkbox(
+                            value=default_options.time_locked_noise,
+                            label=i18n("Time-locked noise"),
+                            info=i18n(
+                                "The generator's random noise is tied to the moment instead of drawn anew every block, so overlapping blocks agree. Needs a Chunk Size that is a multiple of 40 ms."
+                            ),
+                            interactive=True,
+                        )
+                        opt_phase_continuity = gr.Checkbox(
+                            value=default_options.phase_continuity,
+                            label=i18n("Sine phase continuity (APEX-GAN)"),
+                            info=i18n(
+                                "The excitation sine carries its phase from block to block instead of restarting at 0. Needs a Chunk Size that is a multiple of 40 ms."
+                            ),
+                            interactive=True,
+                        )
+                        opt_f0_cache = gr.Checkbox(
+                            value=default_options.f0_cache,
+                            label=i18n("F0 cache"),
+                            info=i18n(
+                                "Settled F0 frames are kept instead of re-estimated every block. Needs a Chunk Size that is a multiple of 40 ms."
+                            ),
+                            interactive=True,
+                        )
+                        opt_f0_cache_margin = gr.Slider(
+                            minimum=0,
+                            maximum=300,
+                            step=10,
+                            value=default_options.f0_cache_margin_ms,
+                            label=i18n("F0 cache margin (ms)"),
+                            info=i18n(
+                                "Frames are re-estimated until they are older than one chunk plus this margin. At or under the look-ahead, the F0 under the crossfade is the same in both blocks that render it; more lets the F0 hear more future audio but lets it change under the crossfade."
+                            ),
+                            visible=default_options.f0_cache,
+                            interactive=True,
+                        )
                 option_controls = [
                     opt_output_position,
                     opt_lookahead,
@@ -1206,6 +1243,10 @@ def realtime_tab():
                     opt_apex_noise_voiced_ratio,
                     opt_transport,
                     opt_ring_stream_mode,
+                    opt_time_locked_noise,
+                    opt_phase_continuity,
+                    opt_f0_cache,
+                    opt_f0_cache_margin,
                 ]
                 assert len(option_controls) == len(OPTION_FIELDS)
                 opt_output_position.change(
@@ -1222,6 +1263,11 @@ def realtime_tab():
                     fn=lambda value: gr.update(visible=value == "ring"),
                     inputs=[opt_transport],
                     outputs=[opt_ring_stream_mode],
+                )
+                opt_f0_cache.change(
+                    fn=lambda value: gr.update(visible=bool(value)),
+                    inputs=[opt_f0_cache],
+                    outputs=[opt_f0_cache_margin],
                 )
 
         def enforce_terms(terms_accepted, *args):

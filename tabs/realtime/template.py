@@ -278,5 +278,7 @@ class RealtimeTemplateManager:
                 update = gr.update(value=value, visible=options.apex_noise_envelope == "fixed")
             elif name == "ring_stream_mode":
                 update = gr.update(value=value, visible=options.transport == "ring")
+            elif name == "f0_cache_margin_ms":
+                update = gr.update(value=value, visible=options.f0_cache)
             updates.append(update)
         return updates

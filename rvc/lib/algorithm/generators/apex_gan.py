@@ -194,8 +194,15 @@ class SineGenerator(nn.Module):
         self.sampling_rate = sampling_rate
         self.sine_amplitude = sine_amplitude
 
-    def _generate_sine_wave(self, f0: torch.Tensor, upsampling_factor: int):
+    def _generate_sine_wave(
+        self,
+        f0: torch.Tensor,
+        upsampling_factor: int,
+        phase0: Optional[torch.Tensor] = None,
+    ):
         batch_size, length, _ = f0.shape
+        if phase0 is not None:
+            return self._generate_locked_sine_wave(f0, upsampling_factor, phase0)
         upsampling_grid = torch.arange(
             1, upsampling_factor + 1, dtype=f0.dtype, device=f0.device
         )
@@ -212,11 +219,49 @@ class SineGenerator(nn.Module):
         torch.sin(phase, out=phase)
         return phase
 
-    def forward(self, f0: torch.Tensor, upsampling_factor: int):
-        """f0: [B, T] in Hz -> (sine [B, T * factor, 1], voiced mask [B, T * factor, 1])."""
+    def _generate_locked_sine_wave(
+        self, f0: torch.Tensor, upsampling_factor: int, phase0: torch.Tensor
+    ):
+        """Realtime only: the sine with its phase tied to absolute time.
+
+        phase0 is the phase (in cycles) the stream had reached at this input's first
+        sample. Two overlapping windows must produce the *same samples* where they
+        overlap, not merely close ones: the decoder only keeps the STFT phase of this
+        sine, and in the many bins where a 32-point frame of a slow sine has almost no
+        energy that phase is decided by rounding noise - float32 differences of 1e-6 in
+        the sine moved the whole decoder output by ~5%, against 0.02% with bit-identical
+        sines. So the phase is accumulated in float64 and snapped to 2^-24 of a cycle,
+        which both windows then reach exactly (rvc/realtime/pipeline.py advances
+        phase0 with the same float64 increments).
+        """
+        batch_size = f0.shape[0]
+        increments = f0.double() / self.sampling_rate  # cycles per sample, per frame
+        grid = torch.arange(
+            1, upsampling_factor + 1, dtype=torch.float64, device=f0.device
+        )
+        phase = increments * grid
+        cumulative = F.pad(
+            (increments * upsampling_factor)[:, :-1].cumsum(dim=1), (0, 0, 1, 0)
+        )
+        phase = phase + cumulative + phase0.double().reshape(-1, 1, 1)
+        phase = torch.remainder(phase, 1.0)
+        phase = torch.remainder(torch.round(phase * 16777216.0) / 16777216.0, 1.0)
+        phase = phase.reshape(batch_size, -1, 1).to(f0.dtype)
+        return torch.sin(phase * (2 * math.pi))
+
+    def forward(
+        self,
+        f0: torch.Tensor,
+        upsampling_factor: int,
+        phase0: Optional[torch.Tensor] = None,
+    ):
+        """f0: [B, T] in Hz -> (sine [B, T * factor, 1], voiced mask [B, T * factor, 1]).
+
+        phase0 ([B] or [1], cycles) offsets the whole sine; None is the training path.
+        """
         with torch.no_grad():
             f0 = f0.unsqueeze(-1)
-            sine = self._generate_sine_wave(f0, upsampling_factor)
+            sine = self._generate_sine_wave(f0, upsampling_factor, phase0)
             sine.mul_(self.sine_amplitude)
 
             # A frame is either voiced (f0 > 0) or not, so the mask is just repeated.
@@ -252,15 +297,25 @@ class ExcitationSynthesizer(nn.Module):
         self.l_linear.requires_grad_(False)
         self.l_tanh = nn.Tanh()
 
-    def forward(self, f0: torch.Tensor, upsample_factor: Optional[int] = None):
+    def forward(
+        self,
+        f0: torch.Tensor,
+        upsample_factor: Optional[int] = None,
+        noise: Optional[torch.Tensor] = None,
+        phase0: Optional[torch.Tensor] = None,
+    ):
+        """noise (standard normal, shaped like the sine [B, T * hop, 1]) and phase0 are
+        realtime overrides; None draws fresh noise and starts at phase 0 as always."""
         hop = upsample_factor if upsample_factor is not None else self.hop_length
         with torch.amp.autocast(device_type=f0.device.type, enabled=False):
             f0 = f0.float()
-            harmonic_signal, voiced_mask = self.sine_gen(f0, hop)
+            harmonic_signal, voiced_mask = self.sine_gen(f0, hop, phase0)
             noise_amp = voiced_mask * self.add_noise_std + (1.0 - voiced_mask) * (
                 self.sine_amp / 3.0
             )
-            noise = noise_amp * torch.randn_like(harmonic_signal)
+            if noise is None:
+                noise = torch.randn_like(harmonic_signal)
+            noise = noise_amp * noise.to(harmonic_signal.dtype)
             sine_only = harmonic_signal.to(dtype=f0.dtype)
             noise_only = noise.to(dtype=f0.dtype)
         return sine_only.transpose(1, 2), noise_only.transpose(1, 2)
@@ -384,15 +439,19 @@ class APEXGANGenerator(nn.Module):
         x: torch.Tensor,
         f0: torch.Tensor,
         g: Optional[torch.Tensor] = None,
+        noise: Optional[torch.Tensor] = None,
+        phase0: Optional[torch.Tensor] = None,
         envelope_reference: Optional[float] = None,
     ) -> torch.Tensor:
         """x [B, C, T], f0 [B, T] in Hz, g [B, gin, 1] -> waveform [B, 1, T * full_hop].
 
-        envelope_reference is a realtime override (rvc/realtime/synthesis.py); training
-        and offline conversion do not pass it and get exactly the function upstream
-        defines.
+        noise, phase0 and envelope_reference are realtime overrides
+        (rvc/realtime/synthesis.py); training and offline conversion pass none of them
+        and get exactly the function upstream defines.
         """
-        sine_only, noise_only = self.excitation_synthesizer(f0)
+        sine_only, noise_only = self.excitation_synthesizer(
+            f0, noise=noise, phase0=phase0
+        )
 
         # Pure voiced sine at unit peak -> STFT -> keep the phase, discard the magnitude.
         peak = sine_only.abs().amax(dim=-1, keepdim=True)

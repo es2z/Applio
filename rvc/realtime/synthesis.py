@@ -2,13 +2,16 @@
 `Synthesizer.infer`.
 
 `Synthesizer.infer` renders the whole conversion window with fresh noise every call.
-The opt-in options in rvc/realtime/options.py need two things it does not offer:
+The opt-in options in rvc/realtime/options.py need three things it does not offer:
 
 * render only the newest part of the window (output position "trim"), keeping
   `FLOW_MARGIN_FRAMES` frames in front of it so the flow still sees context. That is
   what RVC's own realtime does (`flow_head = max(head - 24, 0)`,
   RVC-Project/Retrieval-based-Voice-Conversion-WebUI infer/module/models.py);
-* pass APEX-GAN's decoder a fixed noise envelope reference.
+* take the latent noise from the caller instead of `randn_like`, so the same instant
+  gets the same noise in two overlapping windows;
+* pass APEX-GAN's decoder its excitation noise, starting phase and noise envelope
+  reference.
 
 With none of those, realtime keeps calling `Synthesizer.infer` exactly as before.
 """
@@ -45,7 +48,7 @@ class SynthesisPlan:
 
 
 def supports_excitation_control(net_g):
-    """True when the decoder accepts the envelope override."""
+    """True when the decoder accepts noise / phase / envelope overrides."""
     return isinstance(getattr(net_g, "dec", None), APEXGANGenerator)
 
 
@@ -57,8 +60,15 @@ def realtime_infer(
     nsff0,
     sid,
     plan: SynthesisPlan,
+    z_noise: Optional[torch.Tensor] = None,
+    dec_noise: Optional[torch.Tensor] = None,
+    dec_phase0: Optional[torch.Tensor] = None,
 ):
-    """Synthesizer.infer with the realtime options. Returns the waveform [B, 1, T]."""
+    """Synthesizer.infer with the realtime options. Returns the waveform [B, 1, T].
+
+    z_noise covers the frames from plan.flow_head to the end of the window; dec_noise
+    and dec_phase0 cover the rendered frames. Any of them may be None.
+    """
     g = net_g.emb_g(sid).unsqueeze(-1)
     m_p, logs_p, x_mask = net_g.enc_p(phone, pitch, phone_lengths)
 
@@ -68,7 +78,8 @@ def realtime_infer(
         logs_p = logs_p[:, :, flow_head:]
         x_mask = x_mask[:, :, flow_head:]
 
-    z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * LATENT_NOISE_SCALE) * x_mask
+    noise = z_noise if z_noise is not None else torch.randn_like(m_p)
+    z_p = (m_p + torch.exp(logs_p) * noise * LATENT_NOISE_SCALE) * x_mask
     z = net_g.flow(z_p, x_mask, g=g, reverse=True)
 
     if plan.skip_head is not None:
@@ -87,6 +98,8 @@ def realtime_infer(
             z * x_mask,
             nsff0,
             g=g,
+            noise=dec_noise,
+            phase0=dec_phase0,
             envelope_reference=plan.envelope_reference,
         )
     else:

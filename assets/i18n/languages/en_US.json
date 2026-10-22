@@ -454,5 +454,13 @@
     "Audio transport": "Audio transport",
     "legacy: device callbacks of Chunk Size run the conversion, so the output waits about one more chunk. ring: small device callbacks around ring buffers, conversion on its own thread, output reserve only as long as the processing needs.": "legacy: device callbacks of Chunk Size run the conversion, so the output waits about one more chunk. ring: small device callbacks around ring buffers, conversion on its own thread, output reserve only as long as the processing needs.",
     "Ring transport streams": "Ring transport streams",
-    "auto: one duplex stream when both devices share a host API. separate: always two streams with clock drift compensation (safer when input and output are different devices).": "auto: one duplex stream when both devices share a host API. separate: always two streams with clock drift compensation (safer when input and output are different devices)."
+    "auto: one duplex stream when both devices share a host API. separate: always two streams with clock drift compensation (safer when input and output are different devices).": "auto: one duplex stream when both devices share a host API. separate: always two streams with clock drift compensation (safer when input and output are different devices).",
+    "Time-locked noise": "Time-locked noise",
+    "The generator's random noise is tied to the moment instead of drawn anew every block, so overlapping blocks agree. Needs a Chunk Size that is a multiple of 40 ms.": "The generator's random noise is tied to the moment instead of drawn anew every block, so overlapping blocks agree. Needs a Chunk Size that is a multiple of 40 ms.",
+    "Sine phase continuity (APEX-GAN)": "Sine phase continuity (APEX-GAN)",
+    "The excitation sine carries its phase from block to block instead of restarting at 0. Needs a Chunk Size that is a multiple of 40 ms.": "The excitation sine carries its phase from block to block instead of restarting at 0. Needs a Chunk Size that is a multiple of 40 ms.",
+    "F0 cache": "F0 cache",
+    "Settled F0 frames are kept instead of re-estimated every block. Needs a Chunk Size that is a multiple of 40 ms.": "Settled F0 frames are kept instead of re-estimated every block. Needs a Chunk Size that is a multiple of 40 ms.",
+    "F0 cache margin (ms)": "F0 cache margin (ms)",
+    "Frames are re-estimated until they are older than one chunk plus this margin. At or under the look-ahead, the F0 under the crossfade is the same in both blocks that render it; more lets the F0 hear more future audio but lets it change under the crossfade.": "Frames are re-estimated until they are older than one chunk plus this margin. At or under the look-ahead, the F0 under the crossfade is the same in both blocks that render it; more lets the F0 hear more future audio but lets it change under the crossfade."
 }

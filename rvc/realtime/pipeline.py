@@ -131,16 +131,32 @@ class RealtimeVoiceConverter:
         pitch: Tensor,
         pitchf: Tensor,
         infer_audio=None,
+        noise=(None, None, None),
     ):
-        output = (infer_audio or self.infer_audio)(feats, p_len, pitch, pitchf, sid)
+        infer_audio = infer_audio or self.infer_audio
+        if self.synthesis is None:
+            output = infer_audio(feats, p_len, pitch, pitchf, sid)
+        else:
+            output = infer_audio(feats, p_len, pitch, pitchf, sid, *noise)
 
         return torch.clip(output, -1.0, 1.0, out=output)
 
-    def infer_audio(self, feats, p_len, pitch, pitchf, sid):
+    def infer_audio(
+        self, feats, p_len, pitch, pitchf, sid, z_noise=None, dec_noise=None, dec_phase0=None
+    ):
         if self.synthesis is None:
             return self.net_g.infer(feats, p_len, pitch, pitchf, sid)[0][0, 0]
         return realtime_infer(
-            self.net_g, feats, p_len, pitch, pitchf, sid, self.synthesis
+            self.net_g,
+            feats,
+            p_len,
+            pitch,
+            pitchf,
+            sid,
+            self.synthesis,
+            z_noise=z_noise,
+            dec_noise=dec_noise,
+            dec_phase0=dec_phase0,
         )[0, 0]
 
 
@@ -159,10 +175,14 @@ class Realtime_Pipeline:
     ):
         self.vc = vc
         self.options = options or RealtimeOptions()
-        # Per-session stream layout behind the opt-in options; configure_stream fills
-        # it in once the window size is known.
+        # Per-session stream layout and the time-locked state behind the opt-in options;
+        # configure_stream fills these in once the window size is known.
         self.stream = None
         self.voiced_buffer = None
+        self.z_noise = None
+        self.dec_noise = None
+        self.dec_phase0 = None
+        self.f0_cache_frames = None
         self._last_voiced = None
         self.hubert_model = hubert_model
         self.index = index
@@ -252,9 +272,10 @@ class Realtime_Pipeline:
         p_len: frames (100 Hz) in the conversion window. skip_head / return_length: the
         frames the "trim" output position leaves as context / renders. shift_frames: how
         many frames the window moves per block, or None when a block is not a whole
-        number of 10 ms frames.
+        number of 10 ms frames (the time-locked options need it to be).
         """
         options = self.options
+        hop = self.model_window
         self.stream = {
             "p_len": int(p_len),
             "skip_head": int(skip_head),
@@ -264,10 +285,18 @@ class Realtime_Pipeline:
         }
         net_g = self.vc.net_g
         excitation = supports_excitation_control(net_g) and bool(self.use_f0)
-        if options.apex_noise_envelope != "window" and not excitation:
+        needs_shift = options.time_locked_noise or options.phase_continuity or options.f0_cache
+        if needs_shift and shift_frames is None:
             print(
-                "[Realtime] The APEX-GAN noise envelope applies to APEX-GAN models only; "
-                "this model ignores it."
+                "[Realtime] Time-locked noise, phase continuity and the F0 cache need a "
+                "Chunk Size that is a whole number of 10 ms frames (a multiple of 40 ms "
+                "works); they are off for this session."
+            )
+        locked = shift_frames is not None
+        if (options.phase_continuity or options.apex_noise_envelope != "window") and not excitation:
+            print(
+                "[Realtime] Phase continuity and the APEX-GAN noise envelope apply to "
+                "APEX-GAN models only; this model ignores them."
             )
 
         envelope_reference = None
@@ -288,12 +317,100 @@ class Realtime_Pipeline:
             )
         else:
             self.vc.synthesis = None
+        plan = self.vc.synthesis
+
+        rendered = int(return_length) if trim else int(p_len)
+        self.z_noise = self.dec_noise = self.dec_phase0 = None
+        if plan is not None and options.time_locked_noise and locked:
+            channels = net_g.enc_p.out_channels
+            self.z_noise = torch.randn(1, channels, int(p_len), device=self.device)
+            if excitation:
+                self.dec_noise = torch.randn(1, int(p_len) * hop, 1, device=self.device)
+        if plan is not None and options.phase_continuity and locked and excitation:
+            # float64: the decoder accumulates this phase in float64 too, so that two
+            # overlapping windows reach the same samples (apex_gan.py says why).
+            self.dec_phase0 = torch.zeros(1, device=self.device, dtype=torch.float64)
+        self._rendered_frames = rendered
+
+        self.f0_cache_frames = None
+        if options.f0_cache and locked:
+            margin = int(round(options.f0_cache_margin_ms / 10.0))
+            self.f0_cache_frames = (int(shift_frames), int(shift_frames) + margin)
         self.voiced_buffer = None
 
     def reset_stream_state(self):
-        """Forget the streaming state, e.g. after the warm-up's synthetic tone."""
+        """Forget the time-locked state, e.g. after the warm-up's synthetic tone."""
+        if self.z_noise is not None:
+            self.z_noise.normal_()
+        if self.dec_noise is not None:
+            self.dec_noise.normal_()
+        if self.dec_phase0 is not None:
+            self.dec_phase0.zero_()
         if self.voiced_buffer is not None:
             self.voiced_buffer.zero_()
+
+    def _advance_noise(self):
+        """Move the time-locked noise by one block and draw only the new frames."""
+        shift = self.stream["shift"] if self.stream else None
+        if not shift:
+            return
+        for buffer, step in ((self.z_noise, shift), (self.dec_noise, shift * self.model_window)):
+            if buffer is None:
+                continue
+            dim = 2 if buffer is self.z_noise else 1
+            length = buffer.shape[dim]
+            if step >= length:
+                buffer.normal_()
+                continue
+            if dim == 2:
+                buffer[:, :, :-step] = buffer[:, :, step:].clone()
+                buffer[:, :, -step:].normal_()
+            else:
+                buffer[:, :-step] = buffer[:, step:].clone()
+                buffer[:, -step:].normal_()
+
+    def _noise_inputs(self):
+        """(z_noise, dec_noise, dec_phase0) for this block's generator call."""
+        plan = self.vc.synthesis
+        if plan is None:
+            return (None, None, None)
+        z_noise = dec_noise = None
+        if self.z_noise is not None:
+            z_noise = self.z_noise[:, :, plan.flow_head :]
+        if self.dec_noise is not None:
+            hop = self.model_window
+            if plan.skip_head is not None:
+                start = int(plan.skip_head) * hop
+                dec_noise = self.dec_noise[:, start : start + int(plan.return_length) * hop]
+            else:
+                dec_noise = self.dec_noise
+        return (z_noise, dec_noise, self.dec_phase0)
+
+    def _advance_phase(self, pitchf_rendered):
+        """Carry the sine phase to where the next window's rendered region starts."""
+        if self.dec_phase0 is None or not self.stream or not self.stream["shift"]:
+            return
+        shift = self.stream["shift"]
+        # The same float64 arithmetic SineGenerator uses for one frame's advance.
+        increments = (pitchf_rendered[0, :shift].double() / float(self.tgt_sr)) * float(
+            self.model_window
+        )
+        self.dec_phase0.add_(torch.remainder(increments, 1.0).sum()).remainder_(1.0)
+
+    def _write_pitch(self, new, buffer):
+        """Write a window's F0 into its buffer: whole (as always) or, with the F0 cache,
+        only the newest frames after shifting the settled ones along."""
+        if self.f0_cache_frames is None:
+            circular_write(new, buffer)
+            return
+        shift, recompute = self.f0_cache_frames
+        length = buffer.shape[0]
+        if shift >= length:
+            circular_write(new, buffer)
+            return
+        buffer[:-shift] = buffer[shift:].clone()
+        count = min(recompute, new.shape[0], length)
+        buffer[-count:] = new[-count:]
 
     def get_f0(
         self,
@@ -455,15 +572,15 @@ class Realtime_Pipeline:
         f0 = torch.from_numpy(f0).to(self.device).float()
 
         if pitch is not None and pitchf is not None:
-            circular_write(f0_coarse, pitch)
-            circular_write(f0, pitchf)
+            self._write_pitch(f0_coarse, pitch)
+            self._write_pitch(f0, pitchf)
             if self.options.protect_voicing == "unfilled":
                 if self.voiced_buffer is None or self.voiced_buffer.shape != pitchf.shape:
                     self.voiced_buffer = torch.zeros_like(pitchf)
                 voiced_now = torch.from_numpy(
                     self._last_voiced.astype(np.float32)
                 ).to(self.device)
-                circular_write(voiced_now, self.voiced_buffer)
+                self._write_pitch(voiced_now, self.voiced_buffer)
         else:
             pitch = f0_coarse
             pitchf = f0
@@ -517,6 +634,8 @@ class Realtime_Pipeline:
 
         formant_length = int(np.ceil(return_length * 1.0))
         plan = self.vc.synthesis
+        if plan is not None:
+            self._advance_noise()
 
         pitch, pitchf = (
             self.get_f0(
@@ -597,7 +716,15 @@ class Realtime_Pipeline:
         out_audio = self.vc.inference(
             feats, p_len, self.sid, pitch, pitchf,
             infer_audio=self.compile_session.rvc,
+            noise=self._noise_inputs(),
         ).float()
+        if plan is not None and pitchf is not None:
+            rendered = (
+                pitchf[:, plan.skip_head : plan.skip_head + plan.return_length]
+                if plan.skip_head is not None
+                else pitchf
+            )
+            self._advance_phase(rendered)
         if volume_envelope != 1:
             # The rendered region only, when "trim" leaves the past context unrendered.
             source = (

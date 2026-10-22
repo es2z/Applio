@@ -454,5 +454,13 @@
     "Audio transport": "オーディオ転送方式",
     "legacy: device callbacks of Chunk Size run the conversion, so the output waits about one more chunk. ring: small device callbacks around ring buffers, conversion on its own thread, output reserve only as long as the processing needs.": "legacy: チャンクサイズのデバイスコールバックが変換を実行するため、出力はさらに約1チャンク待ちます。ring: 小さなデバイスコールバックとリングバッファを使い、変換は専用スレッドで行い、出力の予備は処理に必要な分だけにします。",
     "Ring transport streams": "ring 方式のストリーム",
-    "auto: one duplex stream when both devices share a host API. separate: always two streams with clock drift compensation (safer when input and output are different devices).": "auto: 両デバイスが同じホストAPIなら1本の全二重ストリームを使います。separate: 常に2本のストリームを使い、クロックのずれを補正します（入力と出力が別デバイスの場合はこちらが安全）。"
+    "auto: one duplex stream when both devices share a host API. separate: always two streams with clock drift compensation (safer when input and output are different devices).": "auto: 両デバイスが同じホストAPIなら1本の全二重ストリームを使います。separate: 常に2本のストリームを使い、クロックのずれを補正します（入力と出力が別デバイスの場合はこちらが安全）。",
+    "Time-locked noise": "ノイズを時刻に固定",
+    "The generator's random noise is tied to the moment instead of drawn anew every block, so overlapping blocks agree. Needs a Chunk Size that is a multiple of 40 ms.": "生成器の乱数ノイズをブロックごとに引き直さず時刻に結び付けるため、重なり合うブロック同士が一致します。チャンクサイズが40 msの倍数である必要があります。",
+    "Sine phase continuity (APEX-GAN)": "正弦波の位相を連続させる (APEX-GAN)",
+    "The excitation sine carries its phase from block to block instead of restarting at 0. Needs a Chunk Size that is a multiple of 40 ms.": "励起信号の正弦波を毎回0から始めず、ブロックからブロックへ位相を引き継ぎます。チャンクサイズが40 msの倍数である必要があります。",
+    "F0 cache": "F0 キャッシュ",
+    "Settled F0 frames are kept instead of re-estimated every block. Needs a Chunk Size that is a multiple of 40 ms.": "確定したF0フレームを毎ブロック推定し直さずに保持します。チャンクサイズが40 msの倍数である必要があります。",
+    "F0 cache margin (ms)": "F0 キャッシュのマージン (ms)",
+    "Frames are re-estimated until they are older than one chunk plus this margin. At or under the look-ahead, the F0 under the crossfade is the same in both blocks that render it; more lets the F0 hear more future audio but lets it change under the crossfade.": "1チャンク分 + このマージン より古くなるまでは毎ブロック推定し直します。先読み以下にすると、クロスフェード部分のF0がそれを描く2つのブロックで同じになります。大きくするとF0がより先の音声を参照できる代わりに、クロスフェード部分でF0が変わり得ます。"
 }

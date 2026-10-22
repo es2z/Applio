@@ -251,8 +251,8 @@ class Realtime:
             self.pipeline.fcn_pitch = None
 
     def reset_stream_state(self):
-        """Forget the opt-in streaming state (resampler history, Protect's voicing),
-        e.g. after the warm-up or a reconnection."""
+        """Forget the opt-in streaming state (resampler history, time-locked noise,
+        phase), e.g. after the warm-up or a reconnection."""
         if self.stateful_in is not None:
             self.stateful_in.reset()
         reset = getattr(self.pipeline, "reset_stream_state", None)

@@ -117,6 +117,11 @@ class AudioCallbacks:
         self.seed = apply_seed()
         if self.seed is not None:
             print(f"[Realtime] Fixed RNG seed {self.seed}.")
+        # Draw the time-locked noise from the seeded generator, so a fixed seed fixes
+        # it too. Without those options this draws nothing.
+        reset = getattr(self.vc.vc_model, "reset_stream_state", None)
+        if reset is not None and not pass_through:
+            reset()
 
     def reset_stream(self):
         """Reset FCN state after dropped capture samples or reconnection."""

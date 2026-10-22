@@ -19,8 +19,9 @@ where to listen:
 
 Presets are realtime option sets (rvc/realtime/options.py); each is complete, so an
 option it does not name is off. Built in: legacy (all off), template (the template's
-own options), trim, stage1 (trim + stateful input resampling + aligned gain). A preset
-of the form name=JSON may also override chunk_ms, crossfade_s and extra_s.
+own options), trim, stage1 (trim + stateful input resampling + aligned gain), locked (stage1 + time
+-locked noise, phase continuity, F0 cache and the fixed APEX-GAN noise envelope). A
+preset of the form name=JSON may also override chunk_ms, crossfade_s and extra_s.
 Everything else (model, index, F0 method, embedder, pitch, index rate, protect, chunk,
 crossfade, extra, VAD) comes from --template, or from the flags below.
 """
@@ -45,6 +46,15 @@ BUILT_IN_PRESETS = {
         "output_position": "trim",
         "input_resample": "stateful",
         "gain_mode": "aligned",
+    },
+    "locked": {
+        "output_position": "trim",
+        "input_resample": "stateful",
+        "gain_mode": "aligned",
+        "apex_noise_envelope": "fixed",
+        "time_locked_noise": True,
+        "phase_continuity": True,
+        "f0_cache": True,
     },
 }
 LAYOUT_KEYS = ("chunk_ms", "crossfade_s", "extra_s")

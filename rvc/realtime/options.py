@@ -73,6 +73,10 @@ class RealtimeOptions:
     apex_noise_voiced_ratio: float = 0.65
     transport: str = "legacy"
     ring_stream_mode: str = "auto"
+    time_locked_noise: bool = False
+    phase_continuity: bool = False
+    f0_cache: bool = False
+    f0_cache_margin_ms: float = 100.0
 
     @classmethod
     def from_dict(cls, data):
@@ -106,6 +110,12 @@ class RealtimeOptions:
             ring_stream_mode=_choice(
                 data.get("ring_stream_mode"), RING_STREAM_MODES, default.ring_stream_mode
             ),
+            time_locked_noise=bool(data.get("time_locked_noise", default.time_locked_noise)),
+            phase_continuity=bool(data.get("phase_continuity", default.phase_continuity)),
+            f0_cache=bool(data.get("f0_cache", default.f0_cache)),
+            f0_cache_margin_ms=_number(
+                data.get("f0_cache_margin_ms"), default.f0_cache_margin_ms, 0.0, 300.0
+            ),
         )
 
     @classmethod
@@ -128,7 +138,12 @@ class RealtimeOptions:
     @property
     def needs_realtime_synthesis(self):
         """True when the generator call cannot be the plain Synthesizer.infer."""
-        return self.trims_output or self.apex_noise_envelope != "window"
+        return (
+            self.trims_output
+            or self.time_locked_noise
+            or self.phase_continuity
+            or self.apex_noise_envelope != "window"
+        )
 
     def changed(self):
         """Names of the options that differ from the defaults, for the status line."""
