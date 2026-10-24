@@ -185,7 +185,7 @@ env\python.exe -X utf8 tools\realtime_stream_eval.py --template <テンプレー
   比べられること自体が要件（P4 は明示的に「今までのものも使えるように」）。
 - **trim（L1）**: RVC WebUI と同じ配置（`flow_head = max(head - 24, 0)`）。trim のときだけ、Index の
   ブレンド範囲と RMS ミックスの参照区間を生成区間に合わせた。legacy では従来の（Index が再生区間の
-  頭 220 ms に混ざらない）挙動を残している。trim は再生部分が見られる未来の音声が Crossfade 分
+  頭 220 ms に混ざらない）挙動を残している。trim は再生部分が見られる未来の音声が約 370 ms（Extra + Crossfade + SOLA）から Crossfade + SOLA（約 150 ms）
   だけになるので、劣化があれば先読みで補う。
 - **P4（APEX-GAN のノイズ包絡）**: 学習はバッチ全体の平均で割るが、リアルタイムは窓 1 つで、
   gaps-filled F0 では窓全体が有声 → 有声部のノイズが学習時の 3〜6 倍。fixed は
