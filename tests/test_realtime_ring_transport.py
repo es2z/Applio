@@ -292,6 +292,21 @@ class UnderflowConcealmentTests(unittest.TestCase):
         played = np.concatenate([self._render(audio) for _ in range(len(signal) // PERIOD)])
         self.assertTrue(np.array_equal(played, signal[: len(played)]))
 
+    def test_the_drift_resampler_keeps_a_sine_smooth_while_its_ratio_moves(self):
+        # soxr's slewed ratio change stepped the waveform once a block (choppy
+        # output with two streams); the ratio is now changed without slew.
+        audio, _, _ = make_audio(40.0, block_ms=240, separate=True)
+        self.assertTrue(audio.drift_enabled)
+        block, freq, t = audio.block_frame, 440.0, 0
+        for ppm in (-177, -150, -210, 300, 950, -1000, 0, 40, -60, 120):
+            audio.controller.drift_ppm = float(ppm)
+            x = (0.5 * np.sin(2 * np.pi * freq * (np.arange(block) + t) / RATE)).astype(np.float32)
+            t += block
+            audio._write_output(x)
+        played = audio.output_ring.read(audio.output_ring.available)[RATE // 10 :]
+        clean = 0.5 * (2 * np.pi * freq / RATE) ** 2
+        self.assertLess(float(np.abs(np.diff(played, 2)).max()), clean * 1.5)
+
     def test_late_device_callbacks_are_counted_apart_from_ring_underflows(self):
         audio = self._audio()
         audio.output_ring.write(np.zeros(PERIOD, dtype=np.float32))

@@ -16,7 +16,8 @@ is taken up by a variable-ratio resampler on the output, bounded to +-1000 ppm.
 What the conversion sees is exactly what the legacy transport hands it: blocks of
 Chunk Size samples at 48 kHz, mono, input gain applied. The sound is only changed
 where the reserve has to be corrected (quiet output only, never voice) and, with
-separate streams, by the resampler (flat to 21 kHz, -0.4 dB at 22 kHz).
+separate streams, by the drift resampler (rvc/realtime/drift_resampler.py: flat to
+20 kHz, -0.09 dB at 21 kHz).
 
 Ported from the discarded new_main_testversion branch (rvc/realtime/audio.py, 29eae3d),
 keeping this branch's device indices, start() signature and status attributes.
@@ -34,6 +35,7 @@ from collections import deque
 import numpy as np
 import sounddevice as sd
 
+from rvc.realtime.drift_resampler import DriftResampler
 from rvc.realtime.ring_buffer import BASE_RESERVE_MS, FloatRingBuffer, ReserveController
 
 INTERNAL_RATE = 48000
@@ -457,15 +459,16 @@ class RingAudio:
         return queued
 
     def _write_output(self, out):
-        if self.output_resampler is not None:
-            if self.drift_enabled:
-                rate = self.output_rate * (1.0 + self.controller.drift_ppm / 1e6)
-                self.output_resampler.set_io_ratio(
-                    INTERNAL_RATE, rate, slew_len=max(1, len(out))
-                )
-            native = self.output_resampler.resample_chunk(out)
-        else:
-            native = out
+        native = (
+            self.output_resampler.resample_chunk(out)
+            if self.output_resampler is not None
+            else out
+        )
+        if self.drift_enabled:
+            # Not soxr's variable-rate mode: rvc/realtime/drift_resampler.py says why.
+            native = self.drift_resampler.process(
+                native, 1.0 + self.controller.drift_ppm / 1e6
+            )
         self.output_ring.write(native)
         if self.monitor_ring is not None:
             monitor = (
@@ -542,17 +545,11 @@ class RingAudio:
             if self.input_rate != INTERNAL_RATE
             else None
         )
-        self.drift_enabled = False
+        # With two clocks, the drift correction runs after any fixed rate change.
+        self.drift_enabled = bool(separate_clocks)
+        self.drift_resampler = DriftResampler() if separate_clocks else None
         self.output_resampler = None
-        if separate_clocks:
-            try:
-                self.output_resampler = soxr.ResampleStream(
-                    INTERNAL_RATE, self.output_rate, 1, dtype="float32", quality="HQ", vr=True
-                )
-                self.drift_enabled = True
-            except TypeError:
-                self.open_warnings.append("soxr has no variable-rate mode; no drift correction")
-        if self.output_resampler is None and self.output_rate != INTERNAL_RATE:
+        if self.output_rate != INTERNAL_RATE:
             self.output_resampler = soxr.ResampleStream(
                 INTERNAL_RATE, self.output_rate, 1, dtype="float32", quality="HQ"
             )
