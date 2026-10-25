@@ -2,27 +2,29 @@
 
 Ported from the discarded new_main_testversion branch (rvc/realtime/runtime.py,
 29eae3d), where the same transport made WASAPI -> WASAPI as low latency as WASAPI ->
-WDM-KS. Only the ring buffer survives unchanged; the latency control is rewritten
-around the level the output ring actually holds (see ReserveController).
+WDM-KS. The ring buffer is now lock free and the latency control is rewritten around
+the level the output ring actually holds (see ReserveController).
 """
 
 from __future__ import annotations
 
 import math
-import threading
 import time
 from collections import deque
 
 import numpy as np
 
 BUFFER_STEP_MS = 10
-BASE_RESERVE_MS = 10
+BASE_RESERVE_MS = 30
 MAX_EXTRA_RESERVE_MS = 500
 UNDERFLOW_COOLDOWN_S = 2.0
-STABLE_BEFORE_SHRINK_S = 5.0
+STABLE_BEFORE_SHRINK_S = 30.0
 QUIET_BEFORE_SHRINK_S = 1.0
 ADJUST_THRESHOLD_MS = 10.0
 ERROR_WINDOW = 9
+# How long the slowest block seen is remembered. A slow block that is forgotten
+# before the next one arrives costs an underflow, an audible click, every time.
+NEED_WINDOW_S = 120.0
 MAX_DRIFT_PPM = 1000.0
 # PI control of the output resampling ratio from the reserve error. The ring level
 # integrates the ratio error (1 ppm moves it 1e-3 ms per second), so with these gains
@@ -33,10 +35,15 @@ DRIFT_KI_PPM_PER_MS_S = 0.9
 
 
 class FloatRingBuffer:
-    """Bounded single-channel float32 ring buffer.
+    """Bounded single-channel float32 ring buffer for one producer and one consumer.
 
-    PortAudio callbacks use non-blocking lock acquisition. A contended callback
-    records a dropped operation instead of waiting on the model worker.
+    Lock free: the producer only ever advances `_written` and the consumer only
+    `_consumed`, each after its copy is done, so neither side waits for the other.
+    The lock this replaced made a PortAudio callback that met the worker inside it
+    give up and play (or drop) a whole device period of silence: a click.
+
+    `write` belongs to the producer; `read_into`, `read`, `discard` and `clear` to the
+    consumer. `blocking` is accepted for the old signature and has no effect.
     """
 
     def __init__(self, capacity: int):
@@ -44,70 +51,53 @@ class FloatRingBuffer:
             raise ValueError("Ring capacity must be positive")
         self.capacity = int(capacity)
         self._data = np.zeros(self.capacity, dtype=np.float32)
-        self._read = 0
-        self._write = 0
-        self._size = 0
-        self._lock = threading.Lock()
+        self._written = 0  # total samples ever written, producer only
+        self._consumed = 0  # total samples ever consumed, consumer only
         self.dropped_writes = 0
         self.underrun_reads = 0
 
     @property
     def available(self) -> int:
-        with self._lock:
-            return self._size
+        consumed = self._consumed
+        return self._written - consumed
 
-    @property
-    def available_approx(self) -> int:
-        """Lock-free snapshot for a PortAudio callback. Only a readiness hint: the
-        non-blocking read that follows is authoritative."""
-        return self._size
+    available_approx = available
 
     def clear(self) -> None:
-        with self._lock:
-            self._read = self._write = self._size = 0
+        self._consumed = self._written
 
     def write(self, samples: np.ndarray, *, blocking: bool = True) -> int:
         source = np.asarray(samples, dtype=np.float32).reshape(-1)
-        if not self._lock.acquire(blocking=blocking):
+        written = self._written
+        count = min(len(source), self.capacity - (written - self._consumed))
+        if count <= 0:
             self.dropped_writes += len(source)
             return 0
-        try:
-            count = min(len(source), self.capacity - self._size)
-            if count <= 0:
-                self.dropped_writes += len(source)
-                return 0
-            first = min(count, self.capacity - self._write)
-            self._data[self._write : self._write + first] = source[:first]
-            second = count - first
-            if second:
-                self._data[:second] = source[first : first + second]
-            self._write = (self._write + count) % self.capacity
-            self._size += count
-            if count < len(source):
-                self.dropped_writes += len(source) - count
-            return count
-        finally:
-            self._lock.release()
+        start = written % self.capacity
+        first = min(count, self.capacity - start)
+        self._data[start : start + first] = source[:first]
+        second = count - first
+        if second:
+            self._data[:second] = source[first : first + second]
+        self._written = written + count
+        if count < len(source):
+            self.dropped_writes += len(source) - count
+        return count
 
     def read_into(self, destination: np.ndarray, *, blocking: bool = True) -> int:
         target = np.asarray(destination).reshape(-1)
-        if not self._lock.acquire(blocking=blocking):
-            self.underrun_reads += len(target)
-            return 0
-        try:
-            count = min(len(target), self._size)
-            first = min(count, self.capacity - self._read)
-            target[:first] = self._data[self._read : self._read + first]
-            second = count - first
-            if second:
-                target[first:count] = self._data[:second]
-            self._read = (self._read + count) % self.capacity
-            self._size -= count
-            if count < len(target):
-                self.underrun_reads += len(target) - count
-            return count
-        finally:
-            self._lock.release()
+        consumed = self._consumed
+        count = min(len(target), self._written - consumed)
+        start = consumed % self.capacity
+        first = min(count, self.capacity - start)
+        target[:first] = self._data[start : start + first]
+        second = count - first
+        if second:
+            target[first:count] = self._data[:second]
+        self._consumed = consumed + count
+        if count < len(target):
+            self.underrun_reads += len(target) - count
+        return count
 
     def read(self, count: int) -> np.ndarray:
         result = np.zeros(int(count), dtype=np.float32)
@@ -116,11 +106,10 @@ class FloatRingBuffer:
 
     def discard(self, count: int) -> int:
         """Drop up to `count` of the oldest samples."""
-        with self._lock:
-            count = min(int(count), self._size)
-            self._read = (self._read + count) % self.capacity
-            self._size -= count
-            return count
+        consumed = self._consumed
+        count = max(0, min(int(count), self._written - consumed))
+        self._consumed = consumed + count
+        return count
 
 
 def ceil_to_step(value_ms: float, step_ms: int = BUFFER_STEP_MS) -> int:
@@ -128,24 +117,35 @@ def ceil_to_step(value_ms: float, step_ms: int = BUFFER_STEP_MS) -> int:
 
 
 class ReserveController:
-    """Keeps the output ring just deep enough for the processing time to vary.
+    """Keeps the output ring deep enough that no block arrives after it ran dry.
 
     The worker hands in, for every converted block, how long the conversion took
     (`elapsed_ms`) and how much the output ring still held when it finished
     (`level_ms`). A block that took p ms leaves level = constant - p, so the quantity
-    held steady is `level + p`: the controller aims it at the recent p95 of the
-    processing time plus a reserve, and reports the error.
+    held steady is x = level + p. Its recent median is the operating point; a block
+    whose x came out below it arrived late for some other reason (the input device,
+    the worker waking up), and that lateness adds to what the block needed.
 
-    - The reserve is 10 ms, plus 10 ms for every underflow (at most one step per 2 s),
-      back down by 10 ms after 5 s without one and 1 s of quiet output.
+    - What a block needed is its processing time plus that lateness. The target is
+      the most any block needed in the last 120 s plus a reserve, so a slow block
+      that came once is planned for until it has not come for two minutes. (Aiming
+      at the p95 instead, as before, left one block in twenty with only the reserve
+      between it and an underflow, and every underflow is a click.)
+    - The reserve is `margin_ms` (30 ms), plus 10 ms for every underflow (at most one
+      step per 2 s), back down by 10 ms after 30 s without one and 1 s of quiet output.
     - The error is corrected by trimming or padding quiet output (never voice), and,
       with two device clocks, also by a resampling ratio (`drift_ppm`) bounded to
       +-1000 ppm (1.7 cents), PI-controlled so a steady drift leaves no steady error.
     """
 
-    def __init__(self, initial_timings_ms=(), clock=time.monotonic):
+    def __init__(self, initial_timings_ms=(), clock=time.monotonic,
+                 margin_ms: float = BASE_RESERVE_MS):
         self.clock = clock
+        self.margin_ms = float(margin_ms)
+        now = clock()
+        self.needs = deque(((now, float(t)) for t in initial_timings_ms), maxlen=4096)
         self.timings = deque((float(t) for t in initial_timings_ms), maxlen=256)
+        self.levels = deque(maxlen=ERROR_WINDOW)
         self.extra_ms = 0
         self.errors = deque(maxlen=ERROR_WINDOW)
         self.drift_ppm = 0.0
@@ -157,8 +157,8 @@ class ReserveController:
         self.adjustments = 0
 
     @property
-    def reserve_ms(self) -> int:
-        return BASE_RESERVE_MS + self.extra_ms
+    def reserve_ms(self) -> float:
+        return self.margin_ms + self.extra_ms
 
     @property
     def p95_ms(self) -> float:
@@ -166,11 +166,30 @@ class ReserveController:
             return 0.0
         return float(np.percentile(np.asarray(self.timings), 95))
 
+    @property
+    def max_ms(self) -> float:
+        return max(self.timings) if self.timings else 0.0
+
+    @property
+    def need_ms(self) -> float:
+        """The most any block needed within the window."""
+        return max((need for _, need in self.needs), default=0.0)
+
+    @property
+    def target_ms(self) -> float:
+        return self.need_ms + self.reserve_ms
+
+    def _remember(self, now, need):
+        self.needs.append((now, float(need)))
+        while self.needs and now - self.needs[0][0] > NEED_WINDOW_S:
+            self.needs.popleft()
+
     def startup_padding_ms(self, first_elapsed_ms: float) -> float:
         """Silence to play before the first block, so later blocks that take up to the
-        p95 still arrive in time."""
+        slowest one seen still arrive in time."""
         self.timings.append(float(first_elapsed_ms))
-        return max(0.0, self.p95_ms - first_elapsed_ms) + self.reserve_ms
+        self._remember(self.clock(), first_elapsed_ms)
+        return max(0.0, self.need_ms - first_elapsed_ms) + self.reserve_ms
 
     def record_underflow(self) -> None:
         now = self.clock()
@@ -186,9 +205,12 @@ class ReserveController:
         output if it is quiet: positive pads, negative trims, 0 leaves it alone."""
         now = self.clock()
         self.timings.append(float(elapsed_ms))
-        error = level_ms + elapsed_ms - self.p95_ms - self.reserve_ms
-        self.errors.append(error)
-        median = float(np.median(np.asarray(self.errors)))
+        x = level_ms + elapsed_ms
+        self.levels.append(x)
+        operating = float(np.median(np.asarray(self.levels)))
+        self._remember(now, elapsed_ms + max(0.0, operating - x))
+        median = operating - self.target_ms
+        self.errors.append(median)
 
         if drift:
             limit = MAX_DRIFT_PPM / DRIFT_KI_PPM_PER_MS_S
@@ -219,4 +241,5 @@ class ReserveController:
             return 0.0
         self.adjustments += 1
         self.errors.clear()
+        self.levels.clear()
         return -median

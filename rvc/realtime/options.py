@@ -99,6 +99,7 @@ class RealtimeOptions:
     clip_stage: str = "generator"
     gate_fade_ms: float = 0.0
     gate_hold: bool = False
+    ring_reserve_ms: float = 30.0
 
     @classmethod
     def from_dict(cls, data):
@@ -145,6 +146,9 @@ class RealtimeOptions:
             clip_stage=_choice(data.get("clip_stage"), CLIP_STAGES, default.clip_stage),
             gate_fade_ms=_number(data.get("gate_fade_ms"), default.gate_fade_ms, 0.0, 200.0),
             gate_hold=bool(data.get("gate_hold", default.gate_hold)),
+            ring_reserve_ms=_number(
+                data.get("ring_reserve_ms"), default.ring_reserve_ms, 0.0, 300.0
+            ),
         )
 
     @classmethod

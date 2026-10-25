@@ -141,6 +141,30 @@ class RingBufferTests(unittest.TestCase):
         self.assertEqual(ring.discard(3), 3)
         self.assertEqual(ring.read(5).tolist(), [3, 4])
 
+    def test_a_reader_and_a_writer_on_two_threads_never_wait_or_lose_samples(self):
+        # Lock free: neither side can find the other "inside" and give up, which is
+        # what used to turn a contended callback into a period of silence.
+        ring = FloatRingBuffer(1000)
+        total = 200_000
+        received = []
+
+        def produce():
+            sent = 0
+            while sent < total:
+                chunk = np.arange(sent, min(sent + 137, total), dtype=np.float32)
+                sent += ring.write(chunk)
+
+        producer = threading.Thread(target=produce)
+        producer.start()
+        got = 0
+        while got < total:
+            chunk = ring.read(97)
+            received.append(chunk)
+            got += len(chunk)
+        producer.join()
+        joined = np.concatenate(received)
+        self.assertTrue(np.array_equal(joined, np.arange(total, dtype=np.float32)))
+
 
 class QuietCorrectionTests(unittest.TestCase):
     def test_pad_and_trim_change_the_length_exactly_and_stay_quiet(self):
@@ -166,9 +190,9 @@ class DuplexTests(unittest.TestCase):
         signal = voice_like(20)
         played = simulate(audio, clock, callbacks, signal)
         measured = delay_ms(signal, played)
-        # 960 ms chunk + 50 ms processing + 10 ms reserve. The legacy transport
-        # adds a whole chunk (960 ms) here instead of the 60 ms.
-        self.assertAlmostEqual(measured, 960 + 50 + 10, delta=5)
+        # 960 ms chunk + 50 ms processing + 30 ms reserve. The legacy transport
+        # adds a whole chunk (960 ms) here instead of the 80 ms.
+        self.assertAlmostEqual(measured, 960 + 50 + 30, delta=5)
         self.assertAlmostEqual(audio.estimated_latency_ms(), measured, delta=15)
         self.assertEqual(audio.output_underflows, 0)
         # Identity in, identity out: nothing was trimmed or padded in loud audio.
@@ -193,16 +217,95 @@ class DuplexTests(unittest.TestCase):
         )
         trace = []
         simulate(audio, clock, callbacks, signal, trace=trace)
-        # Block 8 arrives 50 ms later than planned: one gap, which itself moves the
-        # playback 40 ms later, and nothing after it.
+        # Block 8 arrives 50 ms later than planned, 20 ms past the reserve: one
+        # gap, which itself moves the playback later, and nothing after it.
         self.assertGreater(audio.output_underflows, 0)
         self.assertEqual(trace[-1], trace[len(trace) // 3])
-        # The underflow added a 10 ms step, which 5 s without another one and 1 s
-        # of quiet took back again.
+        # The underflow added a 10 ms step, which 30 s without another one and 1 s
+        # of quiet took back again; the 90 ms blocks are planned for by the target.
         self.assertEqual(audio.controller.underflows, 1)
-        self.assertEqual(audio.controller.reserve_ms, 10)
+        self.assertEqual(audio.controller.reserve_ms, 30)
+        self.assertGreaterEqual(audio.controller.need_ms, 90.0)
         errors = list(audio.controller.errors)
         self.assertLessEqual(abs(float(np.median(errors))), 10.0)
+
+
+    def test_an_occasional_slow_block_clicks_once_not_every_time(self):
+        # One block in 25 (~24 s) takes 70 ms longer, in speech with pauses. Aiming
+        # at the p95 forgot it between occurrences: 6 underflows in 240 s, each a
+        # click. The slowest block is now remembered for two minutes.
+        signal = voice_like(150)
+        t = np.arange(len(signal)) / RATE
+        signal[(t % 4.5) > 3.0] *= 1e-4
+        rng = np.random.default_rng(3)
+        times = [45 + rng.uniform(-5, 5) + (70 if i % 25 == 24 else 0) for i in range(400)]
+        audio, clock, callbacks = make_audio(lambda i: float(times[i]), warmup=[45.0] * 5)
+        simulate(audio, clock, callbacks, signal)
+        self.assertEqual(audio.controller.underflows, 1)
+
+    def test_a_larger_margin_absorbs_what_the_default_does_not(self):
+        audio, clock, callbacks = make_audio(
+            lambda i: 40.0 if i < 8 else 90.0, warmup=[40.0] * 5
+        )
+        audio.controller = ReserveController([40.0] * 5, clock=clock, margin_ms=60.0)
+        simulate(audio, clock, callbacks, voice_like(20))
+        self.assertEqual(audio.output_underflows, 0)
+
+
+class UnderflowConcealmentTests(unittest.TestCase):
+    def _audio(self):
+        audio, _, _ = make_audio(40.0)
+        audio._playback_started = True
+        return audio
+
+    def _render(self, audio, frames=PERIOD, status=None):
+        outdata = np.zeros((frames, 1), dtype=np.float32)
+        audio.output_callback(outdata, frames, None, status)
+        return outdata[:, 0].copy()
+
+    def test_running_dry_mid_period_fades_out_and_back_in(self):
+        audio = self._audio()
+        audio.output_ring.write(np.full(PERIOD + 200, 0.5, dtype=np.float32))
+        first = self._render(audio)
+        second = self._render(audio)  # 200 samples, then nothing
+        audio.output_ring.write(np.full(PERIOD, 0.5, dtype=np.float32))
+        third = self._render(audio)
+        played = np.concatenate((first, second, third))
+        # Without the fades the steps are 0.5 at both ends of the gap.
+        self.assertLess(np.abs(np.diff(played)).max(), 0.5 / 90)
+        self.assertEqual(audio.output_underflows, 1)
+        self.assertAlmostEqual(float(third[-1]), 0.5)
+
+    def test_running_dry_at_a_period_boundary_ramps_from_the_last_sample(self):
+        audio = self._audio()
+        audio.output_ring.write(np.full(PERIOD, -0.4, dtype=np.float32))
+        first = self._render(audio)
+        second = self._render(audio)  # nothing at all
+        played = np.concatenate((first, second))
+        self.assertLess(np.abs(np.diff(played)).max(), 0.4 / 90)
+        self.assertEqual(float(second[-1]), 0.0)
+
+    def test_full_periods_are_untouched(self):
+        audio = self._audio()
+        signal = voice_like(0.1)
+        audio.output_ring.write(signal)
+        played = np.concatenate([self._render(audio) for _ in range(len(signal) // PERIOD)])
+        self.assertTrue(np.array_equal(played, signal[: len(played)]))
+
+    def test_late_device_callbacks_are_counted_apart_from_ring_underflows(self):
+        audio = self._audio()
+        audio.output_ring.write(np.zeros(PERIOD, dtype=np.float32))
+
+        class Flags:
+            output_underflow = True
+
+            def __bool__(self):
+                return True
+
+        self._render(audio, status=Flags())
+        self.assertEqual(audio.device_output_underflows, 1)
+        self.assertEqual(audio.output_underflows, 0)
+        self.assertIn("device 0/1", audio.status_text())
 
 
 class SeparateClockTests(unittest.TestCase):

@@ -106,6 +106,7 @@ class AudioCallbacks:
                 *audio_args,
                 block_frame=self.vc.block_frame,
                 stream_mode=self.options.ring_stream_mode,
+                reserve_margin_ms=self.options.ring_reserve_ms,
                 warmup_timings_ms=warmup_timings,
                 algorithmic_delay_ms=getattr(self.vc.vc_model, "algorithmic_delay_ms", 0.0),
             )

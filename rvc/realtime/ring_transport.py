@@ -33,13 +33,17 @@ from collections import deque
 import numpy as np
 import sounddevice as sd
 
-from rvc.realtime.ring_buffer import FloatRingBuffer, ReserveController
+from rvc.realtime.ring_buffer import BASE_RESERVE_MS, FloatRingBuffer, ReserveController
 
 INTERNAL_RATE = 48000
 STARTUP_TIMEOUT_S = 3.0
 QUIET_RMS = 1e-3  # -60 dBFS: only output this quiet is ever trimmed or padded
 MONITOR_SLACK_MS = 200
 CORRECTION_FADE = 96  # samples
+# An underflow cuts the output to silence mid-waveform, and the step is what clicks.
+# The audio is faded out to zero (from the last sample played, if the ring was already
+# empty) and faded back in when samples arrive again. 2 ms at 48 kHz.
+UNDERFLOW_FADE = 96
 WORKER_READ_FRAMES = 8192
 SWITCH_INTERVAL_S = 0.001
 
@@ -145,6 +149,7 @@ class RingAudio:
         stream_mode: str = "auto",
         warmup_timings_ms=(),
         algorithmic_delay_ms: float = 0.0,
+        reserve_margin_ms: float = None,
     ):
         self.callbacks = callbacks
         self.f0_up_key = f0_up_key
@@ -163,6 +168,9 @@ class RingAudio:
         self.stream_mode = stream_mode
         self.warmup_timings_ms = list(warmup_timings_ms)
         self.algorithmic_delay_ms = float(algorithmic_delay_ms)
+        self.reserve_margin_ms = (
+            BASE_RESERVE_MS if reserve_margin_ms is None else float(reserve_margin_ms)
+        )
 
         # Attributes the Realtime tab reads, as on the legacy Audio.
         self.latency = 0.0
@@ -181,7 +189,7 @@ class RingAudio:
         self.fatal_error = None
 
         self.input_ring = self.internal_ring = self.output_ring = self.monitor_ring = None
-        self.controller = ReserveController(self.warmup_timings_ms)
+        self.controller = self._new_controller()
         self.inference_times = deque(maxlen=512)
         self.queue_delays = deque(maxlen=32)
         self.first_elapsed_ms = None
@@ -189,6 +197,10 @@ class RingAudio:
         self.input_overflows = 0
         self.output_underflows = 0
         self.callback_status_events = 0
+        # PortAudio's own flags: the callback itself came too late (GIL, scheduling),
+        # as opposed to the rings running dry or full.
+        self.device_input_overflows = 0
+        self.device_output_underflows = 0
         self._pending_underflows = 0
         self._pending_overflow = False
         self._primed = False
@@ -202,6 +214,14 @@ class RingAudio:
         self._scratch = np.zeros(65536, dtype=np.float32)
         self.clock = time.perf_counter  # replaced in tests
         self._render_at, self._render_frames = None, 0
+        self._last_sample = 0.0
+        self._fade_in = False
+        self._monitor_limit = 0
+        self._fade_down = np.linspace(1.0, 0.0, UNDERFLOW_FADE + 1, dtype=np.float32)[1:]
+        self._fade_up = np.linspace(0.0, 1.0, UNDERFLOW_FADE + 1, dtype=np.float32)[1:]
+
+    def _new_controller(self):
+        return ReserveController(self.warmup_timings_ms, margin_ms=self.reserve_margin_ms)
 
     # ------------------------------------------------------------------ callbacks
     def _capture(self, indata, frames, status):
@@ -209,6 +229,7 @@ class RingAudio:
         if status:
             self.callback_status_events += 1
             if getattr(status, "input_overflow", False):
+                self.device_input_overflows += 1
                 self.input_overflows += 1
                 self._pending_overflow = True
         if not self.running or self.input_ring is None:
@@ -230,6 +251,8 @@ class RingAudio:
         outdata.fill(0)
         if status:
             self.callback_status_events += 1
+            if getattr(status, "output_underflow", False):
+                self.device_output_underflows += 1
         if not self.running or self.output_ring is None:
             return
         self._render_at, self._render_frames = self.clock(), frames
@@ -238,13 +261,34 @@ class RingAudio:
                 return
             self._playback_started = True
         target = outdata[:, 0]
-        if self.output_ring.read_into(target, blocking=False) < frames:
+        count = self.output_ring.read_into(target, blocking=False)
+        if self._fade_in and count:
+            n = min(count, UNDERFLOW_FADE)
+            target[:n] *= self._fade_up[:n]
+            self._fade_in = False
+        if count < frames:
             self.output_underflows += 1
             self._pending_underflows += 1
+            self._conceal(target, count)
+        else:
+            self._last_sample = float(target[-1])
         if self.output_audio_gain != 1.0:
             target *= self.output_audio_gain
         for channel in range(1, outdata.shape[1]):
             outdata[:, channel] = target
+
+    def _conceal(self, target, count):
+        """Fade into the gap an underflow leaves instead of stepping to silence."""
+        if self._fade_in:
+            return  # already silent since the last underflow
+        if count:
+            n = min(count, UNDERFLOW_FADE)
+            target[count - n : count] *= self._fade_down[UNDERFLOW_FADE - n :]
+        else:
+            n = min(len(target), UNDERFLOW_FADE)
+            target[:n] = self._last_sample * self._fade_down[:n]
+        self._last_sample = 0.0
+        self._fade_in = True
 
     def input_callback(self, indata, frames, times, status):
         self._capture(indata, frames, status)
@@ -264,6 +308,12 @@ class RingAudio:
             if self.monitor_ring.available_approx <= 0:
                 return
             self._monitor_started = True
+        # The monitor runs on its own clock and nothing is listening for timing there,
+        # so it is only kept from drifting late. Done here, on the reading side, so
+        # the ring keeps a single reader.
+        excess = self.monitor_ring.available - self._monitor_limit
+        if self._monitor_limit and excess > 0:
+            self.monitor_ring.discard(excess)
         target = outdata[:, 0]
         self.monitor_ring.read_into(target, blocking=False)
         if self.monitor_audio_gain != 1.0:
@@ -345,15 +395,6 @@ class RingAudio:
                 else out
             )
             self.monitor_ring.write(monitor)
-            # The monitor runs on its own clock and nothing is listening for timing
-            # there, so it is only kept from drifting late.
-            limit = int(
-                (self.block_frame / INTERNAL_RATE + MONITOR_SLACK_MS / 1000)
-                * self.monitor_rate
-            )
-            excess = self.monitor_ring.available - limit
-            if excess > 0:
-                self.monitor_ring.discard(excess)
 
     def pump(self):
         """Move captured audio to 48 kHz and convert every whole block there is."""
@@ -534,6 +575,9 @@ class RingAudio:
             self.open_warnings.append("monitor WASAPI exclusive was rejected; using shared")
             self.monitor = open_with(False)
         self.monitor_ring = FloatRingBuffer(int(self.monitor_rate * 8))
+        self._monitor_limit = int(
+            (self.block_frame / INTERNAL_RATE + MONITOR_SLACK_MS / 1000) * self.monitor_rate
+        )
         self.monitor_resampler = (
             soxr.ResampleStream(INTERNAL_RATE, self.monitor_rate, 1, dtype="float32", quality="HQ")
             if self.monitor_rate != INTERNAL_RATE
@@ -564,7 +608,8 @@ class RingAudio:
         self._output_heartbeat.clear()
         self._primed = self._playback_started = self._monitor_started = False
         self._render_at, self._render_frames = None, 0
-        self.controller = ReserveController(self.warmup_timings_ms)
+        self._last_sample, self._fade_in = 0.0, False
+        self.controller = self._new_controller()
         self.inference_times.clear()
         self.queue_delays.clear()
         # The callbacks need the GIL within one device period (a few ms), while the
@@ -651,11 +696,14 @@ class RingAudio:
         )
         text = (
             f"{self.transport_mode} | Chunk {self.block_frame / INTERNAL_RATE * 1000:.0f} ms"
-            f" | process p50/p95 {p50:.1f}/{p95:.1f} ms"
-            f" | reserve {self.controller.reserve_ms} ms (ring {level:.0f} ms)"
+            f" | process p50/p95/max {p50:.1f}/{p95:.1f}/{float(values.max()):.1f} ms"
+            f" | target {self.controller.target_ms:.0f} ms"
+            f" (need {self.controller.need_ms:.0f} + reserve {self.controller.reserve_ms:.0f},"
+            f" ring {level:.0f} ms)"
             f" | window {self.algorithmic_delay_ms:.0f} ms | I/O {self.device_latency_ms:.1f} ms"
             f" | est. total {self.estimated_latency_ms():.0f} ms"
             f" | xruns in/out {self.input_overflows}/{self.output_underflows}"
+            f" (device {self.device_input_overflows}/{self.device_output_underflows})"
             f" | quiet corrections {self.controller.adjustments}"
         )
         if self.drift_enabled:

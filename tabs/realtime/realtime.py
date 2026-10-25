@@ -1287,6 +1287,18 @@ def realtime_tab():
                             ),
                             interactive=True,
                         )
+                        opt_ring_reserve = gr.Slider(
+                            minimum=0,
+                            maximum=300,
+                            step=5,
+                            value=default_options.ring_reserve_ms,
+                            label=i18n("Ring output safety margin (ms)"),
+                            info=i18n(
+                                "ring only. The output ring is kept this much deeper than the slowest block of the last two minutes needed. Every time a block still arrives too late the output has a gap, heard as a click; more margin makes that rarer and adds the same amount of delay."
+                            ),
+                            visible=default_options.transport == "ring",
+                            interactive=True,
+                        )
                 option_controls = [
                     opt_output_position,
                     opt_lookahead,
@@ -1306,6 +1318,7 @@ def realtime_tab():
                     opt_clip_stage,
                     opt_gate_fade,
                     opt_gate_hold,
+                    opt_ring_reserve,
                 ]
                 assert len(option_controls) == len(OPTION_FIELDS)
                 opt_output_position.change(
@@ -1319,9 +1332,12 @@ def realtime_tab():
                     outputs=[opt_apex_noise_voiced_ratio],
                 )
                 opt_transport.change(
-                    fn=lambda value: gr.update(visible=value == "ring"),
+                    fn=lambda value: (
+                        gr.update(visible=value == "ring"),
+                        gr.update(visible=value == "ring"),
+                    ),
                     inputs=[opt_transport],
-                    outputs=[opt_ring_stream_mode],
+                    outputs=[opt_ring_stream_mode, opt_ring_reserve],
                 )
                 opt_f0_cache.change(
                     fn=lambda value: gr.update(visible=bool(value)),
