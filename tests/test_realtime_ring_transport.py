@@ -323,6 +323,39 @@ class UnderflowConcealmentTests(unittest.TestCase):
         self.assertIn("device 0/1", audio.status_text())
 
 
+class OutputFormatTests(unittest.TestCase):
+    def test_exclusive_wasapi_output_tries_int32_before_float32(self):
+        # VB-Cable mangles float32 written in exclusive mode; int32 comes back clean.
+        from rvc.realtime import ring_transport as rt
+        import sounddevice as sd
+
+        wasapi = {"host_api": "Windows WASAPI"}
+        tried = []
+
+        def refuse_int32(dtype):
+            tried.append(dtype)
+            if dtype == "int32":
+                raise sd.PortAudioError("format")
+            return dtype
+
+        self.assertEqual(rt._open_output_dtype(lambda d: (tried.append(d), d)[1], wasapi, True), "int32")
+        tried.clear()
+        self.assertEqual(rt._open_output_dtype(refuse_int32, wasapi, True), "float32")
+        self.assertEqual(tried, ["int32", "float32"])
+        self.assertEqual(rt._open_output_dtype(lambda d: d, wasapi, False), "float32")
+        self.assertEqual(rt._open_output_dtype(lambda d: d, {"host_api": "Windows WDM-KS"}, True), "float32")
+
+    def test_int32_output_is_the_float_signal_scaled_and_clipped(self):
+        from rvc.realtime.ring_transport import _emit
+
+        mono = np.array([0.0, 0.5, -0.5, 1.5, -1.5], dtype=np.float32)
+        out = np.zeros((5, 2), dtype=np.int32)
+        _emit(out, mono)
+        expected = np.array([0, 1073741823, -1073741823, 2147483647, -2147483647])
+        for channel in range(2):
+            self.assertTrue(np.allclose(out[:, channel], expected, atol=64))
+
+
 class SeparateClockTests(unittest.TestCase):
     def test_drift_between_two_clocks_is_taken_up_by_the_resampler(self):
         audio, clock, callbacks = make_audio(40.0, warmup=[40.0] * 5, separate=True)

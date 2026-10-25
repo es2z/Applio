@@ -55,6 +55,13 @@ SWITCH_INTERVAL_S = 0.001
 # than real time; the same two devices give 22 ms (input, shared) + 12 ms (output,
 # exclusive) as two streams.
 MAX_DEVICE_LATENCY_S = 0.5
+# WASAPI exclusive output takes 32-bit integers first, float32 only if a device refuses
+# them. VB-Audio Virtual Cable accepts float32 (and int16) exclusively and then mangles
+# it: a 440 Hz sine written that way and recorded back from CABLE Output had 159-368
+# discontinuities in 1.8 s whatever the buffer size or latency (heard as a rasping,
+# broken voice); as int32, none, the same as shared mode.
+EXCLUSIVE_OUTPUT_DTYPES = ("int32", "float32")
+INT32_SCALE = 2147483647.0
 
 
 def _soxr():
@@ -88,6 +95,34 @@ def _extra_settings(device, exclusive, asio_channel):
 
 def _idle_callback(*args):
     """For a stream that is opened to see whether it can be, and never started."""
+
+
+def _emit(outdata, mono):
+    """Write float32 `mono` to every channel of `outdata`, in whatever dtype it has."""
+    if outdata.dtype == np.float32:
+        for channel in range(outdata.shape[1]):
+            outdata[:, channel] = mono
+        return
+    # In float64: float32 rounds 1.0 * (2**31 - 1) up to 2**31, which wraps a full
+    # scale positive sample to full scale negative.
+    scaled = np.clip(mono.astype(np.float64), -1.0, 1.0) * INT32_SCALE
+    for channel in range(outdata.shape[1]):
+        outdata[:, channel] = scaled  # numpy casts float to the integer dtype
+
+
+def _output_dtypes(device, exclusive):
+    return EXCLUSIVE_OUTPUT_DTYPES if exclusive and _is_wasapi(device) else ("float32",)
+
+
+def _open_output_dtype(open_with_dtype, device, exclusive):
+    """Open with the first output dtype the device accepts (EXCLUSIVE_OUTPUT_DTYPES)."""
+    dtypes = _output_dtypes(device, exclusive)
+    for dtype in dtypes[:-1]:
+        try:
+            return open_with_dtype(dtype)
+        except sd.PortAudioError:
+            pass
+    return open_with_dtype(dtypes[-1])
 
 
 def _is_wasapi(device):
@@ -293,6 +328,8 @@ class RingAudio:
         self._output_heartbeat = threading.Event()
         self._switch_interval = None
         self._scratch = np.zeros(65536, dtype=np.float32)
+        self._out_scratch = np.zeros(65536, dtype=np.float32)
+        self._monitor_scratch = np.zeros(65536, dtype=np.float32)
         self.clock = time.perf_counter  # replaced in tests
         self._render_at, self._render_frames = None, 0
         self._last_sample = 0.0
@@ -341,7 +378,7 @@ class RingAudio:
             if self.output_ring.available_approx <= 0:
                 return
             self._playback_started = True
-        target = outdata[:, 0]
+        target = self._render_buffer(frames)
         count = self.output_ring.read_into(target, blocking=False)
         if self._fade_in and count:
             n = min(count, UNDERFLOW_FADE)
@@ -355,8 +392,14 @@ class RingAudio:
             self._last_sample = float(target[-1])
         if self.output_audio_gain != 1.0:
             target *= self.output_audio_gain
-        for channel in range(1, outdata.shape[1]):
-            outdata[:, channel] = target
+        _emit(outdata, target)
+
+    def _render_buffer(self, frames):
+        if len(self._out_scratch) < frames:
+            self._out_scratch = np.zeros(frames, dtype=np.float32)
+        target = self._out_scratch[:frames]
+        target.fill(0)
+        return target
 
     def _conceal(self, target, count):
         """Fade into the gap an underflow leaves instead of stepping to silence."""
@@ -395,12 +438,14 @@ class RingAudio:
         excess = self.monitor_ring.available - self._monitor_limit
         if self._monitor_limit and excess > 0:
             self.monitor_ring.discard(excess)
-        target = outdata[:, 0]
+        if len(self._monitor_scratch) < frames:
+            self._monitor_scratch = np.zeros(frames, dtype=np.float32)
+        target = self._monitor_scratch[:frames]
+        target.fill(0)
         self.monitor_ring.read_into(target, blocking=False)
         if self.monitor_audio_gain != 1.0:
             target *= self.monitor_audio_gain
-        for channel in range(1, outdata.shape[1]):
-            outdata[:, channel] = target
+        _emit(outdata, target)
 
     # --------------------------------------------------------------------- worker
     def _process(self, block):
@@ -611,10 +656,13 @@ class RingAudio:
                     break
             self.input_rate = self.output_rate = rate
             self._allocate(separate_clocks=False)
-            return sd.Stream(
-                callback=self.duplex_callback, latency="low", dtype="float32",
-                device=(inp["index"], out["index"]), blocksize=0, samplerate=rate,
-                channels=channels, extra_settings=extras,
+            return _open_output_dtype(
+                lambda dtype: sd.Stream(
+                    callback=self.duplex_callback, latency="low", dtype=("float32", dtype),
+                    device=(inp["index"], out["index"]), blocksize=0, samplerate=rate,
+                    channels=channels, extra_settings=extras,
+                ),
+                out, excl,
             )
 
         try:
@@ -649,10 +697,13 @@ class RingAudio:
         def open_output(excl):
             extra = _extra_settings(out, excl, out_ch)
             self.output_rate = self._rate_for(out, "output", out_channels, extra)
-            return sd.OutputStream(
-                callback=self.output_callback, latency="low", dtype="float32",
-                device=out["index"], blocksize=0, samplerate=self.output_rate,
-                channels=out_channels, extra_settings=extra,
+            return _open_output_dtype(
+                lambda dtype: sd.OutputStream(
+                    callback=self.output_callback, latency="low", dtype=dtype,
+                    device=out["index"], blocksize=0, samplerate=self.output_rate,
+                    channels=out_channels, extra_settings=extra,
+                ),
+                out, excl,
             )
 
         self.input_stream = self._open_one(open_input, exclusive, inp, "input")
@@ -664,6 +715,9 @@ class RingAudio:
             self.input_stream.latency + self.output_stream.latency
         ) * 1000
         self.transport_mode = f"ring separate/{inp['host_api']}->{out['host_api']}"
+        out_dtype = getattr(self.output_stream, "dtype", "float32")
+        if out_dtype != "float32":
+            self.transport_mode += f" ({out_dtype} out)"
 
     def _open_one(self, open_with, exclusive, device, kind):
         """Open one stream, exclusively if asked and it works, else shared."""
@@ -690,10 +744,13 @@ class RingAudio:
         def open_with(excl):
             extra = _extra_settings(device, excl, channel)
             self.monitor_rate = self._rate_for(device, "output", channels, extra)
-            return sd.OutputStream(
-                callback=self.monitor_callback, latency="low", dtype="float32",
-                device=device["index"], blocksize=0, samplerate=self.monitor_rate,
-                channels=channels, extra_settings=extra,
+            return _open_output_dtype(
+                lambda dtype: sd.OutputStream(
+                    callback=self.monitor_callback, latency="low", dtype=dtype,
+                    device=device["index"], blocksize=0, samplerate=self.monitor_rate,
+                    channels=channels, extra_settings=extra,
+                ),
+                device, excl,
             )
 
         try:
