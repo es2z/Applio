@@ -47,6 +47,12 @@ CORRECTION_FADE = 96  # samples
 UNDERFLOW_FADE = 96
 WORKER_READ_FRAMES = 8192
 SWITCH_INTERVAL_S = 0.001
+# A device latency PortAudio reports above this is a broken stream, not a slow one.
+# Measured: WASAPI duplex, MOTU loopback input (shared only) + VB-Cable output, asked
+# for exclusive mode, opened and reported 2.73 s + 2.02 s, and its callbacks ran faster
+# than real time; the same two devices give 22 ms (input, shared) + 12 ms (output,
+# exclusive) as two streams.
+MAX_DEVICE_LATENCY_S = 0.5
 
 
 def _soxr():
@@ -76,6 +82,14 @@ def _extra_settings(device, exclusive, asio_channel):
     if "ASIO" in device["host_api"] and asio_channel is not None and asio_channel >= 0:
         return sd.AsioSettings(channel_selectors=[int(asio_channel)])
     return None
+
+
+def _idle_callback(*args):
+    """For a stream that is opened to see whether it can be, and never started."""
+
+
+def _is_wasapi(device):
+    return "WASAPI" in device["host_api"]
 
 
 def _channels(device, kind, asio_channel):
@@ -543,6 +557,49 @@ class RingAudio:
                 INTERNAL_RATE, self.output_rate, 1, dtype="float32", quality="HQ"
             )
 
+    def _opens_exclusive(self, device, kind, channels, asio_channel):
+        """Whether `device` really opens in WASAPI exclusive mode on its own.
+
+        sd.check_*_settings says yes to a loopback input that then refuses to open
+        exclusively ("Invalid device"); only opening it tells. A duplex stream with
+        such an input opens anyway, with seconds of buffering (MAX_DEVICE_LATENCY_S).
+        """
+        factory = sd.InputStream if kind == "input" else sd.OutputStream
+        extra = _extra_settings(device, True, asio_channel)
+        for rate in (INTERNAL_RATE, int(round(device["default_samplerate"]))):
+            try:
+                # With a callback, as the real stream is opened: without one the
+                # loopback input above opens exclusively and then fails with one.
+                stream = factory(
+                    device=device["index"], channels=channels, dtype="float32",
+                    samplerate=rate, blocksize=0, latency="low", extra_settings=extra,
+                    callback=_idle_callback,
+                )
+            except Exception:
+                continue
+            stream.close()
+            return True
+        return False
+
+    def _duplex_exclusive_ok(self, inp, out, in_ch, out_ch):
+        """Exclusive duplex only when both ends open exclusively by themselves."""
+        refused = [
+            device["name"]
+            for device, kind, channel in ((inp, "input", in_ch), (out, "output", out_ch))
+            if _is_wasapi(device)
+            and not self._opens_exclusive(device, kind, _channels(device, kind, channel), channel)
+        ]
+        if refused:
+            self.open_warnings.append(
+                "no WASAPI exclusive for " + ", ".join(refused) + "; using two streams"
+            )
+        return not refused
+
+    @staticmethod
+    def _latency_s(stream):
+        latency = stream.latency
+        return float(sum(latency)) if isinstance(latency, (tuple, list)) else float(latency)
+
     def _open_duplex(self, inp, out, exclusive, in_ch, out_ch):
         channels = (_channels(inp, "input", in_ch), _channels(out, "output", out_ch))
 
@@ -570,6 +627,10 @@ class RingAudio:
                 raise
             self.open_warnings.append("duplex WASAPI exclusive was rejected; using shared")
             self.stream = open_with(False)
+        if self._latency_s(self.stream) > MAX_DEVICE_LATENCY_S:
+            raise RuntimeError(
+                f"duplex stream reported {self._latency_s(self.stream) * 1000:.0f} ms of device latency"
+            )
         self.stream.start()
         in_latency, out_latency = self.stream.latency
         self.device_latency_ms = float(in_latency + out_latency) * 1000
@@ -597,20 +658,8 @@ class RingAudio:
                 channels=out_channels, extra_settings=extra,
             )
 
-        try:
-            self.input_stream = open_input(exclusive)
-        except sd.PortAudioError:
-            if not (exclusive and "WASAPI" in inp["host_api"]):
-                raise
-            self.open_warnings.append("input WASAPI exclusive was rejected; using shared")
-            self.input_stream = open_input(False)
-        try:
-            self.output_stream = open_output(exclusive)
-        except sd.PortAudioError:
-            if not (exclusive and "WASAPI" in out["host_api"]):
-                raise
-            self.open_warnings.append("output WASAPI exclusive was rejected; using shared")
-            self.output_stream = open_output(False)
+        self.input_stream = self._open_one(open_input, exclusive, inp, "input")
+        self.output_stream = self._open_one(open_output, exclusive, out, "output")
         self._allocate(separate_clocks=True)
         self.output_stream.start()
         self.input_stream.start()
@@ -618,6 +667,24 @@ class RingAudio:
             self.input_stream.latency + self.output_stream.latency
         ) * 1000
         self.transport_mode = f"ring separate/{inp['host_api']}->{out['host_api']}"
+
+    def _open_one(self, open_with, exclusive, device, kind):
+        """Open one stream, exclusively if asked and it works, else shared."""
+        if exclusive and _is_wasapi(device):
+            try:
+                stream = open_with(True)
+            except sd.PortAudioError:
+                self.open_warnings.append(f"{kind} WASAPI exclusive was rejected; using shared")
+            else:
+                if self._latency_s(stream) <= MAX_DEVICE_LATENCY_S:
+                    return stream
+                self.open_warnings.append(
+                    f"{kind} WASAPI exclusive reported {self._latency_s(stream) * 1000:.0f} ms;"
+                    " using shared"
+                )
+                stream.close()
+            return open_with(False)
+        return open_with(exclusive)
 
     def _open_monitor(self, device, exclusive, channel):
         soxr = _soxr()
@@ -683,7 +750,12 @@ class RingAudio:
         sys.setswitchinterval(min(self._switch_interval, SWITCH_INTERVAL_S))
         try:
             same_host = inp["host_api"] == out["host_api"]
-            if self.stream_mode == "auto" and same_host:
+            duplex = self.stream_mode == "auto" and same_host
+            if duplex and exclusive_mode and _is_wasapi(inp):
+                duplex = self._duplex_exclusive_ok(
+                    inp, out, asio_input_channel, asio_output_channel
+                )
+            if duplex:
                 try:
                     self._open_duplex(inp, out, exclusive_mode, asio_input_channel, asio_output_channel)
                 except Exception as error:

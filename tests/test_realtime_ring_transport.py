@@ -370,7 +370,8 @@ class StartStopTests(unittest.TestCase):
     """start() and stop() against a fake sounddevice: stream choice, the worker
     thread, and that converted audio reaches the output."""
 
-    def _run(self, hosts, mode, conversion_thread=None, on_convert=None):
+    def _run(self, hosts, mode, conversion_thread=None, on_convert=None, exclusive=False,
+             input_refuses_exclusive=False, duplex_latency=None):
         import sounddevice as sd
 
         from rvc.realtime import ring_transport
@@ -382,6 +383,20 @@ class StartStopTests(unittest.TestCase):
                 "max_output_channels": 2, "default_samplerate": 48000.0},
         }
         apis = ["Windows WASAPI", "Windows WDM-KS"]
+
+        def is_exclusive(extra):
+            return isinstance(extra, tuple) and extra[1].get("exclusive")
+
+        def duplex_stream(callback, device, channels, samplerate, **kw):
+            stream = FakeStream(callback, device, channels, samplerate, "duplex", **kw)
+            if duplex_latency is not None:
+                stream.latency = duplex_latency
+            return stream
+
+        def input_stream(device, channels, samplerate, callback=None, **kw):
+            if input_refuses_exclusive and is_exclusive(kw.get("extra_settings")):
+                raise sd.PortAudioError("Invalid device")
+            return FakeStream(callback, device, channels, samplerate, "input", **kw)
         FakeStream.instances = []
         clock = FakeClock()
         callbacks = IdentityCallbacks(clock, 5.0)
@@ -401,18 +416,16 @@ class StartStopTests(unittest.TestCase):
             patch.object(sd, "check_input_settings", return_value=None),
             patch.object(sd, "check_output_settings", return_value=None),
             patch.object(sd, "WasapiSettings", side_effect=lambda **kw: ("wasapi", kw)),
-            patch.object(sd, "Stream", side_effect=lambda callback, device, channels, samplerate, **kw:
-                         FakeStream(callback, device, channels, samplerate, "duplex", **kw)),
-            patch.object(sd, "InputStream", side_effect=lambda callback, device, channels, samplerate, **kw:
-                         FakeStream(callback, device, channels, samplerate, "input", **kw)),
-            patch.object(sd, "OutputStream", side_effect=lambda callback, device, channels, samplerate, **kw:
+            patch.object(sd, "Stream", side_effect=duplex_stream),
+            patch.object(sd, "InputStream", side_effect=input_stream),
+            patch.object(sd, "OutputStream", side_effect=lambda device, channels, samplerate, callback=None, **kw:
                          FakeStream(callback, device, channels, samplerate, "output", **kw)),
         ]
         for p in patches:
             p.start()
         try:
             switch = sys.getswitchinterval()
-            audio.start(0, 1, exclusive_mode=False)
+            audio.start(0, 1, exclusive_mode=exclusive)
             time.sleep(1.2)
             status = audio.status_text()
             audio.stop()
@@ -465,6 +478,30 @@ class StartStopTests(unittest.TestCase):
             self.assertEqual(thread.call(lambda: "still alive"), "still alive")
         finally:
             thread.close()
+
+    def test_exclusive_duplex_needs_both_ends_to_open_exclusively_alone(self):
+        # The MOTU loopback input passes check_input_settings for exclusive mode but
+        # refuses to open that way; a duplex stream with it opens anyway with seconds
+        # of buffering. So it is two streams: the input shared, the output exclusive.
+        audio, status = self._run((0, 0), "auto", exclusive=True, input_refuses_exclusive=True)
+        opened = [s for s in FakeStream.instances if s._thread is not None]
+        self.assertEqual(sorted(s.kind for s in opened), ["input", "output"])
+        by_kind = {s.kind: s for s in opened}
+        self.assertFalse(by_kind["input"].kwargs["extra_settings"][1]["exclusive"])
+        self.assertTrue(by_kind["output"].kwargs["extra_settings"][1]["exclusive"])
+        self.assertIn("ring separate", status)
+        self.assertIn("no WASAPI exclusive for mic", status)
+
+    def test_exclusive_duplex_when_both_ends_can(self):
+        audio, status = self._run((0, 0), "auto", exclusive=True)
+        opened = [s for s in FakeStream.instances if s._thread is not None]
+        self.assertEqual([s.kind for s in opened], ["duplex"])
+
+    def test_a_duplex_stream_reporting_seconds_of_latency_is_replaced(self):
+        audio, status = self._run((0, 0), "auto", duplex_latency=(2.73, 2.02))
+        opened = [s for s in FakeStream.instances if s._thread is not None]
+        self.assertEqual(sorted(s.kind for s in opened), ["input", "output"])
+        self.assertLess(audio.device_latency_ms, 100)
 
     def test_different_hosts_always_use_separate_streams(self):
         audio, status = self._run((0, 1), "auto")
