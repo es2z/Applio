@@ -600,6 +600,7 @@ def stop_realtime():
 
         # Clean up references
         if callbacks is not None:
+            callbacks.close()
             callbacks.vc.vc_model.pipeline.compile_session.close()
         audio_manager = callbacks = None
 

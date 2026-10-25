@@ -16,7 +16,7 @@ from unittest.mock import patch
 import numpy as np
 
 from rvc.realtime.ring_buffer import FloatRingBuffer, ReserveController
-from rvc.realtime.ring_transport import RingAudio, pad_quiet, trim_quiet
+from rvc.realtime.ring_transport import ConversionThread, RingAudio, pad_quiet, trim_quiet
 
 RATE = 48000
 PERIOD = 480  # 10 ms host buffers
@@ -370,7 +370,7 @@ class StartStopTests(unittest.TestCase):
     """start() and stop() against a fake sounddevice: stream choice, the worker
     thread, and that converted audio reaches the output."""
 
-    def _run(self, hosts, mode):
+    def _run(self, hosts, mode, conversion_thread=None, on_convert=None):
         import sounddevice as sd
 
         from rvc.realtime import ring_transport
@@ -385,9 +385,16 @@ class StartStopTests(unittest.TestCase):
         FakeStream.instances = []
         clock = FakeClock()
         callbacks = IdentityCallbacks(clock, 5.0)
-        callbacks.change_voice = lambda data, *a: (np.asarray(data) * 0.5, 0.0, [0, 0, 0], None)
+
+        def convert(data, *a):
+            if on_convert is not None:
+                on_convert()
+            return np.asarray(data) * 0.5, 0.0, [0, 0, 0], None
+
+        callbacks.change_voice = convert
         audio = RingAudio(callbacks, block_frame=240 * 48, stream_mode=mode,
-                          warmup_timings_ms=[5.0] * 5, algorithmic_delay_ms=150.0)
+                          warmup_timings_ms=[5.0] * 5, algorithmic_delay_ms=150.0,
+                          conversion_thread=conversion_thread)
         patches = [
             patch.object(sd, "query_devices", side_effect=lambda i: devices[i]),
             patch.object(sd, "query_hostapis", side_effect=lambda i: {"name": apis[i]}),
@@ -432,6 +439,32 @@ class StartStopTests(unittest.TestCase):
         self.assertEqual(sorted(s.kind for s in FakeStream.instances), ["input", "output"])
         self.assertTrue(audio.drift_enabled)
         self.assertIn("drift", status)
+
+    def test_the_worker_runs_on_the_thread_that_warmed_up(self):
+        # Compiled CUDA graphs are recorded per thread, so the conversion has to run
+        # where the warm-up did or its first blocks record them again (~1 s).
+        thread = ConversionThread()
+        warmed_on = thread.call(threading.current_thread)
+        seen = set()
+        try:
+            audio, _ = self._run((0, 0), "auto", conversion_thread=thread,
+                                 on_convert=lambda: seen.add(threading.current_thread()))
+            self.assertEqual(seen, {warmed_on})
+            self.assertIsNone(audio._worker)
+            # The thread outlives stop() and still takes work, e.g. a restart.
+            self.assertEqual(thread.call(lambda: 7), 7)
+        finally:
+            thread.close()
+        self.assertFalse(thread._thread.is_alive())
+
+    def test_an_error_on_the_conversion_thread_reaches_the_caller(self):
+        thread = ConversionThread()
+        try:
+            with self.assertRaises(ZeroDivisionError):
+                thread.call(lambda: 1 / 0)
+            self.assertEqual(thread.call(lambda: "still alive"), "still alive")
+        finally:
+            thread.close()
 
     def test_different_hosts_always_use_separate_streams(self):
         audio, status = self._run((0, 1), "auto")

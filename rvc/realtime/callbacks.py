@@ -71,18 +71,32 @@ class AudioCallbacks:
             options=self.options,
         )
         ring = self.options.transport == "ring"
+        # The ring transport converts on a thread of its own, and the warm-up has to
+        # run there too: compiled CUDA graphs are recorded per thread
+        # (rvc/realtime/ring_transport.py, ConversionThread).
+        self.conversion_thread = None
+        if ring:
+            from rvc.realtime.ring_transport import ConversionThread
+
+            self.conversion_thread = ConversionThread()
 
         # Warm up with the same shapes and grad mode as the audio callback, before
         # opening any audio device (rvc/realtime/warmup.py says why it always runs).
         # The ring transport also times a few blocks for its initial output reserve.
         warmup_timings = []
         if not pass_through:
-            warmup_timings = warm_up(
-                self.vc, f0_up_key, index_rate, protect, volume_envelope,
-                f0_autotune, f0_autotune_strength, proposed_pitch,
-                proposed_pitch_threshold,
-                timing_blocks=5 if ring else 0,
-            )
+            run = self.conversion_thread.call if ring else (lambda fn, *a, **kw: fn(*a, **kw))
+            try:
+                warmup_timings = run(
+                    warm_up,
+                    self.vc, f0_up_key, index_rate, protect, volume_envelope,
+                    f0_autotune, f0_autotune_strength, proposed_pitch,
+                    proposed_pitch_threshold,
+                    timing_blocks=5 if ring else 0,
+                )
+            except BaseException:
+                self.close()
+                raise
 
         audio_args = (
             self,
@@ -107,6 +121,7 @@ class AudioCallbacks:
                 block_frame=self.vc.block_frame,
                 stream_mode=self.options.ring_stream_mode,
                 reserve_margin_ms=self.options.ring_reserve_ms,
+                conversion_thread=self.conversion_thread,
                 warmup_timings_ms=warmup_timings,
                 algorithmic_delay_ms=getattr(self.vc.vc_model, "algorithmic_delay_ms", 0.0),
             )
@@ -123,6 +138,12 @@ class AudioCallbacks:
         reset = getattr(self.vc.vc_model, "reset_stream_state", None)
         if reset is not None and not pass_through:
             reset()
+
+    def close(self):
+        """End the ring transport's conversion thread (after audio.stop())."""
+        thread, self.conversion_thread = getattr(self, "conversion_thread", None), None
+        if thread is not None:
+            thread.close()
 
     def reset_stream(self):
         """Reset FCN state after dropped capture samples or reconnection."""

@@ -24,6 +24,7 @@ keeping this branch's device indices, start() signature and status attributes.
 
 from __future__ import annotations
 
+import queue
 import sys
 import threading
 import time
@@ -127,6 +128,67 @@ def trim_quiet(audio, frames):
     return np.concatenate((audio[: start - fade], joined, audio[end:])).astype(np.float32)
 
 
+class _Job(threading.Event):
+    result = None
+    error = None
+
+
+class ConversionThread:
+    """One long-lived thread that runs everything touching the model in a ring
+    session: the warm-up first, then RingAudio's worker loop.
+
+    torch.compile's CUDA graphs (reduce-overhead / max-autotune) are recorded per
+    thread - torch/_inductor/cudagraph_trees.py keeps its trees in a threading.local -
+    so a warm-up on the Gradio thread is lost on a worker thread of its own, and the
+    first blocks there record the graphs again. Measured with the 48k APEX-GAN+ /
+    kushinada / HPA-RMVPE template, everything compiled: 1141 ms and 179 ms for the
+    first two blocks on a fresh thread, then ~60 ms; 64 ms from the first block when
+    the warm-up ran on the same thread. The reserve then planned for the 1141 ms.
+    """
+
+    def __init__(self, name="realtime-ring-worker"):
+        self._jobs = queue.Queue()
+        self._thread = threading.Thread(target=self._run, name=name, daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        while True:
+            item = self._jobs.get()
+            if item is None:
+                return
+            job, fn, args, kwargs = item
+            try:
+                job.result = fn(*args, **kwargs)
+            except BaseException as error:  # noqa: BLE001 - handed to the caller
+                job.error = error
+            job.set()
+
+    @property
+    def is_current(self):
+        return threading.current_thread() is self._thread
+
+    def submit(self, fn, *args, **kwargs):
+        """Queue `fn` to run on this thread; returns an Event set when it is done."""
+        job = _Job()
+        self._jobs.put((job, fn, args, kwargs))
+        return job
+
+    def call(self, fn, *args, **kwargs):
+        """Run `fn` on this thread and wait for it."""
+        if self.is_current:
+            return fn(*args, **kwargs)
+        job = self.submit(fn, *args, **kwargs)
+        job.wait()
+        if job.error is not None:
+            raise job.error
+        return job.result
+
+    def close(self, timeout=5.0):
+        self._jobs.put(None)
+        if not self.is_current:
+            self._thread.join(timeout=timeout)
+
+
 class RingAudio:
     """Drop-in for rvc.realtime.audio.Audio with the ring transport."""
 
@@ -150,6 +212,7 @@ class RingAudio:
         warmup_timings_ms=(),
         algorithmic_delay_ms: float = 0.0,
         reserve_margin_ms: float = None,
+        conversion_thread: ConversionThread = None,
     ):
         self.callbacks = callbacks
         self.f0_up_key = f0_up_key
@@ -171,6 +234,8 @@ class RingAudio:
         self.reserve_margin_ms = (
             BASE_RESERVE_MS if reserve_margin_ms is None else float(reserve_margin_ms)
         )
+        # Where the worker loop runs: the thread that warmed the model up, if given.
+        self.conversion_thread = conversion_thread
 
         # Attributes the Realtime tab reads, as on the legacy Audio.
         self.latency = 0.0
@@ -632,10 +697,13 @@ class RingAudio:
             if self.use_monitor and output_monitor_id is not None:
                 self._open_monitor(query_device(output_monitor_id), exclusive_mode,
                                    asio_output_monitor_channel)
-            self._worker = threading.Thread(
-                target=self._worker_loop, name="realtime-ring-worker", daemon=True
-            )
-            self._worker.start()
+            if self.conversion_thread is not None:
+                self._worker = self.conversion_thread.submit(self._worker_loop)
+            else:
+                self._worker = threading.Thread(
+                    target=self._worker_loop, name="realtime-ring-worker", daemon=True
+                )
+                self._worker.start()
             if not self._input_heartbeat.wait(STARTUP_TIMEOUT_S):
                 raise RuntimeError("Input stream opened but produced no callbacks")
             if not self._output_heartbeat.wait(STARTUP_TIMEOUT_S):
@@ -660,7 +728,10 @@ class RingAudio:
                         pass
                 setattr(self, name, None)
         worker = self._worker
-        if worker is not None and worker.is_alive() and worker is not threading.current_thread():
+        if isinstance(worker, threading.Event):  # a job on the conversion thread
+            if not self.conversion_thread.is_current:
+                worker.wait(timeout=5.0)
+        elif worker is not None and worker.is_alive() and worker is not threading.current_thread():
             worker.join(timeout=5.0)
         self._worker = None
         for ring in (self.input_ring, self.internal_ring, self.output_ring, self.monitor_ring):
