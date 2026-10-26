@@ -18,7 +18,7 @@ config.json
 *.png
 *.safetensors
 !requirements.txt
-!requirementspy313.txt
+!requirements3.14.txt
 !tools/requirements-fcn-validation.txt
 
 assets/audios

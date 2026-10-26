@@ -248,10 +248,84 @@ Applio-3.5.0/
 
 This is a personal fork with the following customizations:
 
-### Python 3.13 + Torch 2.8 Support
-- Upgraded from Python 3.11/3.12 + Torch 2.7.1 to Python 3.13 + Torch 2.8
-- Installation script: `run-install-py313.bat` for Python 3.13 environment
-- Note: mangio-crepe implementation may differ slightly from upstream
+### Two environments: `env` (Python 3.11) and `env314` (Python 3.14 + Torch 2.15)
+Both live side by side so the newer stack can be A/B'd against the one in use; nothing
+in the code tells them apart, and subprocesses follow whichever one started the app
+(`python = sys.executable` in `core.py`).
+
+| | `env` | `env314` |
+|---|---|---|
+| install / launch | `run-install.bat` / `run-applio.bat` | `run-install3.14.bat` / `run-applio3.14.bat` |
+| requirements | `requirements.txt` | `requirements3.14.txt` |
+| Python | 3.11, conda | 3.14, uv-managed CPython in a `uv venv` |
+| torch | 2.13.0+cu132, triton-windows 3.7 | 2.15.0+cu134 (RC, test channel), triton-windows 3.8 |
+
+The interpreter is `env314\Scripts\python.exe`, not `env314\python.exe`. The old
+`run-install-py313.bat` / `requirementspy313.txt` (Python 3.13 + torch 2.8) never worked
+and are gone.
+
+What 3.14 forced, all checked on 2026-10-26:
+- **Python 3.15 is out but unusable**: faiss-cpu, torchaudio (2.11 is its final release),
+  onnxruntime, triton-windows, loudness and webrtcvad-wheels have no cp315 Windows wheel.
+- **No cp314 wheel, so upgraded**: numpy 1.26 -> 2.x, scipy 1.11 -> 1.18, matplotlib
+  3.7 -> 3.11, faiss-cpu 1.7.3 -> 1.15, numba 0.61 -> 0.68, and **transformers 4.44.2 ->
+  4.57.6**, because 4.44.2 needs tokenizers 0.19, which has no cp313/cp314 wheel. 4.57.6
+  is the last 4.x; 5.x was not considered. webrtcvad is replaced by webrtcvad-wheels
+  (same `webrtcvad` module). Pure-python pins that shape behaviour (librosa 0.11.0,
+  gradio 5.23.1, ring-attention-pytorch, swift_f0, torchfcpe, ...) are env's.
+- **triton-windows lags torch.** torch 2.15 pairs with Triton 3.9 and triton-windows has
+  only reached 3.8 (the torch 2.14 one). torch.compile on CUDA works with it anyway -
+  default, reduce-overhead, max-autotune-no-cudagraphs and backward were checked - and
+  `triton-windows>=3.8,<3.10` picks 3.9 up on a re-run once it is released.
+- **FCNF0++ is not installed in env314.** penn imports torbi at package import, and no
+  published torbi wheel has a binary for torch 2.15 (PyPI 1.4.1 stops at 2.11). The
+  fcnf0++ methods therefore fail in env314 with "No module named 'penn'".
+  `tools/build_torbi_wheel.bat` builds the unmodified torbi source (the commit env's
+  wheel came from) against env314's torch into `vendor/torbi/pt215-cu134/`; then
+  uncomment the two lines in `requirements3.14.txt`. **The script has not completed a
+  build yet** (as of 2026-10-26). One trap is known from the attempt: torch's compiler
+  check decodes `cl.exe`'s localized banner as the OEM code page (cp932), while `cl`
+  writes it in the console code page, so under a UTF-8 console (`chcp 65001`) the build
+  dies with "'cp1' codec can't decode bytes". `VSLANG=1033` did not help (no English
+  language pack), so the script switches the console to the OEM code page first.
+- torchvision is not installed in env314: nothing imports it.
+- `distutils.util.strtobool` (gone with distutils in 3.12) is now `rvc/lib/strtobool.py`,
+  matplotlib 3.10's removal of `canvas.tostring_rgb()` is handled in
+  `plot_spectrogram_to_numpy` (pixel-identical under env's 3.7.2), and
+  `assets/i18n/scan.py` no longer uses `ast.Str` (removed in 3.14). All three behave the
+  same in env.
+- `locale.getdefaultlocale` (`assets/i18n/i18n.py`) only warns in 3.14 and is removed in
+  3.15. It is left alone: on Windows `locale.getlocale()` returns `Japanese_Japan`, not
+  `ja_JP`, so it is not a drop-in replacement.
+
+Measured env against env314 on 2026-10-26 (RTX 4090, `logs/reference/reference.wav`):
+- **Tests**: env 711 passed / 3 skipped; env314 692 passed / 8 skipped / 14 failed. 13 of
+  the failures are `tests/test_fcnf0pp.py` without penn. The 14th is
+  `test_hpa_rmvpe.py::test_realtime_compile_matches_eager_on_fixed_windows`, and it is the
+  test's per-window p99, not a regression: the window that trips it has 72 voiced frames,
+  so its p99 is its single worst frame (8.9 c). Over all 2043 frames compiled vs eager
+  agree *better* in env314 (p99 0.060 c against 0.082 c, none over 10 c in either).
+- **Same features**: all five embedders within relative L2 2.2e-5 (min frame cos
+  0.99999996), so transformers 4.57.6 loads them as 4.44.2 does - weight-norm positional
+  conv included. RMVPE F0 identical (0 V/UV flips, max 0.0011 c).
+- **Offline conversion**, seeded, `core.run_infer_script`: rmvpe and hpa-rmvpe are
+  bit-repeatable within each env and differ across the envs by a median 0.24 - 0.27 dB of
+  log-mel (a seed change is ~1.2 dB). crepe-full / mangio-crepe-full are not repeatable even
+  within one env (0.7 - 1.2 dB), and the cross-env difference (~1.1 dB) sits inside that.
+  Warm wall time is the same (rmvpe 1.29 / 1.26 s) or a little faster (crepe-full 1.31 /
+  1.11 s).
+- **Realtime is ~24% faster**: `tools/realtime_stream_eval.py` with an APEX-GAN+ /
+  kushinada / hpa-rmvpe-112000-aligned template, 1080 ms blocks, RVC compiled with
+  reduce-overhead: process p50 75.0 and 72.9 ms in env against 56.1 and 55.9 ms in env314.
+  Output repeatable within each env, 0.12 dB median across them.
+- **Eager training is ~2% slower**: `tools/benchmark_recipe_load.py`, APEX-GAN+, fp16,
+  batch 24, no compile: step 513 / 509 ms in env against 521 / 519 ms in env314; eager
+  inference 56 ms in both. So the realtime gain is the compiled path, not the eager kernels.
+- `logs/` is safely shared: an IVF index written by faiss 1.15 reads in 1.7.3 and back, and
+  a checkpoint saved by torch 2.15 loads bit-identically in 2.13 and back.
+- The app starts in env314 with every tab (Gradio 5.23.1 on 3.14).
+
+Note: mangio-crepe implementation may differ slightly from upstream.
 
 ### Training Tab Enhancements
 - Added `mangio-crepe` as a pitch adjustment algorithm option
@@ -304,6 +378,8 @@ bookkeeping left over from the rename. Verified by comparing the loaded
 `parametrizations.weight.original0/1` against the raw checkpoint's `weight_g`/`weight_v`:
 bit-identical for both `contentvec` and `japanese-hubert-base`. The same warning appears for
 `japanese-hubert-large` and is equally harmless. Do not add a remapping shim for it.
+env314's transformers 4.57.6 loads every embedder to the same features as 4.44.2 (within
+relative L2 2.2e-5), so this holds there too.
 
 ### Measured embedder characteristics
 Measured on `logs/reference/reference.wav` (34.9 s), 1742 frames for every embedder:

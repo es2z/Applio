@@ -256,7 +256,8 @@ FCN-993-RVC の `median_frames` と同じ規則を、FCNF0++ の 10 ms フレー
 - **Windows の torbi は `vendor/torbi` の wheel を使います。** PyPI の torbi 1.4.0 は torch 2.11 / cu130 までのバイナリしか同梱しておらず、torch 2.13 / cu132 では import できません。
   vendor の wheel は公式ソース（commit `ca7732cd`）を無改変でビルドしたもので、SHA-256 は `vendor/torbi/README.md` に記載しています。
   この wheel の torbi は、ピークを持つ posteriorgram で `librosa.sequence.viterbi`（torbi 自身の参照実装）と完全一致しました（T=500）。
-  py313 プロファイル（torch 2.8 / cu128）は PyPI の wheel を使います。
+  Python 3.14 の `env314`（torch 2.15 / cu134）には torch 2.15 用の torbi バイナリがまだ無いので、penn / torbi を入れていません（fcnf0++ 系は使えません）。
+  `tools\build_torbi_wheel.bat` でビルドし、`requirements3.14.txt` の該当2行のコメントを外すと使えます。
 - weights：HuggingFace `maxrmorrison/fcnf0-plus-plus` の `fcnf0++.pt`（revision `74911e26`、107 MB、sha256 `28d89add…`）は Adam の状態を含む学習 checkpoint です。
   `tools/strip_fcnf0pp.py`（初回の prerequisites download でも自動実行）で `model` だけの 35.7 MB にし、
   `rvc/models/predictors/fcnf0++.manifest.json` に sha256 を記録します。読み込みは `weights_only=True` です。実行時に HuggingFace へアクセスすることはありません。

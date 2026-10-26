@@ -7,11 +7,13 @@
 # First-time installation (Python 3.11 + PyTorch 2.7.1)
 run-install.bat
 
-# Python 3.13 + PyTorch 2.8 installation (fork-specific)
-run-install-py313.bat
+# Python 3.14 + PyTorch 2.15 environment (env314, uv, fork-specific)
+run-install3.14.bat
 
 # Launch Applio web interface
 run-applio.bat
+# ... or with the Python 3.14 environment
+run-applio3.14.bat
 
 # Launch TensorBoard
 run-tensorboard.bat
