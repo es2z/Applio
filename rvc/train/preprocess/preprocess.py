@@ -7,7 +7,6 @@ import numpy as np
 import concurrent.futures
 from tqdm import tqdm
 import json
-from distutils.util import strtobool
 import librosa
 import multiprocessing
 import noisereduce as nr
@@ -16,6 +15,7 @@ import soxr
 now_directory = os.getcwd()
 sys.path.append(now_directory)
 
+from rvc.lib.strtobool import strtobool
 from rvc.lib.utils import load_audio
 from rvc.train.preprocess.slicer import Slicer
 

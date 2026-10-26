@@ -4,7 +4,6 @@ import json
 import argparse
 import subprocess
 from functools import lru_cache
-from distutils.util import strtobool
 
 now_dir = os.getcwd()
 sys.path.append(now_dir)
@@ -12,6 +11,7 @@ sys.path.append(now_dir)
 current_script_directory = os.path.dirname(os.path.realpath(__file__))
 logs_path = os.path.join(current_script_directory, "logs")
 
+from rvc.lib.strtobool import strtobool
 from rvc.lib.tools.prerequisites_download import prequisites_download_pipeline
 from rvc.train.process.model_blender import model_blender
 from rvc.train.process.model_information import model_information

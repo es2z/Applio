@@ -6,7 +6,6 @@ import datetime
 import glob
 import json
 from collections import deque
-from distutils.util import strtobool
 from random import randint
 from time import time as ttime
 
@@ -50,6 +49,7 @@ from lr_boost import (
 # Zluda hijack
 import rvc.lib.zluda
 from rvc.lib.algorithm import commons
+from rvc.lib.strtobool import strtobool
 from rvc.lib.utils import embedder_identity_from_model_info
 from rvc.lib.predictors.f0_quantization import recorded_coarse_max
 from rvc.train.process.extract_model import extract_model
