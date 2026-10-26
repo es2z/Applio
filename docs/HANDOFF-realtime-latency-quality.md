@@ -242,7 +242,7 @@ env\python.exe -X utf8 tools\realtime_stream_eval.py --template <テンプレー
 | P3 / P4 / P6 | Protect / APEX ノイズ包絡 / ゲイン | 済（段階 1） |
 | P5 | F0 の後処理（移調後の範囲確認、短いオクターブ跳びの補正） | 未 |
 | M1 | APEX-GAN+ に CQT 判別器（RingFormer+ の `cqt_discriminator.py` を流用） | 未（学習 +16%・VRAM +2.2 GiB 見込み、推論・.pth 変化なし） |
-| M2 | Snake をエイリアシング対策付きに（BigVGAN 式） | 未（試作の CPU 計測でデコーダ 1.6〜1.8 倍、重みは 100% 引き継げる） |
+| M2 | Snake をエイリアシング対策付きに（BigVGAN 式） | 未（試作の CPU 計測でデコーダ単体が学習 約 1.8 倍・推論 約 1.6 倍、ステップ全体で +20〜25% 見込み。重みは 100% 引き継げる） |
 | M3 | Wavehax を新ボコーダとして | 未 |
 | M4 | kushinada を SPIN で話者不変に微調整 | 未（SPIN 自体 1〜3 時間見込み＋再抽出＋事前学習やり直し） |
 | M5 | embedder の出力層を中間層に（`embedder_output_layer` は既にある） | 未（再抽出＋事前学習やり直し） |
