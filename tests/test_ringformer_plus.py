@@ -275,13 +275,19 @@ class DiscriminatorTest(unittest.TestCase):
                 # is a separate requirement (tests/test_apex_gan.py).
                 MultiPeriodDiscriminator(False, version=version, segment_size=17280)
 
-    def test_only_the_cqt_layout_has_cqts_and_it_is_not_always_recorded(self):
+    def test_only_the_cqt_layouts_have_cqts_and_they_are_not_always_recorded(self):
+        # APEX-GAN++'s apex-gan-48k-cqt has the same three CQT discriminators.
         self.assertEqual(
             [v for v in DISCRIMINATOR_VERSIONS if DISCRIMINATOR_VERSIONS[v].get("cqts")],
-            [PLUS_VERSION],
+            [PLUS_VERSION, "apex-gan-48k-cqt"],
         )
-        # No other version has a CQT discriminator, so the weights alone identify it.
+        # Nothing else in the two is alike (a scale discriminator and eight periods
+        # against five periods and sub-bands), so the weights alone identify each.
         self.assertFalse(DISCRIMINATOR_VERSIONS[PLUS_VERSION].get("always_recorded", False))
+        self.assertNotEqual(
+            [d for d in discriminator_layout(PLUS_VERSION) if d[0] != "Q"],
+            [d for d in discriminator_layout("apex-gan-48k-cqt") if d[0] != "Q"],
+        )
 
     def test_the_same_seed_gives_the_shared_ones_and_the_rng_stream_unchanged(self):
         """What makes an A/B against CodenameRingFormer fair from the first step."""

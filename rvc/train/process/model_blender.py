@@ -40,6 +40,19 @@ def model_blender(name, path1, path2, ratio):
             )
             return "The F0 coarse ranges of the two models are not the same."
 
+        # APEX-GAN++'s anti-aliased Snakes leave the weights shaped as an APEX-GAN's, so
+        # the key check below cannot see the difference, but the two compute different
+        # functions with them.
+        antialias1 = bool(ckpt1.get("apex_gan_antialias", False))
+        antialias2 = bool(ckpt2.get("apex_gan_antialias", False))
+        if antialias1 != antialias2:
+            print(
+                f"{path1} and {path2} differ in apex_gan_antialias "
+                f"({antialias1} / {antialias2}): an APEX-GAN++ model cannot be blended "
+                "with another APEX-GAN model."
+            )
+            return "One model is APEX-GAN++ and the other is not."
+
         cfg = ckpt1["config"]
         cfg_f0 = ckpt1["f0"]
         cfg_version = ckpt1["version"]
@@ -79,6 +92,8 @@ def model_blender(name, path1, path2, ratio):
         opt["info"] = message
         opt["vocoder"] = vocoder
         opt["f0_coarse_max"] = coarse1
+        if antialias1:
+            opt["apex_gan_antialias"] = True
 
         torch.save(opt, os.path.join("logs", f"{name}.pth"))
         print(message)

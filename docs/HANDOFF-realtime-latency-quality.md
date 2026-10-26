@@ -241,8 +241,8 @@ env\python.exe -X utf8 tools\realtime_stream_eval.py --template <テンプレー
 | P2 | Index 検索の GPU 化と重み付け（今の `(1/score)²` はほぼ最近傍 1 本） | 未 |
 | P3 / P4 / P6 | Protect / APEX ノイズ包絡 / ゲイン | 済（段階 1） |
 | P5 | F0 の後処理（移調後の範囲確認、短いオクターブ跳びの補正） | 未 |
-| M1 | APEX-GAN+ に CQT 判別器（RingFormer+ の `cqt_discriminator.py` を流用） | 未（学習 +16%・VRAM +2.2 GiB 見込み、推論・.pth 変化なし） |
-| M2 | Snake をエイリアシング対策付きに（BigVGAN 式） | 未（試作の CPU 計測でデコーダ単体が学習 約 1.8 倍・推論 約 1.6 倍、ステップ全体で +20〜25% 見込み。重みは 100% 引き継げる） |
+| M1 | APEX-GAN+ に CQT 判別器（RingFormer+ の `cqt_discriminator.py` を流用） | 済（APEX-GAN++ の判別器 `apex-gan-48k-cqt`、ブランチ `apex-gan-plus-plus`。判別器単体 142 → 186〜201 ms、推論・.pth 変化なし） |
+| M2 | Snake をエイリアシング対策付きに（BigVGAN 式） | 済（APEX-GAN++ の `apex_gan_antialias`。GPU 実測: M1 と合わせて学習 1 ステップ 1.65 倍・+6.2 GiB、compile 無しの推論 2.05 倍、realtime（compile 有り）は +4%。重みは 100% 引き継げるが、学習前の mel L1 は 0.291 → 0.401。CLAUDE.md の APEX-GAN++ 節） |
 | M3 | Wavehax を新ボコーダとして | 未 |
 | M4 | kushinada を SPIN で話者不変に微調整 | 未（SPIN 自体 1〜3 時間見込み＋再抽出＋事前学習やり直し） |
 | M5 | embedder の出力層を中間層に（`embedder_output_layer` は既にある） | 未（再抽出＋事前学習やり直し） |

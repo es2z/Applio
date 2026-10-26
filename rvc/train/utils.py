@@ -144,6 +144,14 @@ def describe_architecture_mismatch(checkpoint, current, subject="it"):
         was, now = checkpoint.get(key), current.get(key)
         if was is not None and now is not None and was != now:
             reasons.append(f"{label} {was} -> {now}")
+    # Generator options change the function but not the weights. A checkpoint that
+    # predates one was trained with its default.
+    from rvc.train.vocoder_recipe import GENERATOR_OPTION_DEFAULTS
+
+    for key, default in GENERATOR_OPTION_DEFAULTS.get(now_vocoder, {}).items():
+        was, now = checkpoint.get(key, default), current.get(key)
+        if now is not None and was != now:
+            reasons.append(f"generator option {key} {was} -> {now}")
     # Unlike the keys above, a checkpoint that predates the stamp has a known value:
     # every extraction since 2025-10-15 quantized coarse F0 up to 1680 Hz.
     now = current.get("f0_coarse_max")
@@ -213,13 +221,14 @@ def assert_resumable(experiment_dir, embedder_identity, architecture_identity=No
             )
         if (
             "discriminator version" in architecture_reason
-            and "vocoder" not in architecture_reason
-        ):
+            or "generator option" in architecture_reason
+        ) and "vocoder" not in architecture_reason:
             print(
-                "For a discriminator change alone (e.g. SiFi-GAN <-> SiFi-GAN+, "
-                "CodenameRingFormer <-> RingFormer+, APEX-GAN <-> APEX-GAN+), tick the "
-                "training reset (重みを引き継いで学習をリセット / --reset_training): it "
-                "keeps the generator and rebuilds the discriminator in the new layout, "
+                "For a discriminator or generator option change alone (e.g. SiFi-GAN <-> "
+                "SiFi-GAN+, CodenameRingFormer <-> RingFormer+, APEX-GAN <-> APEX-GAN+ <-> "
+                "APEX-GAN++), tick the training reset (重みを引き継いで学習をリセット / "
+                "--reset_training): it keeps the generator's weights, records the new "
+                "options on it and rebuilds the discriminator in the new layout, "
                 "inheriting every sub-discriminator the two layouts share."
             )
     print(

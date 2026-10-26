@@ -4,10 +4,11 @@ train.py decides this for the run it is about to start, and reset_run.py has to 
 same thing for the checkpoints it installs ahead of that run, so it lives in one place
 rather than in two that can drift apart.
 
-What the Training tab and --vocoder offer is a training recipe. For every vocoder but three
+What the Training tab and --vocoder offer is a training recipe. For every vocoder but four
 the recipe is just the vocoder's name; SiFi-GAN+ is the SiFi-GAN generator, RingFormer+
 the CodenameRingFormer generator and APEX-GAN+ the APEX-GAN generator, each trained against
-a different discriminator.
+a different discriminator. APEX-GAN++ is the APEX-GAN generator with one of its options on
+(generator_options), against a different discriminator again.
 Everything that builds or describes a generator works with
 generator_vocoder(recipe), so a recipe never reaches Synthesizer, which would quietly build
 a HiFi-GAN decoder for a name it does not know.
@@ -35,11 +36,30 @@ RINGFORMER_PLUS = "RingFormer+"
 # exported models record "APEX-GAN", and only disc_version tells the two recipes apart.
 APEX_GAN_PLUS = "APEX-GAN+"
 
+# APEX-GAN+ with two changes, each continuing from APEX-GAN+'s weights: its Snakes run
+# between BigVGAN's anti-aliasing resamplers (the apex_gan_antialias generator option), and
+# its discriminator gains RingFormer+'s three CQT discriminators ("apex-gan-48k-cqt").
+# Checkpoints and exported models record "APEX-GAN" plus apex_gan_antialias, and
+# disc_version tells it apart from the other two APEX-GAN recipes.
+APEX_GAN_PLUS_PLUS = "APEX-GAN++"
+
 # The generator each recipe trains, when it is not the recipe's own name.
 _GENERATOR_VOCODERS = {
     SIFIGAN_PLUS: SIFIGAN,
     RINGFORMER_PLUS: CODENAME_RINGFORMER,
     APEX_GAN_PLUS: APEX_GAN,
+    APEX_GAN_PLUS_PLUS: APEX_GAN,
+}
+
+# Generator options that change the function but no shape, so the weights cannot tell them
+# apart. Each is keyed by the generator it belongs to and set per recipe; every checkpoint
+# and exported model of that generator records it, and a record that lacks it means the
+# default, which is what every model before the option existed was trained with.
+GENERATOR_OPTION_DEFAULTS = {
+    APEX_GAN: {"apex_gan_antialias": False},
+}
+_GENERATOR_OPTIONS = {
+    APEX_GAN_PLUS_PLUS: {"apex_gan_antialias": True},
 }
 
 # Upstream Applio trains RefineGAN against the v3 discriminator (five periods plus three
@@ -63,6 +83,7 @@ _DISCRIMINATOR_VERSIONS = {
     RINGFORMER_PLUS: "codename-ringformer-cqt",
     APEX_GAN: "apex-gan",
     APEX_GAN_PLUS: "apex-gan-48k",
+    APEX_GAN_PLUS_PLUS: "apex-gan-48k-cqt",
 }
 # Keyed by generator: a recipe that trains the SiFi-GAN generator trains it with SiFi-GAN's
 # losses.
@@ -72,12 +93,13 @@ _MULTISCALE_MEL_LOSS = (REFINEGAN, SIFIGAN)
 # doubled for 48 kHz; at 32 or 40 kHz they would be neither v3 nor 48 kHz's. RingFormer+
 # needs no entry: its CQT discriminators resample to twice the sample rate before the
 # transform, which keeps its ~16.5 kHz top bin below Nyquist at 32, 40 and 48 kHz alike.
-# APEX-GAN has a decoder config for 48 kHz only (rvc/configs/apex_gan/), and so does
-# APEX-GAN+, whose apex-gan-48k is made for 48 kHz as well.
+# APEX-GAN has a decoder config for 48 kHz only (rvc/configs/apex_gan/), and so do
+# APEX-GAN+ and APEX-GAN++, whose resolution discriminators are made for 48 kHz as well.
 _SAMPLE_RATES = {
     SIFIGAN_PLUS: (48000,),
     APEX_GAN: (48000,),
     APEX_GAN_PLUS: (48000,),
+    APEX_GAN_PLUS_PLUS: (48000,),
 }
 
 # Why a recipe in _SAMPLE_RATES is limited, when it is not its discriminator's resolutions.
@@ -97,12 +119,24 @@ _PRETRAINED_DIRS = {
     SIFIGAN_PLUS: "sifi-gan-plus",
     RINGFORMER_PLUS: "ringformer-plus",
     APEX_GAN_PLUS: "apex-gan-plus",
+    APEX_GAN_PLUS_PLUS: "apex-gan-plus-plus",
 }
 
 
 def generator_vocoder(recipe):
     """The vocoder whose generator this recipe trains - what Synthesizer is built with."""
     return _GENERATOR_VOCODERS.get(recipe, recipe)
+
+
+def generator_options(recipe):
+    """The Synthesizer keyword arguments this recipe trains its generator with.
+
+    Every option of the recipe's generator, the recipe's own values over the defaults, so
+    that a checkpoint records each of them explicitly; {} for a generator that has none.
+    """
+    options = dict(GENERATOR_OPTION_DEFAULTS.get(generator_vocoder(recipe), {}))
+    options.update(_GENERATOR_OPTIONS.get(recipe, {}))
+    return options
 
 
 def discriminator_version(recipe):

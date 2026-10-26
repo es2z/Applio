@@ -99,6 +99,7 @@ bf16_adamw = False
 # checkpoints it installs ahead of a run.
 from rvc.train.vocoder_recipe import (
     discriminator_version,
+    generator_options,
     generator_vocoder,
     sample_rate_error,
     uses_multiscale_mel_loss,
@@ -110,6 +111,9 @@ from rvc.train.vocoder_recipe import (
 vocoder = generator_vocoder(training_recipe)
 disc_version = discriminator_version(training_recipe)
 multiscale_mel_loss = uses_multiscale_mel_loss(training_recipe)
+# Options that change the generator's function but no weight (APEX-GAN++'s anti-aliased
+# Snakes), so they are built from the recipe and recorded everywhere the vocoder is.
+vocoder_options = generator_options(training_recipe)
 
 current_dir = os.getcwd()
 
@@ -184,6 +188,7 @@ architecture_identity = {
     "vocoder": vocoder,
     "sample_rate": config.data.sample_rate,
     "disc_version": disc_version,
+    **vocoder_options,
 }
 if vocoder == "SiFi-GAN":
     # The filter network's residual blocks have different shapes in the two variants, so
@@ -284,9 +289,11 @@ def main():
     # by every rank. The values themselves were applied to the HParams at module scope.
     resolve_vocoder_model_config(experiment_dir, config.data.sample_rate, vocoder)
     if training_recipe != vocoder:
+        enabled = [key for key, value in vocoder_options.items() if value]
         print(
-            f"Training recipe {training_recipe}: the {vocoder} generator against "
-            f"discriminator {disc_version}"
+            f"Training recipe {training_recipe}: the {vocoder} generator"
+            + (f" ({', '.join(enabled)})" if enabled else "")
+            + f" against discriminator {disc_version}"
         )
     # Check sample rate
     wavs = glob.glob(
@@ -562,6 +569,7 @@ def run(
         randomized=randomized,
         sifigan_filter_resblock=sifigan_filter_resblock,
         **sifigan_source_scale,
+        **vocoder_options,
     )
 
     net_d = MultiPeriodDiscriminator(
@@ -1325,6 +1333,7 @@ def train_and_evaluate(
                         hps=hps,
                         overtrain_info=overtrain_info,
                         vocoder=vocoder,
+                        generator_options=vocoder_options,
                     )
 
         if checkpoint_keeper is not None:
@@ -1416,6 +1425,7 @@ def keep_checkpoints(epoch, done, net_g, net_d, writer, use_amp, overtrain_info,
             hps=hps,
             overtrain_info=overtrain_info,
             vocoder=vocoder,
+            generator_options=vocoder_options,
         )
 
     def save_gd(g_path, d_path):

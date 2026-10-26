@@ -16,7 +16,12 @@ from rvc.lib.utils import (
     embedder_identity_from_model_info,
 )
 from rvc.train.warm_start import EMBEDDER_PROJECTION_PREFIX, checkpoint_vocoder
-from rvc.train.vocoder_recipe import discriminator_version, generator_vocoder
+from rvc.train.vocoder_recipe import (
+    GENERATOR_OPTION_DEFAULTS,
+    discriminator_version,
+    generator_options,
+    generator_vocoder,
+)
 
 
 def _pid_running(pid):
@@ -130,6 +135,40 @@ def _retarget_coarse(checkpoint, target_coarse_max):
         f"Reset (G): the F0 was re-extracted at a {target_coarse_max:g} Hz coarse range "
         f"and this checkpoint was trained at {source:g} Hz; {PITCH_EMBEDDING_KEY} is "
         "re-indexed so every pitch keeps its embedding. The rest of the generator is kept."
+    )
+    print(message)
+    return message
+
+
+def _retarget_generator_options(checkpoint, target_recipe):
+    """Record the generator options the run that follows trains with.
+
+    They change the function but no weight (APEX-GAN <-> APEX-GAN++), so the weights stay
+    exactly as they are; what has to change is the record, or the next run refuses to
+    resume from a G whose options are not its own. Returns what it did, or None when
+    nothing changed.
+    """
+    if not target_recipe:
+        return None
+    target_vocoder = generator_vocoder(target_recipe)
+    # A record left behind by another vocoder's generator would misdescribe this one.
+    for other, keys in GENERATOR_OPTION_DEFAULTS.items():
+        if other != target_vocoder:
+            for key in keys:
+                checkpoint.pop(key, None)
+    options = generator_options(target_recipe)
+    defaults = GENERATOR_OPTION_DEFAULTS.get(target_vocoder, {})
+    changes = [
+        f"{key} {checkpoint.get(key, defaults.get(key))} -> {value}"
+        for key, value in options.items()
+        if checkpoint.get(key, defaults.get(key)) != value
+    ]
+    checkpoint.update(options)
+    if not changes:
+        return None
+    message = (
+        f"Reset (G): generator option {', '.join(changes)} for {target_recipe}. These "
+        "change what the generator computes but no weight, so every weight is kept."
     )
     print(message)
     return message
@@ -283,6 +322,7 @@ def reset_training_run(
     coarse_transfer = None
     embedder_transfer = None
     generator_transfer = None
+    options_transfer = None
     # Only SiFi-GAN reads these, and they are only consulted when the vocoder changes.
     synthesizer_kwargs = {}
     if sifigan_filter_resblock is not None:
@@ -291,6 +331,8 @@ def reset_training_run(
         synthesizer_kwargs["sifigan_source_scale_init"] = float(
             sifigan_source_scale_init
         )
+    if vocoder:
+        synthesizer_kwargs.update(generator_options(vocoder))
     try:
         # Validate and stage both checkpoints before touching any existing output.
         for tag, source in zip(("G", "D"), sources):
@@ -340,6 +382,7 @@ def reset_training_run(
                 # After any vocoder rebuild, which carries emb_pitch across unchanged
                 # and leaves the source's stamp on the checkpoint.
                 coarse_transfer = _retarget_coarse(checkpoint, target_coarse_max)
+                options_transfer = _retarget_generator_options(checkpoint, vocoder)
             elif target_disc_version is not None:
                 # A new run may combine a G and D from different architectures.
                 # Match D components by meaning, and create optimizer groups for
@@ -398,6 +441,7 @@ def reset_training_run(
             "embedder_transfer": embedder_transfer,
             "coarse_transfer": coarse_transfer,
             "generator_transfer": generator_transfer,
+            "generator_options_transfer": options_transfer,
             "new_epoch": 1,
             "new_global_step": 0,
             "optimizer": "G and D reset",

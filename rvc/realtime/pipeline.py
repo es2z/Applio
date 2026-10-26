@@ -119,6 +119,8 @@ class RealtimeVoiceConverter:
                 sifigan_filter_resblock=self.sifigan_filter_resblock,
                 gen_istft_n_fft=gen_istft_n_fft,
                 gen_istft_hop_size=gen_istft_hop_size,
+                # APEX-GAN++. Its weights are an APEX-GAN's, so only the record says so.
+                apex_gan_antialias=bool(self.cpt.get("apex_gan_antialias", False)),
             )
 
             self.net_g.load_state_dict(self.cpt["weight"], strict=False)

@@ -78,6 +78,7 @@ class Synthesizer(torch.nn.Module):
         sifigan_source_scale_init: float = DEFAULT_SOURCE_SCALE_INIT,
         gen_istft_n_fft: Optional[int] = None,
         gen_istft_hop_size: Optional[int] = None,
+        apex_gan_antialias: bool = False,
         **kwargs,
     ):
         super().__init__()
@@ -185,6 +186,9 @@ class Synthesizer(torch.nn.Module):
                     gen_istft_n_fft=gen_istft_n_fft,
                     gen_istft_hop_size=gen_istft_hop_size,
                     checkpointing=checkpointing,
+                    # APEX-GAN++. The weights are the same either way, so it is read
+                    # from the checkpoint's record rather than from them.
+                    antialias=apex_gan_antialias,
                 )
             else:
                 self.dec = HiFiGANNSFGenerator(

@@ -96,6 +96,20 @@ DISCRIMINATOR_VERSIONS = {
         "subbands": True,
         "always_recorded": True,
     },
+    # What APEX-GAN++ trains against: apex-gan-48k unchanged plus RingFormer+'s three CQT
+    # discriminators, whose bins follow the harmonics on a log frequency axis - the one
+    # view of the spectrum none of the other sub-discriminators has. Everything apex-gan-48k
+    # has is kept so that the CQT is the only discriminator difference from APEX-GAN+.
+    #
+    # Not always_recorded: no other APEX-GAN layout has a CQT discriminator.
+    "apex-gan-48k-cqt": {
+        "scale": False,
+        "periods": [2, 3, 5, 7, 11],
+        "resolutions": [[2048, 240, 1200], [4096, 480, 2400], [1024, 100, 480]],
+        "window": "hann",
+        "cqts": [[512, 9, 24], [256, 9, 36], [256, 9, 48]],
+        "subbands": True,
+    },
 }
 
 # The window every resolution discriminator of a version uses. Absent from v1 to v3, whose

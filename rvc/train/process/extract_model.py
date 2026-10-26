@@ -38,6 +38,7 @@ def extract_model(
     vocoder,
     pitch_guidance=True,
     version="v2",
+    generator_options=None,
 ):
     try:
         model_dir = os.path.dirname(model_path)
@@ -143,6 +144,10 @@ def extract_model(
                 )
                 else "official"
             )
+        # Options that change the generator's function but no weight (APEX-GAN++'s
+        # apex_gan_antialias), so unlike the filter variant above they cannot be read off
+        # the weights. Inference and realtime rebuild the generator from these.
+        opt.update(generator_options or {})
 
         torch.save(
             replace_keys_in_dict(

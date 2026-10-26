@@ -51,6 +51,15 @@ Deliberate differences, none of which change the function or the state_dict:
 
 Only 48 kHz is supported (APEX_GAN_ISTFT): upstream's 32 and 40 kHz configs keep HiFi-GAN's
 four upsampling stages, so their output would be four times the segment.
+
+`antialias` (what APEX-GAN++ trains, off for everything else) is not upstream's: it runs
+every Snake between BigVGAN's 2x anti-aliasing resamplers (rvc/lib/algorithm/alias_free.py),
+so the harmonics a Snake creates above the stage's Nyquist frequency are filtered out rather
+than folded back. The phase reference is upsampled with the same filter, once per stage, and
+put back on the unit circle. The filters are fixed coefficients and non-persistent, so the
+state_dict is the same with and without it and every weight carries across both ways; but
+the function differs, which the weights cannot show, so checkpoints and exported models
+record it as `apex_gan_antialias`.
 """
 
 import math
@@ -66,8 +75,13 @@ from torch.nn.utils.parametrizations import weight_norm
 from torch.nn.utils.parametrize import is_parametrized, remove_parametrizations
 from torch.utils.checkpoint import checkpoint
 
+from rvc.lib.algorithm.alias_free import DownSample1d, UpSample1d
 from rvc.lib.algorithm.conformer.stft import TorchSTFT
 from rvc.lib.algorithm.generators.apex_gan_snake import Snake, snake_kaiming_normal_
+
+# BigVGAN's alias-free activation settings: twice the rate, 12-tap Kaiser sinc filters.
+ANTIALIAS_RATIO = 2
+ANTIALIAS_KERNEL_SIZE = 12
 
 # (gen_istft_n_fft, gen_istft_hop_size) per sample rate. rvc/configs/apex_gan/ holds the
 # same values for the training config; this is the fallback for a checkpoint that did not
@@ -149,6 +163,9 @@ class ResBlock(nn.Module):
     convs1 / convs2 are name for name and shape for shape this repository's ResBlock
     (rvc/lib/algorithm/residuals.py). Only the first Snake of each layer takes beta; the
     second is left plain, upstream's choice to keep the F0 control surface small.
+
+    With antialias every Snake runs at twice the rate between the anti-aliasing resamplers,
+    and beta has to be given at that rate (APEXGANGenerator upsamples it).
     """
 
     def __init__(
@@ -156,12 +173,20 @@ class ResBlock(nn.Module):
         channels: int,
         kernel_size: int = 3,
         dilations: Tuple[int] = (1, 3, 5),
+        antialias: bool = False,
     ):
         super().__init__()
         self.convs1 = self._create_convs(channels, kernel_size, dilations)
         self.convs2 = self._create_convs(channels, kernel_size, [1] * len(dilations))
         self.snakes1 = nn.ModuleList([Snake(channels, init=1.0) for _ in dilations])
         self.snakes2 = nn.ModuleList([Snake(channels, init=1.0) for _ in dilations])
+        # No parameters and no persistent buffers, so the state_dict is unchanged.
+        self.upsample = (
+            UpSample1d(ANTIALIAS_RATIO, ANTIALIAS_KERNEL_SIZE) if antialias else None
+        )
+        self.downsample = (
+            DownSample1d(ANTIALIAS_RATIO, ANTIALIAS_KERNEL_SIZE) if antialias else None
+        )
 
     @staticmethod
     def _create_convs(channels: int, kernel_size: int, dilations):
@@ -174,12 +199,17 @@ class ResBlock(nn.Module):
             self.convs1, self.convs2, self.snakes1, self.snakes2
         ):
             x_residual = x
-            xt = apply_mask(s1(x, beta=beta), x_mask)
+            xt = apply_mask(self._activate(s1, x, beta), x_mask)
             xt = conv1(xt)
-            xt = apply_mask(s2(xt), x_mask)
+            xt = apply_mask(self._activate(s2, xt), x_mask)
             xt = conv2(xt)
             x = apply_mask(xt + x_residual, x_mask)
         return x
+
+    def _activate(self, snake, x, beta=None):
+        if self.upsample is None:
+            return snake(x, beta=beta)
+        return self.downsample(snake(self.upsample(x), beta=beta))
 
     def remove_weight_norm(self):
         for conv in chain(self.convs1, self.convs2):
@@ -337,6 +367,8 @@ class APEXGANGenerator(nn.Module):
         gen_istft_hop_size: hop of both. prod(upsample_rates) * this must equal the
             config's hop_length, or the output will not be segment_size long.
         checkpointing: trade compute for memory in the upsampling stages.
+        antialias: run every Snake between 2x anti-aliasing resamplers (APEX-GAN++).
+            Changes the function but no parameter.
     """
 
     def __init__(
@@ -352,8 +384,10 @@ class APEXGANGenerator(nn.Module):
         gen_istft_n_fft: int = 32,
         gen_istft_hop_size: int = 4,
         checkpointing: bool = False,
+        antialias: bool = False,
     ):
         super().__init__()
+        self.antialias = antialias
         self.num_kernels = len(resblock_kernel_sizes)
         self.num_upsamples = len(upsample_rates)
         self.total_ups_factor = math.prod(upsample_rates)
@@ -415,7 +449,7 @@ class APEXGANGenerator(nn.Module):
             self.phase_convs.append(PhaseProjector(stft_bins, out_ch, stride_f0))
 
             for kk, d in zip(resblock_kernel_sizes, resblock_dilation_sizes):
-                self.resblocks.append(ResBlock(out_ch, kk, d))
+                self.resblocks.append(ResBlock(out_ch, kk, d, antialias=antialias))
 
         final_ch = upsample_initial_channel // (2**self.num_upsamples)
         # [:n_fft // 2 + 1] becomes the magnitude (exp), the rest the phase (sin).
@@ -433,6 +467,20 @@ class APEXGANGenerator(nn.Module):
             hop_length=gen_istft_hop_size,
             win_length=gen_istft_n_fft,
         )
+        # Built last and parameter free, so the same seed still initialises every weight
+        # as upstream's order does.
+        self.beta_upsample = (
+            UpSample1d(ANTIALIAS_RATIO, ANTIALIAS_KERNEL_SIZE) if antialias else None
+        )
+
+    def upsampled_beta(self, beta):
+        """The phase reference at the anti-aliased Snakes' rate, back on the unit circle.
+
+        Shared by every residual block of a stage, as beta itself is.
+        """
+        cos_beta, sin_beta = (self.beta_upsample(part) for part in beta)
+        norm = torch.sqrt(cos_beta * cos_beta + sin_beta * sin_beta + 1e-6)
+        return cos_beta / norm, sin_beta / norm
 
     def forward(
         self,
@@ -490,6 +538,8 @@ class APEXGANGenerator(nn.Module):
             # Aperiodic energy, added; the F0 phase, only ever as a rotation.
             x = x + self.noise_convs[i](har_noise)
             beta = self.phase_convs[i](sine_phase)
+            if self.beta_upsample is not None:
+                beta = self.upsampled_beta(beta)
 
             xs = None
             for j in range(self.num_kernels):

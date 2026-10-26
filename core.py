@@ -2239,6 +2239,9 @@ def parse_arguments():
             # The APEX-GAN generator against apex-gan with its resolution discriminators
             # made for 48 kHz. 48 kHz only. See rvc/train/vocoder_recipe.py.
             "APEX-GAN+",
+            # APEX-GAN+ with anti-aliased Snakes and three CQT discriminators added. 48 kHz
+            # only. See rvc/train/vocoder_recipe.py.
+            "APEX-GAN++",
         ],
         default="HiFi-GAN",
     )

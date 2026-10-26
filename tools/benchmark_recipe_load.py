@@ -164,6 +164,7 @@ def run_worker(args):
     from rvc.train.utils import HParams
     from rvc.train.vocoder_recipe import (
         discriminator_version,
+        generator_options,
         generator_vocoder,
         sample_rate_error,
         uses_multiscale_mel_loss,
@@ -208,6 +209,7 @@ def run_worker(args):
             sr=sample_rate,
             vocoder=vocoder,
             randomized=True,
+            **generator_options(recipe),
         )
     net_d = MultiPeriodDiscriminator(
         raw["model"].get("use_spectral_norm", False),

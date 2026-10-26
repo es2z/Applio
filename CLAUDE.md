@@ -1550,6 +1550,93 @@ To drop the `apex-gan` recipe instead: either keep the name APEX-GAN+, or point 
 on resume and move over with the reset). Keep `apex-gan` itself as a warm start source, and
 move `tests/test_apex_gan.py`'s discriminator tests off it.
 
+### APEX-GAN++ (48k only)
+APEX-GAN+ with the two changes the hand-off notes call M1 and M2
+(`docs/HANDOFF-realtime-latency-quality.md`), both continuing from APEX-GAN+'s weights.
+**An experiment to A/B against APEX-GAN+, not a known improvement**: nothing about how it
+sounds is measured yet.
+
+- **M2, `apex_gan_antialias`**: every Snake of the decoder runs at twice the rate between
+  BigVGAN's anti-aliasing resamplers - 2x up through a 12-tap Kaiser windowed sinc, Snake,
+  the same low pass and decimate (`rvc/lib/algorithm/alias_free.py`, BigVGAN's code line
+  for line, `docs/licenses/alias-free-torch-LICENSE`). A Snake makes harmonics above its
+  stage's Nyquist frequency; without this they fold back as aliasing. Measured on a
+  0.3 fs tone through a Snake at alpha 3, the folded harmonic drops from 48.5 to 7.2. The
+  phase reference is upsampled once per stage with the same filter and put back on the unit
+  circle. The cost of a 12-tap filter: tones above ~0.2 of a stage's rate are attenuated
+  (BigVGAN's trade-off too), and near Nyquist the suppression is weak (0.4 fs: 52 -> 50).
+- **M1, `apex-gan-48k-cqt`**: apex-gan-48k unchanged plus RingFormer+'s three CQT
+  discriminators (`cqt_discriminator.py`), the only sub-discriminators that see the
+  harmonics on a log frequency axis. Everything apex-gan-48k has is kept, so the CQTs are
+  the only discriminator difference from APEX-GAN+.
+
+**It is a recipe and a generator option, not a vocoder.** `generator_vocoder("APEX-GAN++")`
+is APEX-GAN, `discriminator_version` is `apex-gan-48k-cqt`, `pretrained_dir_name` is
+`apex-gan-plus-plus`, 48 kHz only for APEX-GAN's reason. M2 changes the function but **no
+weight** - the filters are non-persistent buffers - so the state_dict is APEX-GAN's key for
+key and the same seed initialises it bit for bit; and the weights therefore cannot say
+whether a model is anti-aliased. So it is recorded, the way nothing else here has to be:
+- `vocoder_recipe.generator_options(recipe)` gives every option of the recipe's generator
+  (`GENERATOR_OPTION_DEFAULTS`, the recipe's values over them): `{"apex_gan_antialias":
+  True}` for APEX-GAN++, `False` for APEX-GAN / APEX-GAN+, `{}` for other generators.
+  train.py builds the Synthesizer with them, puts them in `architecture_identity` (so every
+  `G_*.pth` / `D_*.pth` records them) and hands them to `extract_model`, which writes them
+  into the exported `.pth`.
+- Inference, realtime and the blender read `apex_gan_antialias` back (absent = False, which
+  is every model before this). The blender refuses to mix an anti-aliased model with one
+  that is not. **Older Applio code ignores the key and converts an APEX-GAN++ model as an
+  ordinary APEX-GAN one**, which is the wrong function.
+- `describe_architecture_mismatch` compares generator options with the default for a
+  checkpoint that lacks one, so APEX-GAN+ -> APEX-GAN++ is refused as "discriminator
+  version apex-gan-48k -> apex-gan-48k-cqt; generator option apex_gan_antialias False ->
+  True" with the reset suggested. The reset keeps G bit for bit, re-records the options
+  (`_retarget_generator_options`, logged and in `reset.json`) and rebuilds D through the
+  common warm start.
+
+Warm starts (`tests/test_apex_gan_plus_plus.py` pins each): from APEX-GAN+ G 100% and D
+99.5% (all twelve shared sub-discriminators, the three CQTs fresh); back to APEX-GAN+ only
+the CQTs are dropped; from a RingFormer+ D even the CQTs come (same CQTs at the same rate),
+only the sub-band discriminators start fresh.
+
+**Same weights, different function, measured before any step.** The real
+`naru_20261015_48k_APEXPlus_..._kushinada/G_2333333.pth` on 16 of its own clips,
+posterior-encoder path, mel L1: 0.291 as APEX-GAN+, **0.401** anti-aliased (+38%, every clip
+between 1.27x and 1.85x). For scale, APEX-GAN from scratch is 3.69 and HiFi-GAN warm started
+0.36, so the inherited weights are still worth almost everything, and the gap is what the
+fine-tune has to close. How fast it closes is unmeasured.
+
+**Cost, measured** (RTX 4090, env314 / torch 2.15, `tools/benchmark_recipe_load.py --model
+naru_20261015_48k_APEXPlus_1100_rmvpe112ali_kushinada --recipes APEX-GAN+ APEX-GAN++`, fp16,
+batch 24 x 2 s, no compile, two alternating runs):
+
+| | step median (ms) | peak allocated (GiB) | D alone (ms) | inference, 10 s fp32 (ms) |
+|---|---|---|---|---|
+| APEX-GAN+ | 522.1 / 521.4 | 10.82 | 141.9 / 141.5 | 56.1 / 56.6 |
+| APEX-GAN++ | 852.3 / 866.4 | 17.06 | 186.0 / 200.7 | 114.8 / 115.2 |
+
+So a training step costs **1.65x** and 6.2 GiB more at batch 24, and eager inference 2.05x -
+heavier than the CPU prototype's estimate (+20-25% a step, decoder 1.6x), because on the GPU
+the 2x-rate Snake dominates: one anti-aliased Snake at the last stage's 128 x 4321 x 24 is
+~9.6 ms forward + backward in fp16. Writing the filters differently does not help (channels
+folded into the batch 9.0 ms, polyphase 9.4 ms); only a fused up / Snake / down kernel, as
+BigVGAN ships, would, and none is written. **Realtime barely notices**, because it is
+compiled: `tools/realtime_stream_eval.py` with the APEX-GAN+ / kushinada / hpa-rmvpe
+template and its model marked anti-aliased, 1080 ms blocks, process p50 56.6 / 57.5 ms ->
+59.2 / 59.1 ms (+4%).
+
+Verified end to end through `core.py` on a scratch copy of 64 clips of that folder: APEX-GAN++
+refused to resume its APEX-GAN+ G with both reasons and the reset hint; `--reset_training`
+kept G, recorded `apex_gan_antialias` and rebuilt D; two epochs trained and stamped
+`vocoder: APEX-GAN` / `disc_version: apex-gan-48k-cqt` / `apex_gan_antialias: True` into G, D
+and the exported model; a third epoch resumed; and `core.py infer` converted the 34.86 s
+reference clip to 34.84 s.
+
+**Removing it later.** Its Training tab choice and help entry (en_US / ja_JA keys too), the
+`--vocoder` choice, `APEX_GAN_PLUS_PLUS` with its table rows in `vocoder_recipe.py`, this
+section and `tests/test_apex_gan_plus_plus.py`. Keep `apex-gan-48k-cqt` for as long as any
+such D may be warm started from or reset, and keep reading `apex_gan_antialias` (and the
+`antialias` decoder path) for as long as any such model may be converted.
+
 ### Warm starting across embedders and vocoders
 `rvc/train/warm_start.py` is the single place that decides what a pretrained G / D may
 contribute. It works from meaning, not from shape equality:
