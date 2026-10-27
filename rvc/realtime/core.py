@@ -12,12 +12,20 @@ sys.path.append(now_dir)
 from rvc.realtime.utils.torch import circular_write
 from rvc.realtime.utils.vad import VADProcessor
 from rvc.realtime.pipeline import create_pipeline
-from rvc.realtime.options import RealtimeOptions
+from rvc.realtime.options import RealtimeOptions, context_window_extra_frames
 from rvc.realtime.resample import StatefulResampler
 from rvc.realtime.io_processing import InputHighpass, LevelMeter, gate_fade_out
 
 SAMPLE_RATE = 16000
 AUDIO_SAMPLE_RATE = 48000
+
+
+def push_history(new_data, target):
+    """circular_write that also takes a block longer than the history (keeps its end)."""
+    if new_data.shape[0] >= target.shape[0]:
+        target.copy_(new_data[-target.shape[0] :])
+        return target
+    return circular_write(new_data, target)
 
 
 def silence_blocks_to_stop(convert_size_16k, block_frame_16k):
@@ -223,6 +231,20 @@ class Realtime:
             trim,
         )
         self.block_frame_16k = block_frame_16k
+        # The input-level gain's RMS span: block + crossfade (audio_buffer) as always,
+        # or a fixed length so it does not shrink with Chunk Size. It has its own input
+        # history, written exactly like audio_buffer, so it may be longer than the
+        # conversion window.
+        self.gain_span_16k = None
+        self.gain_buffer = None
+        if self.options.gain_span_s > 0:
+            self.gain_span_16k = max(
+                self.window_size, int(round(self.options.gain_span_s * self.sample_rate))
+            )
+            self.gain_buffer = torch.zeros(
+                self.gain_span_16k, dtype=self.dtype, device=self.device
+            )
+        self.convert_size_16k = convert_size_16k
         # How far behind the newest input the played audio starts, from the window
         # layout alone (no devices, no processing): measured by the identity tests.
         self.algorithmic_delay_ms = (
@@ -244,6 +266,8 @@ class Realtime:
             self.pitch_buffer.zero_()
         if self.pitchf_buffer is not None:
             self.pitchf_buffer.zero_()
+        if getattr(self, "gain_buffer", None) is not None:
+            self.gain_buffer.zero_()
         # As always, a flush also restarts the count of silent input blocks - which,
         # in steady room tone, reopens the gate for silence_blocks_to_stop blocks of
         # converted room tone after every flush. "gate_hold" keeps it closed until the
@@ -295,6 +319,8 @@ class Realtime:
                 torch.as_tensor(audio_input, dtype=torch.float32, device=self.device)
             ).to(self.dtype)
         circular_write(audio_input_16k, self.audio_buffer)
+        if getattr(self, "gain_buffer", None) is not None:
+            push_history(audio_input_16k, self.gain_buffer)
 
         vol_t = torch.sqrt(torch.square(self.audio_buffer).mean())
         vol = max(vol_t.item(), 0)
@@ -374,6 +400,11 @@ class Realtime:
         # Continue outputting even if input is silent
         if self.options.gain_mode == "aligned":
             gain = self.aligned_gain(audio_model.shape[0])
+        elif getattr(self, "gain_buffer", None) is not None:
+            # One gain per block, as always, but from the newest gain span of the input
+            # rather than the newest block + crossfade. With a span of exactly block +
+            # crossfade this is the legacy gain, bit for bit.
+            gain = torch.sqrt(torch.sqrt(torch.square(self.gain_buffer).mean()))
         else:
             gain = torch.sqrt(vol_t)
         audio_out: torch.Tensor = self.resample_out(audio_model * gain)
@@ -386,16 +417,22 @@ class Realtime:
         """sqrt(RMS) of the input, as the legacy gain uses, but measured around each
         moment it is applied to rather than over the newest block for the whole window.
 
-        The RMS is averaged over the same span the legacy gain uses (block + crossfade),
-        centred on each 10 ms frame of the rendered region, so a steady voice gets the
-        legacy level and only the timing changes.
+        The RMS is averaged over the same span the legacy gain uses (block + crossfade,
+        or the fixed gain span when one is set), centred on each 10 ms frame of the
+        rendered region, so a steady voice gets the legacy level and only the timing
+        changes.
         """
         hop = self.window_size
         frames = self.convert_buffer.shape[0] // hop
         power = (
             self.convert_buffer[: frames * hop].float().reshape(frames, hop).square().mean(1)
         )
-        span = max(1, self.audio_buffer.shape[0] // hop)
+        span_samples = (
+            self.gain_span_16k
+            if getattr(self, "gain_span_16k", None) is not None
+            else self.audio_buffer.shape[0]
+        )
+        span = max(1, span_samples // hop)
         cumulative = torch.cat((power.new_zeros(1), power.cumsum(0)))
         index = torch.arange(frames, device=power.device)
         low = (index - span // 2).clamp(min=0)
@@ -451,6 +488,23 @@ class VoiceChanger:
         self.crossfade_frame = int(cross_fade_overlap_size * AUDIO_SAMPLE_RATE)
         self.extra_frame = int(extra_convert_size * AUDIO_SAMPLE_RATE)
         self.sola_search_frame = AUDIO_SAMPLE_RATE // 100
+        # "context_window_s": the window is held at a fixed length and Extra Conversion
+        # Size is whatever the block, crossfade, SOLA and look-ahead leave of it.
+        self.context_window_extra_frame = context_window_extra_frames(
+            self.options, self.block_frame, self.crossfade_frame, self.sola_search_frame
+        )
+        if self.context_window_extra_frame is not None:
+            self.extra_frame = self.context_window_extra_frame
+            print(
+                f"[Realtime] Conversion window held at {self.options.context_window_s:.2f} s: "
+                f"Extra Conversion Size {self.extra_frame / AUDIO_SAMPLE_RATE:.3f} s "
+                f"(the slider's {extra_convert_size:.2f} s is not used)."
+            )
+        elif self.options.context_window_s > 0:
+            print(
+                "[Realtime] The fixed conversion window applies to the trim output "
+                "position only; Extra Conversion Size is used as set."
+            )
         self.sola_buffer = None
         self.vc_model = Realtime(
             model_path=model_path,
@@ -489,6 +543,21 @@ class VoiceChanger:
 
     def level_status(self):
         return self.levels.status()
+
+    def layout_status(self):
+        """The fixed window and gain span, for the status line; empty when both are off."""
+        model = self.vc_model
+        parts = []
+        if self.context_window_extra_frame is not None:
+            parts.append(
+                "conversion window {:.0f} ms (past context {:.0f} ms)".format(
+                    model.convert_size_16k / SAMPLE_RATE * 1000.0,
+                    model.skip_head * model.window_size / SAMPLE_RATE * 1000.0,
+                )
+            )
+        if getattr(model, "gain_span_16k", None) is not None:
+            parts.append("gain span {:.0f} ms".format(model.gain_span_16k / SAMPLE_RATE * 1000.0))
+        return (" | " + ", ".join(parts)) if parts else ""
 
     def generate_strength(self):
         self.fade_in_window: torch.Tensor = (

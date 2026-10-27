@@ -272,7 +272,7 @@ class RealtimeTemplateManager:
         for name, value in zip(FIELD_ORDER, options.values()):
             update = gr.update(value=value)
             # Dependent controls follow their parent's visibility in the tab.
-            if name == "lookahead_s":
+            if name in ("lookahead_s", "context_window_s"):
                 update = gr.update(value=value, visible=options.output_position == "trim")
             elif name == "apex_noise_voiced_ratio":
                 update = gr.update(value=value, visible=options.apex_noise_envelope == "fixed")

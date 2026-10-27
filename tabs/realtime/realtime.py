@@ -30,6 +30,8 @@ from rvc.realtime.options import (
     RING_STREAM_MODES,
     TRANSPORTS,
     RealtimeOptions,
+    chunk_independent_options,
+    snap_read_chunk_size,
 )
 from rvc.realtime.core import AUDIO_SAMPLE_RATE
 from rvc.configs.config_utils import load_config, save_config, update_nested_config
@@ -457,6 +459,9 @@ def start_realtime(
     yield i18n("Preparing realtime inference. Initial compilation may take time when TorchCompile is enabled."), interactive_false, interactive_false
 
     read_chunk_size = int(chunk_size * AUDIO_SAMPLE_RATE / 1000 / 128)
+    # Only with the time-locked options on: they need whole 10 ms frames, so the chunk
+    # is moved to the nearest 40 ms rather than the options being dropped for the run.
+    read_chunk_size, chunk_snapped = snap_read_chunk_size(read_chunk_size, options)
 
     sid = int(sid) if sid is not None else 0
 
@@ -536,6 +541,13 @@ def start_realtime(
         ", ".join(changed) if changed else "legacy",
         getattr(callbacks.vc.vc_model, "algorithmic_delay_ms", 0.0),
     )
+    layout_status = getattr(callbacks.vc, "layout_status", None)
+    if layout_status is not None:
+        seed_status += layout_status()
+    if chunk_snapped:
+        seed_status += " | chunk {:.0f} ms (moved to a multiple of 40 ms)".format(
+            read_chunk_size * 128 / AUDIO_SAMPLE_RATE * 1000.0
+        )
     yield (
         "Realtime is ready!" + seed_status + compile_session.status(),
         interactive_false,
@@ -1117,7 +1129,7 @@ def realtime_tab():
                         )
                         opt_lookahead = gr.Slider(
                             minimum=0.0,
-                            maximum=0.3,
+                            maximum=1.0,
                             step=0.01,
                             value=default_options.lookahead_s,
                             label=i18n("Look-ahead (s)"),
@@ -1287,6 +1299,38 @@ def realtime_tab():
                             ),
                             interactive=True,
                         )
+                    gr.Markdown(
+                        i18n(
+                            "Keeping the sound when Chunk Size is lowered: set Chunk Size, Crossfade and Extra to the values that sound right, press the button below, then lower Chunk Size only. docs/realtime-options-voice-guide.md explains what it changes."
+                        )
+                    )
+                    with gr.Row():
+                        opt_context_window = gr.Slider(
+                            minimum=0.0,
+                            maximum=10.0,
+                            step=0.01,
+                            value=default_options.context_window_s,
+                            label=i18n("Fixed conversion window (s)"),
+                            info=i18n(
+                                "trim only. 0 = off. The whole window (past context + chunk + crossfade + SOLA + look-ahead) is held at this length and Extra Conversion Size is worked out from it, so a shorter chunk becomes past context instead of a shorter window."
+                            ),
+                            visible=default_options.output_position == "trim",
+                            interactive=True,
+                        )
+                        opt_gain_span = gr.Slider(
+                            minimum=0.0,
+                            maximum=5.0,
+                            step=0.01,
+                            value=default_options.gain_span_s,
+                            label=i18n("Gain averaging span (s)"),
+                            info=i18n(
+                                "0 = as always: the input-level gain is averaged over chunk + crossfade, so it follows the input faster (and pumps more) at a shorter chunk. Above 0: averaged over this span whatever the chunk."
+                            ),
+                            interactive=True,
+                        )
+                    keep_sound_button = gr.Button(
+                        i18n("Keep the current chunk's sound at a shorter chunk")
+                    )
                 option_controls = [
                     opt_output_position,
                     opt_lookahead,
@@ -1306,12 +1350,39 @@ def realtime_tab():
                     opt_clip_stage,
                     opt_gate_fade,
                     opt_gate_hold,
+                    opt_context_window,
+                    opt_gain_span,
                 ]
                 assert len(option_controls) == len(OPTION_FIELDS)
                 opt_output_position.change(
-                    fn=lambda value: gr.update(visible=value == "trim"),
+                    fn=lambda value: (
+                        gr.update(visible=value == "trim"),
+                        gr.update(visible=value == "trim"),
+                    ),
                     inputs=[opt_output_position],
-                    outputs=[opt_lookahead],
+                    outputs=[opt_lookahead, opt_context_window],
+                )
+
+                def keep_sound_at_shorter_chunk(chunk_ms, crossfade_s, extra_s, *values):
+                    """Fill in the options that hold the current layout's window, minimum
+                    look-ahead and gain span, so Chunk Size alone can be lowered next."""
+                    current = RealtimeOptions.from_values(*values)
+                    data = chunk_independent_options(current, chunk_ms, crossfade_s, extra_s)
+                    gr.Info(
+                        i18n(
+                            "Set: trim, look-ahead {lookahead} s, conversion window {window} s, gain span {span} s, time-locked noise, sine phase continuity, stateful input. Now lower Chunk Size only (multiples of 40 ms), then Start."
+                        ).format(
+                            lookahead=data["lookahead_s"],
+                            window=data["context_window_s"],
+                            span=data["gain_span_s"],
+                        )
+                    )
+                    return template_manager.extract_option_updates({"experimentTab": data})
+
+                keep_sound_button.click(
+                    fn=keep_sound_at_shorter_chunk,
+                    inputs=[chunk_size, cross_fade_overlap_size, extra_convert_size, *option_controls],
+                    outputs=option_controls,
                 )
                 opt_apex_noise_envelope.change(
                     fn=lambda value: gr.update(visible=value == "fixed"),

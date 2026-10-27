@@ -20,10 +20,23 @@ where to listen:
 Presets are realtime option sets (rvc/realtime/options.py); each is complete, so an
 option it does not name is off. Built in: legacy (all off), template (the template's
 own options), trim, stage1 (trim + stateful input resampling + aligned gain), locked (stage1 + time
--locked noise, phase continuity, F0 cache and the fixed APEX-GAN noise envelope). A
-preset of the form name=JSON may also override chunk_ms, crossfade_s and extra_s.
-Everything else (model, index, F0 method, embedder, pitch, index rate, protect, chunk,
-crossfade, extra, VAD) comes from --template, or from the flags below.
+-locked noise, phase continuity, F0 cache and the fixed APEX-GAN noise envelope), fixed
+(what the Realtime tab's "keep the current chunk's sound at a shorter chunk" button sets,
+worked out from the template's own chunk / crossfade / extra with everything else off). A
+preset of the form name=JSON may also override chunk_ms, crossfade_s and extra_s, and
+name@N runs a built-in preset at a chunk of N ms. Everything else (model, index, F0
+method, embedder, pitch, index rate, protect, chunk, crossfade, extra, VAD) comes from
+--template, or from the flags below.
+
+Does a shorter chunk keep the sound? With the template at the chunk that sounds right:
+
+    --preset legacy --preset fixed@240 --preset fixed@160 --preset legacy@240 \\
+        --compare-to legacy
+
+- mel_vs_<name> (with --compare-to): log-mel distance from that preset's output, lined
+  up for the two delays. The generator's random noise differs between any two layouts,
+  so this never reaches 0; legacy@N against fixed@N at the same N says how far each
+  moved from the reference.
 """
 
 import argparse
@@ -56,21 +69,54 @@ BUILT_IN_PRESETS = {
         "phase_continuity": True,
         "f0_cache": True,
     },
+    # Worked out in main() from the template's layout (chunk_independent_options).
+    "fixed": {"__chunk_independent__": True},
 }
 LAYOUT_KEYS = ("chunk_ms", "crossfade_s", "extra_s")
+CHUNK_INDEPENDENT = "__chunk_independent__"
 
 
 def parse_preset(text):
     if "=" in text:
         name, body = text.split("=", 1)
         return name.strip(), json.loads(body)
-    if text not in BUILT_IN_PRESETS:
+    base, chunk = text, None
+    if "@" in text:
+        base, chunk = text.split("@", 1)
+        try:
+            chunk = float(chunk)
+        except ValueError:
+            raise SystemExit(f"Preset {text!r}: the part after @ is a chunk in ms")
+    if base not in BUILT_IN_PRESETS:
         raise SystemExit(
             f"Unknown preset {text!r}; built in: {', '.join(BUILT_IN_PRESETS)}, "
-            "or give name=JSON"
+            "or give name=JSON or name@chunk_ms"
         )
-    preset = BUILT_IN_PRESETS[text]
-    return text, None if preset is None else dict(preset)
+    preset = BUILT_IN_PRESETS[base]
+    if chunk is None:
+        return text, None if preset is None else dict(preset)
+    if preset is None:
+        raise SystemExit(f"Preset {text!r}: 'template' cannot take a chunk; use name=JSON")
+    return text, {**preset, "chunk_ms": chunk}
+
+
+def resolve_options(body, settings):
+    """The option dict a parsed preset stands for, given the template settings."""
+    body = dict(settings["options"]) if body is None else dict(body)
+    if body.pop(CHUNK_INDEPENDENT, False):
+        from rvc.realtime.options import RealtimeOptions, chunk_independent_options
+
+        layout = {key: body[key] for key in LAYOUT_KEYS if key in body}
+        body = {
+            **chunk_independent_options(
+                RealtimeOptions(),
+                settings["chunk_ms"],
+                settings["crossfade_s"],
+                settings["extra_s"],
+            ),
+            **layout,
+        }
+    return body
 
 
 def load_template(name):
@@ -175,12 +221,28 @@ def offline_reference(settings, input_path, output_path):
     return audio.astype(np.float32)
 
 
+def compare_runs(stream_eval, outputs, reference_name):
+    """Add mel_vs_<reference> to every run of one input, lined up for the two delays."""
+    reference, reference_row = outputs[reference_name]
+    key = f"mel_vs_{reference_name}"
+    for name, (output, row) in outputs.items():
+        if name == reference_name:
+            continue
+        expected = (row["delay_ms"] - reference_row["delay_ms"]) * 48
+        lag = stream_eval.align(reference, output, expected)
+        row[key] = stream_eval.mel_distance(reference, output, lag)
+        print(f"  {name}: {key} {row[key]:.4f} (lag {lag / 48.0:+.0f} ms)")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--template", help="realtime template name (templates/real_time)")
     parser.add_argument("--input", action="append", required=True)
     parser.add_argument("--preset", action="append", default=[])
     parser.add_argument("--offline", action="store_true", help="also convert offline and compare")
+    parser.add_argument(
+        "--compare-to", help="a preset name given with --preset; every run is compared to its output"
+    )
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--out-dir")
     for name in ("model", "index", "f0_method", "embedder"):
@@ -212,6 +274,8 @@ def main():
         raise SystemExit("No model: give --template or --model")
 
     presets = [parse_preset(text) for text in (args.preset or ["legacy", "stage1"])]
+    if args.compare_to and args.compare_to not in [name for name, _ in presets]:
+        raise SystemExit(f"--compare-to {args.compare_to!r} is not one of the --preset names")
     out_dir = args.out_dir or os.path.join(
         "logs", "stream_eval", datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     )
@@ -233,8 +297,9 @@ def main():
             reference_path = os.path.join(out_dir, f"{stem}__offline.wav")
             print(f"[offline] {reference_path}")
             reference = offline_reference(settings, input_path, reference_path)
+        outputs = {}
         for name, body in presets:
-            body = dict(settings["options"]) if body is None else dict(body)
+            body = resolve_options(body, settings)
             layout = {key: body.pop(key) for key in LAYOUT_KEYS if key in body}
             # A preset is a complete option set: anything it does not name is off.
             options = body
@@ -265,6 +330,7 @@ def main():
                 lag = stream_eval.align(reference, output, runtime.algorithmic_delay_ms * 48)
                 row["lag_ms"] = lag / 48.0
                 row["mel_vs_offline"] = stream_eval.mel_distance(reference, output, lag)
+            outputs[name] = (output, row)
             results["runs"].append(row)
             print(
                 "  block {block_ms:.0f} ms  delay {delay_ms:.0f} ms  process p50/p95 "
@@ -274,6 +340,8 @@ def main():
             del changer
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+        if args.compare_to:
+            compare_runs(stream_eval, outputs, args.compare_to)
 
     with open(os.path.join(out_dir, "results.json"), "w", encoding="utf-8") as handle:
         json.dump(results, handle, ensure_ascii=False, indent=2)

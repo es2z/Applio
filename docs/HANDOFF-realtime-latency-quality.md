@@ -60,9 +60,12 @@
    **P4 は今までのものも使えるように**して比べられるように。**基本的に音色が悪化する可能性を
    危惧している**」→ 全部オプトインにした理由。
 4. 「ブランチ切って実行して。結果はローカルの Claude Code を交えながら聴きながら確認する」
-5. 最新: 残りのロードマップ図表と質問への回答（Docs「リアルタイム変換 残りのロードマップと
+5. 残りのロードマップ図表と質問への回答（Docs「リアルタイム変換 残りのロードマップと
    追加の回答」https://claude.ai/artifact/TiXtbJ32xmk8aASq81WY29）、
    **IO1〜IO5 で音質に悪影響の可能性があるものは選択式（初期値オフ）に**、この引き継ぎ文書。
+6. 「今は Chunk を 1080 ms まで増やしている。伸ばすほど音質が上がる実感がある。なぜか」
+   「**バッファーを直接減らしても音質を維持したい**」→ 段階 5（チャンクに依存しない設定と
+   ボタン）。理由の説明は `docs/realtime-latency-quality.md` の段階 5。
 
 ---
 
@@ -95,7 +98,8 @@
 | `474bc1c` | 2 | ring 転送とドリフト補正（L2・L5・A1、A4 の一部） |
 | `d076ba7` | 3 | ノイズ・正弦波の位相・F0 を時刻に固定（S2・S3・S4） |
 | `ac3ec1b` | 4 | 入力ハイパス（IO1）、クリップ位置（IO4）、ゲートのフェードと保持（IO5）、潜在ノイズの温度（P1）、レベル表示 |
-| （この文書のコミット） | — | 引き継ぎ文書、`tools/realtime_e2e_compare.py` |
+| `c338e58` ほか | — | 引き継ぎ文書、`tools/realtime_e2e_compare.py`、声のガイド |
+| （段階 5 のコミット） | 5 | 変換ウィンドウの長さの固定、ゲインの平均の長さ、「今のチャンクの音のまま短くする」ボタン、時刻固定オン時のチャンクの 40 ms 丸め、`realtime_stream_eval.py` の `fixed` / `@N` / `--compare-to` |
 
 ### オプション一覧（`FIELD_ORDER` の順。UI の `option_controls` と同じ順でなければならない）
 
@@ -119,8 +123,12 @@
 | `clip_stage` | generator | IO4。output: 生成器の出力は切らず、最終出力だけ ±1 |
 | `gate_fade_ms` | 0 | IO5。無音ゲートが閉じるとき、続くはずの音をフェードアウト |
 | `gate_hold` | False | IO5。無音中にゲートが周期的に開く既存の挙動（6 章）を止める |
+| `context_window_s` | 0 | 段階 5。trim のとき、窓全体をこの長さに固定し Extra を自動で決める（`context_window_extra_frames`） |
+| `gain_span_s` | 0 | 段階 5。ゲインの RMS をこの長さで測る。窓とは別の入力履歴（`gain_buffer`）。ブロック + Crossfade と同じ値なら従来とビット一致 |
 
-時刻固定の 3 つは **Chunk が 40 ms の倍数**のときだけ有効（960 は対象）。
+時刻固定の 3 つは **Chunk が 40 ms の倍数**のときだけ有効（960 は対象）。段階 5 から、これらが
+オンのときは `snap_read_chunk_size` がチャンクを最も近い 40 ms の倍数に丸めて開始する
+（オフなら従来どおり丸めない）。
 
 ### 主なファイル
 
@@ -139,7 +147,8 @@
 - `rvc/realtime/stream_eval.py`, `tools/realtime_stream_eval.py` オフライン A/B（デバイス不要）。
 - `tabs/realtime/realtime.py`, `tabs/realtime/template.py`、i18n は `assets/i18n/languages/{ja_JA,en_US}.json`。
 - テスト: `tests/test_realtime_options.py`, `test_realtime_synthesis.py`, `test_realtime_ring_transport.py`,
-  `test_realtime_io.py`（既存の `test_realtime_silence_and_seed.py`, `test_realtime_compile_session.py` も通過）。
+  `test_realtime_io.py`, `test_realtime_chunk_independence.py`（既存の `test_realtime_silence_and_seed.py`,
+  `test_realtime_compile_session.py` も通過）。
 
 ---
 
@@ -148,7 +157,7 @@
 ### テスト（CPU で動く、GPU・重み不要）
 
 ```
-env\python.exe -m pytest -q tests\test_realtime_options.py tests\test_realtime_synthesis.py tests\test_realtime_ring_transport.py tests\test_realtime_io.py tests\test_realtime_silence_and_seed.py tests\test_realtime_compile_session.py
+env\python.exe -m pytest -q tests\test_realtime_options.py tests\test_realtime_synthesis.py tests\test_realtime_ring_transport.py tests\test_realtime_io.py tests\test_realtime_chunk_independence.py tests\test_realtime_silence_and_seed.py tests\test_realtime_compile_session.py
 env\python.exe -m pytest -q tests\test_apex_gan.py
 ```
 
@@ -219,6 +228,22 @@ env\python.exe -X utf8 tools\realtime_stream_eval.py --template <テンプレー
   - 出力レベル: 出力 = 生成器の出力（±1 で切る）× √(入力 RMS) なので、Output Gain 100% なら
     出力のピークは √(入力 RMS) を超えない（入力 RMS -20 dBFS なら -10 dBFS 以下）。
     ユーザーの「リミッタが効くほど出ていない」という認識はおそらく正しい。
+- **段階 5（チャンクを下げても音を保つ）**:
+  - legacy でチャンクが長いほど良く聞こえる主な理由: (1) Index が各ブロックの頭の Extra 分に
+    かからない（1080 ms で 20%、240 ms で 92%）、(2) 窓の先頭を再生するのでブロックの頭に過去の
+    文脈が無い、(3) 窓が短くなる（kushinada の窓ごとの正規化も揺れる）、(4) ゲインの平均区間が
+    短くなり揺れる（合成信号で 1080 ms 2.6 dB/秒 → 160 ms 4.9 dB/秒）、(5) つなぎ目が増え、毎回
+    乱数と位相が変わる。未来の文脈の最短（370 ms）はチャンクで変わらない。
+  - ボタン（`chunk_independent_options`）は今の配置から値を計算する: 先読み = 今の Extra
+    （未来の最短を合わせる）、窓 = 今の窓の長さ、ゲイン = 今のブロック + Crossfade、
+    時刻固定 2 種と stateful をオン。声そのものを変える設定（ノイズ包絡、P1、F0 キャッシュ、
+    ゲイン方式）は触らない。今の窓のまま押して同じチャンクで Start すると、配置は従来とほぼ同じ
+    （1080 ms なら skip_head = 0）で、違いは Index が全体にかかることと時刻固定・stateful だけ。
+  - ゲインの平均は窓とは別の履歴にした。窓（従来 240 ms で 608 ms）より長い平均を取れるように。
+  - 丸め: 時刻固定がオンなのに 40 ms の倍数でないと、従来はその機能を黙って無効にしていた。
+    スライダーが 1 ms 刻みなので、オン時だけ丸めるようにした。
+  - 残る依存: 未来の文脈の平均（1080 ms の従来は平均 910 ms、240 ms では 490 ms）、Index の量、
+    1 秒あたりの処理量（チャンクに反比例）、つなぎ目の回数。
 
 ---
 
@@ -228,10 +253,10 @@ env\python.exe -X utf8 tools\realtime_stream_eval.py --template <テンプレー
 |---|---|---|
 | L1 / L4 | 出力位置の修正 / 先読みの独立 | 済（段階 1） |
 | L2 / L5 | リングバッファ化 / 別ストリームのドリフト補正 | 済（段階 2） |
-| L3 | ブロックを 960 → 480 → 240 ms に短縮 | 未（設定だけで試せる。前提は済） |
+| L3 | ブロックを 960 → 480 → 240 ms に短縮 | 前提は済（段階 5 のボタン）。実機の確認は未 |
 | L6 | デバイスと OS の設定（同じホスト API、NVIDIA の電源管理を最大パフォーマンス） | 未（設定） |
 | S0 | ストリーミングによる劣化を測る仕組み | 済（`tools/realtime_stream_eval.py`） |
-| S1 | 過去の文脈を約 2.5 s に（trim なら Extra を増やしても遅延は増えない） | 未（設定のみ） |
+| S1 | 過去の文脈を約 2.5 s に（trim なら Extra を増やしても遅延は増えない） | 一部（段階 5 は「今の窓の長さ」に固定する。2.5 s にするなら窓を手で上げる） |
 | S2 / S3 / S4 | ノイズ / 位相 / F0 を時刻に固定 | 済（段階 3） |
 | S5 | 48→16 kHz の状態付き変換（= IO3） | 済（段階 1） |
 | S6 | embedder の入力正規化（窓ごとの平均 0・分散 1）を安定させる | 未（S1 でかなり揃う見込み） |
@@ -300,8 +325,11 @@ Start ごとに声が変わる）→ ほかの設定 → main との直接比較
    次に `apex_noise_envelope` の window と fixed（有声率は `tools/apex_noise_voiced_ratio.py`）。
 3. 実機で `transport = ring`（auto → 必要なら separate）。ステータスの xruns と `est. total`、
    レベル表示を見る。話し終わりのノイズが気になれば `gate_fade_ms = 30` と `gate_hold`。
-4. 良ければ L3（Chunk を 480 → 240 ms）と S1（Extra 2.5 s）を設定だけで試す。
-   処理時間 p95 がチャンクより十分短いこと、時刻固定のために 40 ms の倍数にすることに注意。
+4. **ユーザーの最新の要望**: 1080 ms の音のままチャンクを下げる。1080 ms の設定のまま段階 5 の
+   ボタンを押し、まず 1080 ms のまま従来と比べ、次にチャンクだけを 480 → 240 → 160 ms。
+   オフラインでは `realtime_stream_eval.py --preset legacy --preset fixed@1080 --preset fixed@240
+   --preset legacy@240 --compare-to legacy`。処理時間 p95 がチャンクより十分短いことを確認。
+   違いが出たら先読みを上げる、Index Rate を少し下げる、の順。
 5. 学習側は、今の事前学習の重みから続けられる M1・M2 が試しやすい。M4・M5 は特徴量空間が
    変わるので、同じ回の事前学習でまとめて比べる。
 

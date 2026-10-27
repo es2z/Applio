@@ -12,8 +12,9 @@ Realtime タブ > Performance Settings > **遅延・音質の実験的オプシ�
   テンプレートを読み込むと、全オプションが初期値（= 従来動作）になります。
 - Start 後のステータスに `Options: <初期値から変えた項目>` と
   `window delay <ms>`（変換ウィンドウ自体が生む遅延）が出ます。
-- 入力のハイパス（レポートの IO1）は、ノイズ除去済みで音色が変わる懸念があるため
-  **実装していません**。
+- 入力のハイパス（レポートの IO1）は、ノイズ除去済みで音色が変わる懸念があるため当初は
+  見送り、段階 4 で選択式（初期値オフ）として追加しました。
+- チャンクサイズを下げても音を保つための設定は段階 5 にあります。
 
 ## 遅延の内訳（Chunk 960 ms で 2 秒を超えていた理由）
 
@@ -254,6 +255,99 @@ Level: generator peak -6.2 dBFS (max -3.1, 0 blocks over 0 dBFS) | output peak -
   ビルドが必要）、手元に入っている noisereduce のスペクトルゲートは、外部の
   ノイズ除去より品質が劣ります。
 
+## 段階 5: チャンクサイズを下げても音を保つ（`context_window_s`、`gain_span_s`）
+
+### 従来の配置で、チャンクが長いほど良く聞こえる理由
+
+従来（legacy）の配置では、次のものがチャンクサイズで変わります。数値は Crossfade 0.138 s /
+Extra 0.22 s のとき。
+
+| | Chunk 1080 ms | Chunk 240 ms | 理由 |
+|---|---|---|---|
+| Index がかからない部分 | 各ブロックの 20% | **92%** | legacy は Index を Extra より後ろにだけ混ぜるが、再生するのは窓の先頭のブロック。各ブロックの最初の Extra（220 ms）には Index が入らない |
+| 再生する音が持つ過去の文脈 | 0〜1080 ms（平均 540） | 0〜240 ms（平均 120） | 窓の先頭を再生するので、ブロックの頭は過去の音声を知らないまま変換される |
+| 変換ウィンドウの長さ | 1448 ms | 608 ms | embedder・F0・テキストエンコーダが一度に見る長さ。kushinada / japanese-hubert-large は窓ごとに平均 0・分散 1 に正規化するので、短い窓ほど正規化の基準が揺れる |
+| ゲインを平均する長さ | 1218 ms | 378 ms | 出力 = 生成器の出力 × √(入力 RMS)。RMS はブロック + Crossfade で測る |
+| ゲインの揺れ（合成信号での実測） | 2.6 dB/秒 | 4.1 dB/秒（160 ms で 4.9） | 4 Hz の音節状のノイズで、ブロック間のゲイン変化を 1 秒あたりに直したもの |
+| つなぎ目 | 0.9 回/秒 | 4.2 回/秒 | つなぎ目ごとに、別々に変換した 2 つの音をクロスフェードする。乱数ノイズは毎ブロック引き直し、APEX-GAN の正弦波の位相は毎回 0 から |
+
+再生する音が参照できる未来の音声は、どちらも最短 370 ms（ブロックの終わり）で、チャンクでは
+変わりません。
+
+### 何をどう固定するか
+
+画面の「今のチャンクの音のまま、チャンクを短くできる設定にする」ボタンが、今のチャンク・
+Crossfade・Extra から次を設定します（`chunk_independent_options`）。
+
+| 設定 | 値 | 固定するもの |
+|---|---|---|
+| 出力位置 | trim | 最新のブロックを再生し、Index を再生するすべてのフレームに混ぜる。古い側は過去の文脈になる |
+| 先読み | 今の Extra（0.22 s） | 再生する音が参照できる未来の最短値を、従来のブロックの終わりと同じ 370 ms にする |
+| 変換ウィンドウの長さを固定（`context_window_s`） | 今の窓の長さ（1.45 s） | embedder・F0 が見る長さ。チャンクを短くした分は Extra（過去の文脈）に回る |
+| ゲインの平均をとる長さ（`gain_span_s`） | 今のブロック + Crossfade（1.22 s） | ゲインの揺れ方。窓とは別の入力履歴で測るので、窓より長くてもよい |
+| ノイズを時刻に固定、正弦波の位相を連続 | オン | つなぎ目の両側の音が同じノイズ・同じ位相で作られる。1 本の長いブロックと同じ状態 |
+| 入力の 48→16 kHz 変換 | stateful | つなぎ目ごとのリサンプルの不連続 |
+
+- 声そのものを変える設定（APEX-GAN ノイズ包絡、潜在ノイズの温度、F0 キャッシュ、ゲインの方式）は
+  変えません。
+- 時刻固定の設定はブロックが 10 ms の整数倍である必要があるので、これらがオンのときは
+  **チャンクを最も近い 40 ms の倍数に丸めて**開始します（ステータスに出ます）。以前は丸めずに
+  時刻固定をそのセッションだけ無効にしていました。
+- ステータスに `conversion window 1450 ms (past context … ms), gain span 1220 ms` が出ます。
+- 基準テンプレート（Crossfade 0.138 / Extra 0.22）で 1080 ms のときにボタンを押すと、窓 1.45 s・
+  先読み 0.22 s・ゲイン 1.22 s になり、チャンクを 1080 / 480 / 240 / 160 ms にしても
+  変換ウィンドウは 1450 ms、ウィンドウ遅延は 370 ms のまま、過去の文脈が 0 / 600 / 840 / 920 ms に
+  増えます（恒等モデルでの実測、`tests/test_realtime_chunk_independence.py`）。
+- ゲインの平均を 1.22 s にすると、160 ms でもゲインの揺れは 2.95 dB/秒（1080 ms の従来は 2.62、
+  160 ms の従来は 4.94）。
+
+### 遅延（基準テンプレート、1080 ms から下げる場合の目安）
+
+| | 従来 1080 ms | ボタン + 240 ms | ボタン + 240 ms + ring |
+|---|---|---|---|
+| ブロックを集める | 1080 | 240 | 240 |
+| ウィンドウ遅延 | 370 | 370 | 370 |
+| 出力側の待ち | 約 1080 | 約 240 | 処理時間 p95 + 10 ms 程度 |
+| 合計（目安） | 約 2.5 s | 約 0.85 s | 約 0.7 s |
+
+ウィンドウ遅延は「先読み + Crossfade + SOLA」で、先読みを今の Extra にしているので従来と同じです。
+さらに縮めたい場合は先読みを下げます（音への影響は段階 1 の trim と同じ）。
+
+### それでもチャンクで変わるもの
+
+1. **未来の文脈の平均**: 最短は従来と同じ 370 ms ですが、従来の 1080 ms ではブロックの頭が
+   1450 ms 先まで参照できていました（平均 910 ms）。240 ms では 370〜610 ms（平均 490 ms）。
+   語頭・語尾で差が出たら先読みを増やします（遅延に 1:1 で加算）。
+2. **Index の量**: trim は再生するすべてのフレームに Index を混ぜます。従来の 1080 ms は
+   各ブロックの 80% だけだったので、Index 寄りの声になる可能性があります。違和感があれば
+   Index Rate を少し下げて比べます（例: 0.5 → 0.4）。
+3. **処理の重さ**: 窓の長さは固定なので 1 ブロックの処理時間はほぼ一定、1 秒あたりの処理量は
+   チャンクに反比例します。ステータスの処理時間（ring なら p95）がチャンクより十分短いことを
+   確かめてください。目安は 1.5 s の窓で embedder 約 13 ms・RMVPE 約 19 ms（RTX 4090、
+   CLAUDE.md の実測）に生成器の時間が加わります。実機での計測はまだです。
+4. **つなぎ目の回数**: 時刻固定でも、つなぎ目の両側は文脈の違う 2 回の変換なので完全には
+   一致しません。回数はチャンクに反比例して増えます。
+5. **ゲインの段差**: ゲインの方式が legacy なら、ゲインはブロックごとに 1 つです（変化は
+   Crossfade で滑らかになる）。
+
+### 確かめ方
+
+1. 今の良い音の設定（例: 1080 ms）のままボタンを押し、**まず 1080 ms のまま** Start して、
+   従来と同じか確かめます。この時点の違いは Index の量と時刻固定・stateful だけです。
+2. チャンクだけを 480 → 240 → 160 ms と下げて聴き比べます。
+3. オフラインで比べる場合:
+
+```
+env\python.exe -X utf8 tools\realtime_stream_eval.py --template <テンプレート名> --input voice.wav ^
+    --preset legacy --preset fixed@1080 --preset fixed@240 --preset fixed@160 --preset legacy@240 ^
+    --compare-to legacy
+```
+
+`fixed` はボタンと同じ設定（テンプレートのチャンク・Crossfade・Extra から計算、ほかの
+オプションは初期値）、`@N` はチャンク N ms で実行。`mel_vs_legacy` はテンプレートの従来の音との
+log-mel 距離です。乱数が違うので 0 にはならず、同じチャンクの `legacy@240` と `fixed@240` の
+どちらが近いかを見ます。
+
 ## A/B の手順
 
 ### 1. オフライン（デバイスなし、同じ録音で比較）
@@ -268,7 +362,9 @@ env\python.exe -X utf8 tools\realtime_stream_eval.py --template <テンプレー
 
 - 組み込みプリセット: `legacy`（全オプション初期値）、`template`（テンプレートに保存した
   オプション）、`trim`、`stage1`（trim + stateful + aligned）、`locked`
-  （stage1 + ノイズ fixed + 時刻固定 3 種）。
+  （stage1 + ノイズ fixed + 時刻固定 3 種）、`fixed`（段階 5 のボタンと同じ設定）。
+  `legacy@240` のように `@` の後にチャンク（ms）を付けると、そのチャンクで実行します。
+- `--compare-to <プリセット名>`: 各出力と、そのプリセットの出力との log-mel 距離（`mel_vs_<名前>`）。
 - 任意の組み合わせ: `--preset "fixed065={\"output_position\": \"trim\", \"apex_noise_envelope\": \"fixed\", \"apex_noise_voiced_ratio\": 0.65}"`
   （`chunk_ms` / `crossfade_s` / `extra_s` も上書き可）。プリセットは完全な設定で、
   書いていないオプションは初期値です。
@@ -300,9 +396,11 @@ env\python.exe -X utf8 tools\realtime_stream_eval.py --template <テンプレー
 
 ## ファイル
 
-- `rvc/realtime/options.py`: オプション（UI の並び順 = `FIELD_ORDER`）
-- `rvc/realtime/core.py`: 窓の配置（trim / 先読み）、stateful 入力、aligned ゲイン、
-  `algorithmic_delay_ms`
+- `rvc/realtime/options.py`: オプション（UI の並び順 = `FIELD_ORDER`）、段階 5 のボタンの
+  計算（`chunk_independent_options`）、窓の固定（`context_window_extra_frames`）、
+  チャンクの丸め（`snap_read_chunk_size`）
+- `rvc/realtime/core.py`: 窓の配置（trim / 先読み / 窓の固定）、stateful 入力、aligned ゲイン、
+  ゲインの平均の長さ、`algorithmic_delay_ms`
 - `rvc/realtime/pipeline.py`: `configure_stream`、Protect の有声判定、
   時刻固定の状態（ノイズ、位相、F0 キャッシュ）
 - `rvc/realtime/synthesis.py`: trim 用の生成呼び出し（`Synthesizer.infer` と同じ計算で、
@@ -315,4 +413,5 @@ env\python.exe -X utf8 tools\realtime_stream_eval.py --template <テンプレー
 - `rvc/realtime/stream_eval.py`, `tools/realtime_stream_eval.py`: オフライン A/B
 - `tools/apex_noise_voiced_ratio.py`: 学習データの有声率
 - テスト: `tests/test_realtime_options.py`, `tests/test_realtime_synthesis.py`,
-  `tests/test_realtime_ring_transport.py`, `tests/test_realtime_io.py`
+  `tests/test_realtime_ring_transport.py`, `tests/test_realtime_io.py`,
+  `tests/test_realtime_chunk_independence.py`

@@ -472,5 +472,12 @@
     "Fade when the silence gate closes (ms, IO5)": "無音ゲートが閉じるときのフェード（ms、IO5）",
     "0 = off: the output is cut from the last converted sample to silence. Above 0: the audio that would have followed is faded out over this time instead.": "0 = オフ: 最後に変換した音からそのまま無音に切り替わります。0 より大きいと、続くはずだった音をこの長さでフェードアウトさせます。",
     "Keep the gate closed through silence (IO5)": "無音のあいだゲートを閉じたままにする（IO5）",
-    "Off (as always): every buffer flush during silence reopens the silence gate for a few blocks, so steady room tone comes out as short faint bursts. On: the gate stays closed until the input is no longer silent.": "オフ（従来どおり）: 無音中にバッファを消去するたび無音ゲートが数ブロック開き、一定の部屋の雑音が短く小さな音のかたまりとして出ます。オン: 入力が無音でなくなるまでゲートを閉じたままにします。"
+    "Off (as always): every buffer flush during silence reopens the silence gate for a few blocks, so steady room tone comes out as short faint bursts. On: the gate stays closed until the input is no longer silent.": "オフ（従来どおり）: 無音中にバッファを消去するたび無音ゲートが数ブロック開き、一定の部屋の雑音が短く小さな音のかたまりとして出ます。オン: 入力が無音でなくなるまでゲートを閉じたままにします。",
+    "Keeping the sound when Chunk Size is lowered: set Chunk Size, Crossfade and Extra to the values that sound right, press the button below, then lower Chunk Size only. docs/realtime-options-voice-guide.md explains what it changes.": "チャンクサイズを下げても音を保つには: チャンクサイズ・クロスフェード重複サイズ・追加変換サイズを今の良い音の値にしたまま下のボタンを押し、そのあとチャンクサイズだけを下げます。何が変わるかは docs/realtime-options-voice-guide.md にあります。",
+    "Fixed conversion window (s)": "変換ウィンドウの長さを固定 (秒)",
+    "trim only. 0 = off. The whole window (past context + chunk + crossfade + SOLA + look-ahead) is held at this length and Extra Conversion Size is worked out from it, so a shorter chunk becomes past context instead of a shorter window.": "trim のみ。0 = オフ。ウィンドウ全体（過去の文脈 + チャンク + クロスフェード + SOLA + 先読み）をこの長さに固定し、追加変換サイズはそこから自動で決めます。チャンクを短くした分はウィンドウが縮むのではなく、過去の文脈に回ります。",
+    "Gain averaging span (s)": "ゲインの平均をとる長さ (秒)",
+    "0 = as always: the input-level gain is averaged over chunk + crossfade, so it follows the input faster (and pumps more) at a shorter chunk. Above 0: averaged over this span whatever the chunk.": "0 = 従来どおり: 入力音量によるゲインを チャンク + クロスフェード の長さで平均するため、チャンクが短いほど入力に速く追従し、音量の揺れが増えます。0 より大きいと、チャンクに関係なくこの長さで平均します。",
+    "Keep the current chunk's sound at a shorter chunk": "今のチャンクの音のまま、チャンクを短くできる設定にする",
+    "Set: trim, look-ahead {lookahead} s, conversion window {window} s, gain span {span} s, time-locked noise, sine phase continuity, stateful input. Now lower Chunk Size only (multiples of 40 ms), then Start.": "設定しました: trim、先読み {lookahead} 秒、変換ウィンドウ {window} 秒、ゲインの平均 {span} 秒、ノイズを時刻に固定、正弦波の位相を連続、入力 stateful。あとはチャンクサイズだけを下げて（40 ms の倍数）Start してください。"
 }
