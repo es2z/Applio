@@ -1,0 +1,1594 @@
+[
+ {
+  "set": "heldout",
+  "file": "heldout\\1_heldout.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 604.2,
+  "end_s": 637.39
+ },
+ {
+  "set": "train",
+  "file": "train\\1_000.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 1.99,
+  "end_s": 16.13
+ },
+ {
+  "set": "train",
+  "file": "train\\1_001.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 16.35,
+  "end_s": 29.55
+ },
+ {
+  "set": "train",
+  "file": "train\\1_002.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 30.02,
+  "end_s": 42.7
+ },
+ {
+  "set": "train",
+  "file": "train\\1_003.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 42.88,
+  "end_s": 57.65
+ },
+ {
+  "set": "train",
+  "file": "train\\1_004.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 57.76,
+  "end_s": 72.31
+ },
+ {
+  "set": "train",
+  "file": "train\\1_005.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 72.43,
+  "end_s": 83.99
+ },
+ {
+  "set": "train",
+  "file": "train\\1_006.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 84.72,
+  "end_s": 96.57
+ },
+ {
+  "set": "train",
+  "file": "train\\1_007.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 96.89,
+  "end_s": 111.07
+ },
+ {
+  "set": "train",
+  "file": "train\\1_008.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 111.62,
+  "end_s": 126.57
+ },
+ {
+  "set": "train",
+  "file": "train\\1_009.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 126.92,
+  "end_s": 139.35
+ },
+ {
+  "set": "train",
+  "file": "train\\1_010.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 141.26,
+  "end_s": 154.93
+ },
+ {
+  "set": "train",
+  "file": "train\\1_011.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 155.54,
+  "end_s": 166.41
+ },
+ {
+  "set": "train",
+  "file": "train\\1_012.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 168.19,
+  "end_s": 179.85
+ },
+ {
+  "set": "train",
+  "file": "train\\1_013.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 180.5,
+  "end_s": 189.97
+ },
+ {
+  "set": "train",
+  "file": "train\\1_014.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 190.67,
+  "end_s": 205.16
+ },
+ {
+  "set": "train",
+  "file": "train\\1_015.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 205.79,
+  "end_s": 218.69
+ },
+ {
+  "set": "train",
+  "file": "train\\1_016.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 219.21,
+  "end_s": 231.32
+ },
+ {
+  "set": "train",
+  "file": "train\\1_017.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 231.69,
+  "end_s": 244.07
+ },
+ {
+  "set": "train",
+  "file": "train\\1_018.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 244.97,
+  "end_s": 258.68
+ },
+ {
+  "set": "train",
+  "file": "train\\1_019.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 259.15,
+  "end_s": 271.61
+ },
+ {
+  "set": "train",
+  "file": "train\\1_020.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 272.26,
+  "end_s": 284.63
+ },
+ {
+  "set": "train",
+  "file": "train\\1_021.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 285.31,
+  "end_s": 296.7
+ },
+ {
+  "set": "train",
+  "file": "train\\1_022.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 296.98,
+  "end_s": 310.56
+ },
+ {
+  "set": "train",
+  "file": "train\\1_023.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 311.29,
+  "end_s": 323.3
+ },
+ {
+  "set": "train",
+  "file": "train\\1_024.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 324.03,
+  "end_s": 337.64
+ },
+ {
+  "set": "train",
+  "file": "train\\1_025.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 338.56,
+  "end_s": 350.67
+ },
+ {
+  "set": "train",
+  "file": "train\\1_026.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 351.36,
+  "end_s": 361.19
+ },
+ {
+  "set": "train",
+  "file": "train\\1_027.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 361.69,
+  "end_s": 372.44
+ },
+ {
+  "set": "train",
+  "file": "train\\1_028.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 373.0,
+  "end_s": 385.99
+ },
+ {
+  "set": "train",
+  "file": "train\\1_029.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 386.86,
+  "end_s": 400.63
+ },
+ {
+  "set": "train",
+  "file": "train\\1_030.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 400.88,
+  "end_s": 414.0
+ },
+ {
+  "set": "train",
+  "file": "train\\1_031.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 414.74,
+  "end_s": 424.4
+ },
+ {
+  "set": "train",
+  "file": "train\\1_032.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 424.99,
+  "end_s": 435.12
+ },
+ {
+  "set": "train",
+  "file": "train\\1_033.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 435.52,
+  "end_s": 445.46
+ },
+ {
+  "set": "train",
+  "file": "train\\1_034.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 446.94,
+  "end_s": 453.97
+ },
+ {
+  "set": "train",
+  "file": "train\\1_035.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 454.89,
+  "end_s": 465.69
+ },
+ {
+  "set": "train",
+  "file": "train\\1_036.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 466.18,
+  "end_s": 478.55
+ },
+ {
+  "set": "train",
+  "file": "train\\1_037.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 480.09,
+  "end_s": 488.37
+ },
+ {
+  "set": "train",
+  "file": "train\\1_038.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 489.19,
+  "end_s": 500.44
+ },
+ {
+  "set": "train",
+  "file": "train\\1_039.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 501.13,
+  "end_s": 515.27
+ },
+ {
+  "set": "train",
+  "file": "train\\1_040.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 515.56,
+  "end_s": 530.38
+ },
+ {
+  "set": "train",
+  "file": "train\\1_041.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 530.49,
+  "end_s": 542.57
+ },
+ {
+  "set": "train",
+  "file": "train\\1_042.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 542.88,
+  "end_s": 549.24
+ },
+ {
+  "set": "train",
+  "file": "train\\1_043.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 551.59,
+  "end_s": 563.3
+ },
+ {
+  "set": "train",
+  "file": "train\\1_044.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 563.92,
+  "end_s": 576.62
+ },
+ {
+  "set": "train",
+  "file": "train\\1_045.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 577.09,
+  "end_s": 591.34
+ },
+ {
+  "set": "train",
+  "file": "train\\1_046.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\1.wav",
+  "channel": 0,
+  "start_s": 592.19,
+  "end_s": 603.35
+ },
+ {
+  "set": "train",
+  "file": "train\\2_000.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\2.wav",
+  "channel": 0,
+  "start_s": 2.24,
+  "end_s": 14.84
+ },
+ {
+  "set": "train",
+  "file": "train\\2_001.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\2.wav",
+  "channel": 0,
+  "start_s": 15.34,
+  "end_s": 28.6
+ },
+ {
+  "set": "train",
+  "file": "train\\2_002.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\2.wav",
+  "channel": 0,
+  "start_s": 28.89,
+  "end_s": 42.78
+ },
+ {
+  "set": "train",
+  "file": "train\\2_003.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\2.wav",
+  "channel": 0,
+  "start_s": 43.12,
+  "end_s": 56.54
+ },
+ {
+  "set": "train",
+  "file": "train\\2_004.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\2.wav",
+  "channel": 0,
+  "start_s": 57.13,
+  "end_s": 68.34
+ },
+ {
+  "set": "train",
+  "file": "train\\2_005.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\2.wav",
+  "channel": 0,
+  "start_s": 69.36,
+  "end_s": 82.75
+ },
+ {
+  "set": "train",
+  "file": "train\\2_006.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\2.wav",
+  "channel": 0,
+  "start_s": 83.28,
+  "end_s": 96.24
+ },
+ {
+  "set": "train",
+  "file": "train\\2_007.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\2.wav",
+  "channel": 0,
+  "start_s": 96.36,
+  "end_s": 109.43
+ },
+ {
+  "set": "train",
+  "file": "train\\2_008.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\2.wav",
+  "channel": 0,
+  "start_s": 110.67,
+  "end_s": 123.37
+ },
+ {
+  "set": "train",
+  "file": "train\\2_009.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\2.wav",
+  "channel": 0,
+  "start_s": 124.17,
+  "end_s": 133.84
+ },
+ {
+  "set": "train",
+  "file": "train\\2_010.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\2.wav",
+  "channel": 0,
+  "start_s": 134.47,
+  "end_s": 148.65
+ },
+ {
+  "set": "train",
+  "file": "train\\2_011.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\2.wav",
+  "channel": 0,
+  "start_s": 149.07,
+  "end_s": 162.87
+ },
+ {
+  "set": "train",
+  "file": "train\\2_012.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\2.wav",
+  "channel": 0,
+  "start_s": 163.72,
+  "end_s": 173.21
+ },
+ {
+  "set": "train",
+  "file": "train\\3_000.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 1.83,
+  "end_s": 15.36
+ },
+ {
+  "set": "train",
+  "file": "train\\3_001.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 15.63,
+  "end_s": 29.24
+ },
+ {
+  "set": "train",
+  "file": "train\\3_002.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 29.71,
+  "end_s": 40.86
+ },
+ {
+  "set": "train",
+  "file": "train\\3_003.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 41.03,
+  "end_s": 55.72
+ },
+ {
+  "set": "train",
+  "file": "train\\3_004.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 56.47,
+  "end_s": 71.02
+ },
+ {
+  "set": "train",
+  "file": "train\\3_005.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 71.75,
+  "end_s": 82.97
+ },
+ {
+  "set": "train",
+  "file": "train\\3_006.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 84.47,
+  "end_s": 99.6
+ },
+ {
+  "set": "train",
+  "file": "train\\3_007.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 99.74,
+  "end_s": 107.91
+ },
+ {
+  "set": "train",
+  "file": "train\\3_008.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 108.25,
+  "end_s": 115.14
+ },
+ {
+  "set": "train",
+  "file": "train\\3_009.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 116.25,
+  "end_s": 124.75
+ },
+ {
+  "set": "train",
+  "file": "train\\3_010.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 125.05,
+  "end_s": 138.1
+ },
+ {
+  "set": "train",
+  "file": "train\\3_011.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 138.72,
+  "end_s": 147.54
+ },
+ {
+  "set": "train",
+  "file": "train\\3_012.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 148.27,
+  "end_s": 161.58
+ },
+ {
+  "set": "train",
+  "file": "train\\3_013.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 162.41,
+  "end_s": 176.9
+ },
+ {
+  "set": "train",
+  "file": "train\\3_014.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 177.21,
+  "end_s": 191.3
+ },
+ {
+  "set": "train",
+  "file": "train\\3_015.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 191.65,
+  "end_s": 206.2
+ },
+ {
+  "set": "train",
+  "file": "train\\3_016.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 206.91,
+  "end_s": 219.96
+ },
+ {
+  "set": "train",
+  "file": "train\\3_017.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 220.68,
+  "end_s": 234.99
+ },
+ {
+  "set": "train",
+  "file": "train\\3_018.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 235.41,
+  "end_s": 246.49
+ },
+ {
+  "set": "train",
+  "file": "train\\3_019.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 247.09,
+  "end_s": 259.43
+ },
+ {
+  "set": "train",
+  "file": "train\\3_020.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 259.98,
+  "end_s": 272.96
+ },
+ {
+  "set": "train",
+  "file": "train\\3_021.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\3.wav",
+  "channel": 0,
+  "start_s": 273.37,
+  "end_s": 276.29
+ },
+ {
+  "set": "heldout",
+  "file": "heldout\\4_heldout.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 567.37,
+  "end_s": 599.68
+ },
+ {
+  "set": "train",
+  "file": "train\\4_000.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 1.6,
+  "end_s": 16.59
+ },
+ {
+  "set": "train",
+  "file": "train\\4_001.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 17.26,
+  "end_s": 31.9
+ },
+ {
+  "set": "train",
+  "file": "train\\4_002.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 32.03,
+  "end_s": 46.91
+ },
+ {
+  "set": "train",
+  "file": "train\\4_003.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 47.27,
+  "end_s": 61.43
+ },
+ {
+  "set": "train",
+  "file": "train\\4_004.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 62.58,
+  "end_s": 75.06
+ },
+ {
+  "set": "train",
+  "file": "train\\4_005.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 76.17,
+  "end_s": 87.26
+ },
+ {
+  "set": "train",
+  "file": "train\\4_006.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 87.73,
+  "end_s": 101.85
+ },
+ {
+  "set": "train",
+  "file": "train\\4_007.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 102.79,
+  "end_s": 117.98
+ },
+ {
+  "set": "train",
+  "file": "train\\4_008.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 118.82,
+  "end_s": 132.69
+ },
+ {
+  "set": "train",
+  "file": "train\\4_009.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 133.23,
+  "end_s": 144.77
+ },
+ {
+  "set": "train",
+  "file": "train\\4_010.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 145.29,
+  "end_s": 156.96
+ },
+ {
+  "set": "train",
+  "file": "train\\4_011.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 157.44,
+  "end_s": 171.39
+ },
+ {
+  "set": "train",
+  "file": "train\\4_012.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 171.98,
+  "end_s": 185.49
+ },
+ {
+  "set": "train",
+  "file": "train\\4_013.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 185.94,
+  "end_s": 200.13
+ },
+ {
+  "set": "train",
+  "file": "train\\4_014.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 200.46,
+  "end_s": 215.6
+ },
+ {
+  "set": "train",
+  "file": "train\\4_015.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 216.22,
+  "end_s": 227.32
+ },
+ {
+  "set": "train",
+  "file": "train\\4_016.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 227.85,
+  "end_s": 241.19
+ },
+ {
+  "set": "train",
+  "file": "train\\4_017.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 241.75,
+  "end_s": 254.85
+ },
+ {
+  "set": "train",
+  "file": "train\\4_018.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 255.49,
+  "end_s": 270.35
+ },
+ {
+  "set": "train",
+  "file": "train\\4_019.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 270.86,
+  "end_s": 283.83
+ },
+ {
+  "set": "train",
+  "file": "train\\4_020.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 284.57,
+  "end_s": 297.53
+ },
+ {
+  "set": "train",
+  "file": "train\\4_021.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 298.63,
+  "end_s": 313.16
+ },
+ {
+  "set": "train",
+  "file": "train\\4_022.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 313.97,
+  "end_s": 327.96
+ },
+ {
+  "set": "train",
+  "file": "train\\4_023.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 328.23,
+  "end_s": 340.05
+ },
+ {
+  "set": "train",
+  "file": "train\\4_024.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 340.36,
+  "end_s": 354.83
+ },
+ {
+  "set": "train",
+  "file": "train\\4_025.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 355.14,
+  "end_s": 366.15
+ },
+ {
+  "set": "train",
+  "file": "train\\4_026.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 368.12,
+  "end_s": 381.21
+ },
+ {
+  "set": "train",
+  "file": "train\\4_027.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 381.57,
+  "end_s": 391.9
+ },
+ {
+  "set": "train",
+  "file": "train\\4_028.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 392.24,
+  "end_s": 406.62
+ },
+ {
+  "set": "train",
+  "file": "train\\4_029.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 407.24,
+  "end_s": 421.74
+ },
+ {
+  "set": "train",
+  "file": "train\\4_030.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 422.14,
+  "end_s": 433.41
+ },
+ {
+  "set": "train",
+  "file": "train\\4_031.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 433.95,
+  "end_s": 443.12
+ },
+ {
+  "set": "train",
+  "file": "train\\4_032.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 444.21,
+  "end_s": 455.22
+ },
+ {
+  "set": "train",
+  "file": "train\\4_033.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 455.86,
+  "end_s": 468.69
+ },
+ {
+  "set": "train",
+  "file": "train\\4_034.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 468.85,
+  "end_s": 480.88
+ },
+ {
+  "set": "train",
+  "file": "train\\4_035.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 481.31,
+  "end_s": 493.43
+ },
+ {
+  "set": "train",
+  "file": "train\\4_036.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 494.01,
+  "end_s": 504.99
+ },
+ {
+  "set": "train",
+  "file": "train\\4_037.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 505.84,
+  "end_s": 519.96
+ },
+ {
+  "set": "train",
+  "file": "train\\4_038.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 520.37,
+  "end_s": 534.05
+ },
+ {
+  "set": "train",
+  "file": "train\\4_039.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 535.12,
+  "end_s": 546.64
+ },
+ {
+  "set": "train",
+  "file": "train\\4_040.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 547.87,
+  "end_s": 560.14
+ },
+ {
+  "set": "train",
+  "file": "train\\4_041.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\4.wav",
+  "channel": 0,
+  "start_s": 560.26,
+  "end_s": 566.43
+ },
+ {
+  "set": "heldout",
+  "file": "heldout\\5_heldout.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 317.02,
+  "end_s": 350.7626666666667
+ },
+ {
+  "set": "train",
+  "file": "train\\5_000.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 0.51,
+  "end_s": 11.22
+ },
+ {
+  "set": "train",
+  "file": "train\\5_001.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 11.9,
+  "end_s": 26.87
+ },
+ {
+  "set": "train",
+  "file": "train\\5_002.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 27.38,
+  "end_s": 42.21
+ },
+ {
+  "set": "train",
+  "file": "train\\5_003.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 42.6,
+  "end_s": 57.36
+ },
+ {
+  "set": "train",
+  "file": "train\\5_004.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 57.51,
+  "end_s": 70.29
+ },
+ {
+  "set": "train",
+  "file": "train\\5_005.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 70.76,
+  "end_s": 82.35
+ },
+ {
+  "set": "train",
+  "file": "train\\5_006.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 83.12,
+  "end_s": 91.0
+ },
+ {
+  "set": "train",
+  "file": "train\\5_007.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 91.66,
+  "end_s": 104.41
+ },
+ {
+  "set": "train",
+  "file": "train\\5_008.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 105.17,
+  "end_s": 120.03
+ },
+ {
+  "set": "train",
+  "file": "train\\5_009.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 120.77,
+  "end_s": 135.81
+ },
+ {
+  "set": "train",
+  "file": "train\\5_010.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 136.27,
+  "end_s": 147.61
+ },
+ {
+  "set": "train",
+  "file": "train\\5_011.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 148.2,
+  "end_s": 159.13
+ },
+ {
+  "set": "train",
+  "file": "train\\5_012.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 160.2,
+  "end_s": 174.56
+ },
+ {
+  "set": "train",
+  "file": "train\\5_013.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 175.05,
+  "end_s": 188.64
+ },
+ {
+  "set": "train",
+  "file": "train\\5_014.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 188.83,
+  "end_s": 203.17
+ },
+ {
+  "set": "train",
+  "file": "train\\5_015.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 203.31,
+  "end_s": 217.99
+ },
+ {
+  "set": "train",
+  "file": "train\\5_016.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 218.3,
+  "end_s": 231.96
+ },
+ {
+  "set": "train",
+  "file": "train\\5_017.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 232.56,
+  "end_s": 246.83
+ },
+ {
+  "set": "train",
+  "file": "train\\5_018.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 247.46,
+  "end_s": 262.29
+ },
+ {
+  "set": "train",
+  "file": "train\\5_019.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 263.06,
+  "end_s": 276.13
+ },
+ {
+  "set": "train",
+  "file": "train\\5_020.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 276.24,
+  "end_s": 289.59
+ },
+ {
+  "set": "train",
+  "file": "train\\5_021.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 290.04,
+  "end_s": 303.68
+ },
+ {
+  "set": "train",
+  "file": "train\\5_022.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\5.wav",
+  "channel": 0,
+  "start_s": 304.75,
+  "end_s": 316.92
+ },
+ {
+  "set": "heldout",
+  "file": "heldout\\6_heldout.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 435.42,
+  "end_s": 468.352
+ },
+ {
+  "set": "train",
+  "file": "train\\6_000.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 0.0,
+  "end_s": 14.88
+ },
+ {
+  "set": "train",
+  "file": "train\\6_001.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 15.37,
+  "end_s": 23.47
+ },
+ {
+  "set": "train",
+  "file": "train\\6_002.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 23.77,
+  "end_s": 37.04
+ },
+ {
+  "set": "train",
+  "file": "train\\6_003.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 37.19,
+  "end_s": 52.22
+ },
+ {
+  "set": "train",
+  "file": "train\\6_004.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 52.83,
+  "end_s": 60.26
+ },
+ {
+  "set": "train",
+  "file": "train\\6_005.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 60.81,
+  "end_s": 71.67
+ },
+ {
+  "set": "train",
+  "file": "train\\6_006.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 71.96,
+  "end_s": 82.44
+ },
+ {
+  "set": "train",
+  "file": "train\\6_007.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 82.65,
+  "end_s": 97.01
+ },
+ {
+  "set": "train",
+  "file": "train\\6_008.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 97.34,
+  "end_s": 109.51
+ },
+ {
+  "set": "train",
+  "file": "train\\6_009.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 109.72,
+  "end_s": 121.14
+ },
+ {
+  "set": "train",
+  "file": "train\\6_010.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 121.28,
+  "end_s": 132.91
+ },
+ {
+  "set": "train",
+  "file": "train\\6_011.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 133.89,
+  "end_s": 144.06
+ },
+ {
+  "set": "train",
+  "file": "train\\6_012.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 144.4,
+  "end_s": 154.45
+ },
+ {
+  "set": "train",
+  "file": "train\\6_013.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 154.72,
+  "end_s": 167.72
+ },
+ {
+  "set": "train",
+  "file": "train\\6_014.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 168.33,
+  "end_s": 183.43
+ },
+ {
+  "set": "train",
+  "file": "train\\6_015.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 184.19,
+  "end_s": 193.62
+ },
+ {
+  "set": "train",
+  "file": "train\\6_016.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 194.23,
+  "end_s": 209.08
+ },
+ {
+  "set": "train",
+  "file": "train\\6_017.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 209.21,
+  "end_s": 219.5
+ },
+ {
+  "set": "train",
+  "file": "train\\6_018.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 219.95,
+  "end_s": 235.07
+ },
+ {
+  "set": "train",
+  "file": "train\\6_019.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 235.85,
+  "end_s": 248.61
+ },
+ {
+  "set": "train",
+  "file": "train\\6_020.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 249.41,
+  "end_s": 259.19
+ },
+ {
+  "set": "train",
+  "file": "train\\6_021.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 259.57,
+  "end_s": 271.12
+ },
+ {
+  "set": "train",
+  "file": "train\\6_022.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 271.38,
+  "end_s": 284.72
+ },
+ {
+  "set": "train",
+  "file": "train\\6_023.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 285.42,
+  "end_s": 298.73
+ },
+ {
+  "set": "train",
+  "file": "train\\6_024.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 299.3,
+  "end_s": 310.81
+ },
+ {
+  "set": "train",
+  "file": "train\\6_025.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 311.17,
+  "end_s": 324.62
+ },
+ {
+  "set": "train",
+  "file": "train\\6_026.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 324.95,
+  "end_s": 334.57
+ },
+ {
+  "set": "train",
+  "file": "train\\6_027.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 334.74,
+  "end_s": 349.69
+ },
+ {
+  "set": "train",
+  "file": "train\\6_028.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 350.16,
+  "end_s": 363.12
+ },
+ {
+  "set": "train",
+  "file": "train\\6_029.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 364.04,
+  "end_s": 378.62
+ },
+ {
+  "set": "train",
+  "file": "train\\6_030.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 378.9,
+  "end_s": 389.8
+ },
+ {
+  "set": "train",
+  "file": "train\\6_031.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 390.34,
+  "end_s": 398.4
+ },
+ {
+  "set": "train",
+  "file": "train\\6_032.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 399.06,
+  "end_s": 411.78
+ },
+ {
+  "set": "train",
+  "file": "train\\6_033.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 412.32,
+  "end_s": 422.43
+ },
+ {
+  "set": "train",
+  "file": "train\\6_034.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\6.wav",
+  "channel": 0,
+  "start_s": 423.16,
+  "end_s": 434.99
+ },
+ {
+  "set": "train",
+  "file": "train\\7_000.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\7.wav",
+  "channel": 0,
+  "start_s": 0.43,
+  "end_s": 11.65
+ },
+ {
+  "set": "train",
+  "file": "train\\7_001.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\7.wav",
+  "channel": 0,
+  "start_s": 11.9,
+  "end_s": 25.22
+ },
+ {
+  "set": "train",
+  "file": "train\\7_002.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\7.wav",
+  "channel": 0,
+  "start_s": 25.94,
+  "end_s": 32.35
+ },
+ {
+  "set": "train",
+  "file": "train\\7_003.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\7.wav",
+  "channel": 0,
+  "start_s": 32.52,
+  "end_s": 46.32
+ },
+ {
+  "set": "train",
+  "file": "train\\7_004.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\7.wav",
+  "channel": 0,
+  "start_s": 46.77,
+  "end_s": 53.21
+ },
+ {
+  "set": "train",
+  "file": "train\\8_000.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\8.wav",
+  "channel": 0,
+  "start_s": 1.08,
+  "end_s": 12.36
+ },
+ {
+  "set": "train",
+  "file": "train\\8_001.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\8.wav",
+  "channel": 0,
+  "start_s": 13.85,
+  "end_s": 22.1
+ },
+ {
+  "set": "train",
+  "file": "train\\8_002.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\8.wav",
+  "channel": 0,
+  "start_s": 22.9,
+  "end_s": 34.97
+ },
+ {
+  "set": "train",
+  "file": "train\\8_003.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\8.wav",
+  "channel": 0,
+  "start_s": 35.23,
+  "end_s": 42.14
+ },
+ {
+  "set": "train",
+  "file": "train\\8_004.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\8.wav",
+  "channel": 0,
+  "start_s": 42.32,
+  "end_s": 51.13
+ },
+ {
+  "set": "train",
+  "file": "train\\8_005.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\8.wav",
+  "channel": 0,
+  "start_s": 51.54,
+  "end_s": 66.06
+ },
+ {
+  "set": "train",
+  "file": "train\\8_006.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\8.wav",
+  "channel": 0,
+  "start_s": 66.28,
+  "end_s": 80.84
+ },
+ {
+  "set": "train",
+  "file": "train\\8_007.wav",
+  "source": "C:/Users/es2/Videos/学習素材\\8.wav",
+  "channel": 0,
+  "start_s": 81.78,
+  "end_s": 86.34
+ }
+]

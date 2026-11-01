@@ -415,7 +415,19 @@ def reset_training_run(
             checkpoint["iteration"] = 0
             checkpoint["scaler"] = {}
             checkpoint["learning_rate"] = config["train"]["learning_rate"]
-            optimizer = checkpoint["optimizer"]
+            optimizer = checkpoint.get("optimizer")
+            if optimizer is None:
+                # checkpoint_policy keeps G/D as weights only. Their optimizer groups
+                # would have to match a model this function never builds, and a warm
+                # start already installs exactly what a reset would: the same weights,
+                # epoch 1, fresh optimizers.
+                raise ValueError(
+                    f"{source.name} holds weights only (G/D kept under checkpoints/ are "
+                    "saved without their optimizer), so it cannot be reset. Move it out of "
+                    "the model folder and start from it as a Custom Pretrained G/D instead: "
+                    "that begins at epoch 1 from the same weights with fresh optimizers, "
+                    "which is what a reset would install."
+                )
             optimizer["state"] = {}
             for group in optimizer["param_groups"]:
                 group["lr"] = group["initial_lr"] = config["train"]["learning_rate"]
@@ -471,5 +483,12 @@ def reset_training_run(
             path.unlink()
         for original, saved in reversed(moved):
             saved.rename(original)
+        # Every output is back in place, so what is left is staged files and provenance
+        # copies; a failed reset should not leave an empty run in _training_history.
+        shutil.rmtree(archive, ignore_errors=True)
+        try:
+            archive.parent.rmdir()
+        except OSError:
+            pass  # holds earlier runs
         raise
     return archive

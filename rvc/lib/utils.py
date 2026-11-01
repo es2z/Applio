@@ -31,6 +31,10 @@ stft = base_path + ".exe" if sys.platform == "win32" else base_path
 JAPANESE_HUBERT_BASE_K2 = "japanese-hubert-base-k2"
 JAPANESE_HUBERT_LARGE = "japanese-hubert-large"
 KUSHINADA_HUBERT_LARGE = "kushinada-hubert-large"
+KUSHINADA_HUBERT_LARGE_SPIN = "kushinada-hubert-large-spin"
+KUSHINADA_HUBERT_LARGE_SPIN_V2 = "kushinada-hubert-large-spin-v2"
+KUSHINADA_HUBERT_LARGE_SPIN_V2_1K = "kushinada-hubert-large-spin-v2-1k"
+KUSHINADA_HUBERT_LARGE_SPIN_V2_2K = "kushinada-hubert-large-spin-v2-2k"
 
 APPLIO_EMBEDDER_URL = (
     "https://huggingface.co/IAHispano/Applio/resolve/main/Resources/embedders"
@@ -83,6 +87,56 @@ EMBEDDERS = {
         # Measured at 8.14 per frame, between contentvec's 9.82 and japanese-hubert-base's
         # 6.35, so like japanese-hubert-large it needs no correction against emb_pitch.
         # Also 1024 wide and 24 layers, which text_enc_hidden_dim already handles.
+    },
+    KUSHINADA_HUBERT_LARGE_SPIN: {
+        "dir": "kushinada_hubert_large_spin",
+        # kushinada-hubert-large cut to its first 22 layers, with layers 21 and 22
+        # fine-tuned by SPIN (speaker-invariant clustering) on this fork's pretraining
+        # data. Its last layer is therefore what kushinada gives at output layer 22, made
+        # less speaker dependent; leave the output layer at 0. It is made locally by
+        # tools/spin/export.py rather than downloaded, and inherits kushinada's licence.
+        "local": True,
+        "source": "tools/spin/export.py",
+        "install_hint": (
+            "It is built locally: train it with tools/spin/train.py and export a "
+            "checkpoint into {path} with tools/spin/export.py."
+        ),
+    },
+    KUSHINADA_HUBERT_LARGE_SPIN_V2: {
+        "dir": "kushinada_hubert_large_spin_v2",
+        # The same cut and the same two trained layers as kushinada-hubert-large-spin, but
+        # trained from kushinada again with the "crop" sampler (tools/spin/data.py): clips
+        # drawn by duration rather than by file, mostly 1.5-4 s crops, and the user's voice
+        # and naru weighted up. Kept beside v1 so either can be chosen.
+        "local": True,
+        "source": "tools/spin/export.py",
+        "install_hint": (
+            "It is built locally: train it with tools/spin/train.py --sampler crop and "
+            "export a checkpoint into {path} with tools/spin/export.py."
+        ),
+    },
+    KUSHINADA_HUBERT_LARGE_SPIN_V2_1K: {
+        "dir": "kushinada_hubert_large_spin_v2_1k",
+        # The same v2 run stopped at 1,000 of its 5,000 updates: ~93% of the ITA content
+        # over speaker gain already, with features much closer to layer 22 (frame cos 0.80
+        # against 0.72). A milder SPIN, for when v2's output is too noisy.
+        "local": True,
+        "source": "tools/spin/export.py",
+        "install_hint": (
+            "It is built locally: export ckpt_1000.pt of a tools/spin/train.py --sampler "
+            "crop run into {path} with tools/spin/export.py."
+        ),
+    },
+    KUSHINADA_HUBERT_LARGE_SPIN_V2_2K: {
+        "dir": "kushinada_hubert_large_spin_v2_2k",
+        # The v2 run at 2,000 updates, between the 1,000 and the finished 5,000: frame cos
+        # 0.73 against layer 22 and 0.95 against the 5,000 update features.
+        "local": True,
+        "source": "tools/spin/export.py",
+        "install_hint": (
+            "It is built locally: export ckpt_2000.pt of a tools/spin/train.py --sampler "
+            "crop run into {path} with tools/spin/export.py."
+        ),
     },
 }
 
@@ -508,6 +562,11 @@ def load_embedding(embedder_model, custom_embedder=None, output_layer=None):
         # A gated embedder: nothing to download, so an empty folder is a setup problem
         # rather than a cache miss and has to say what to do about it.
         if not os.path.isfile(os.path.join(model_path, "config.json")):
+            if "install_hint" in spec:
+                raise FileNotFoundError(
+                    f"{embedder_model} is not installed. "
+                    + spec["install_hint"].format(path=model_path)
+                )
             raise FileNotFoundError(
                 f"{embedder_model} is not installed. Its weights are gated on the Hub and "
                 f"cannot be downloaded automatically. Accept the license at "

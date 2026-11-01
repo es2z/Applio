@@ -8,7 +8,12 @@ import pytest
 import torch
 
 from rvc.lib.predictors.f0_gap_fill import fill_unvoiced_gaps
-from rvc.lib.predictors.f0_methods import GAP_FILLED_METHODS, gap_filled_base
+from rvc.lib.predictors.f0_methods import (
+    GAP_FILLED_METHODS,
+    GAP_FILLED_UI_METHODS,
+    gap_fill_max_frames,
+    gap_filled_base,
+)
 
 RMVPE_WEIGHT = Path("rvc/models/predictors/rmvpe.pt")
 needs_rmvpe = pytest.mark.skipif(
@@ -38,16 +43,39 @@ def test_fewer_than_two_voiced_frames_is_left_alone(f0):
     np.testing.assert_array_equal(fill_unvoiced_gaps(f0), f0)
 
 
+def test_max_gap_fills_only_the_short_gaps():
+    # A 2-frame gap (filled), a 3-frame gap (kept), a 1-frame run at each end (held).
+    f0 = np.array([0, 100, 0, 0, 400, 0, 0, 0, 200, 0], np.float32)
+    out = fill_unvoiced_gaps(f0, max_gap=3)
+    np.testing.assert_allclose(out[0], 100, rtol=1e-6)
+    np.testing.assert_allclose(out[2:4], 100 * 2 ** (np.array([1, 2]) * 2 / 3), rtol=1e-5)
+    np.testing.assert_array_equal(out[5:8], 0)
+    np.testing.assert_allclose(out[9], 200, rtol=1e-6)
+    np.testing.assert_array_equal(out[f0 > 0], f0[f0 > 0])
+    # A long run at the end (a breath still going on) stays unvoiced too.
+    np.testing.assert_array_equal(fill_unvoiced_gaps(f0[:8], max_gap=3)[5:], 0)
+    # Without a limit it is the old behaviour.
+    np.testing.assert_array_equal(fill_unvoiced_gaps(f0, None), fill_unvoiced_gaps(f0))
+
+
 def test_registration():
     assert GAP_FILLED_METHODS == {
         "rmvpe-filled": "rmvpe",
         "hpa-rmvpe-76000-aligned-filled": "hpa-rmvpe-76000-aligned",
         "hpa-rmvpe-112000-aligned-filled": "hpa-rmvpe-112000-aligned",
+        "hpa-rmvpe-112000-aligned-filled-100ms": "hpa-rmvpe-112000-aligned",
+        "hpa-rmvpe-112000-aligned-filled-150ms": "hpa-rmvpe-112000-aligned",
     }
     assert gap_filled_base("rmvpe-filled") == "rmvpe"
     assert gap_filled_base("hpa-rmvpe-112000-aligned-filled") == "hpa-rmvpe-112000-aligned"
+    assert gap_filled_base("hpa-rmvpe-112000-aligned-filled-150ms") == "hpa-rmvpe-112000-aligned"
     assert gap_filled_base("rmvpe") == "rmvpe"
     assert gap_filled_base("fcpe") == "fcpe"
+    assert gap_fill_max_frames("hpa-rmvpe-112000-aligned-filled-100ms") == 10
+    assert gap_fill_max_frames("hpa-rmvpe-112000-aligned-filled-150ms") == 15
+    assert gap_fill_max_frames("hpa-rmvpe-112000-aligned-filled") is None
+    ui = dict((v, k) for k, v in GAP_FILLED_UI_METHODS)
+    assert set(ui) == set(GAP_FILLED_METHODS)
 
 
 def test_extraction_never_reuses_unrecorded_or_rmvpe_pitch():

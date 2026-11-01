@@ -208,6 +208,14 @@ Applio-3.5.0/
   one trained on unfilled F0 (`docs/f0-benchmarks.md` section 5). Never reuses the base
   method's pitch files. Every path dispatches on `gap_filled_base(method)` and fills once
   afterwards; add a pair to `GAP_FILLED_METHODS` for another base
+- `hpa-rmvpe-112000-aligned-filled-100ms` / `-150ms` - fill only unvoiced runs shorter
+  than 10 / 15 frames (`GAP_FILL_MAX_FRAMES`, `fill_unvoiced_gaps(f0, max_gap)`), so
+  consonant gaps are filled and breaths and pauses keep F0 = 0. Full filling gives breaths
+  a pitch a model trained on unfilled F0 never saw there, and it sings them: measured on
+  the user's voice, 33-40% of breath frames came out voiced against 12-14% at 150 ms,
+  while consonants stayed close (34-37% against 27-31%); the user heard 150 ms as just as
+  crisp without the breath distortion. Inference and realtime; train on the unfilled base.
+  `docs/f0-benchmarks.md` 5.8
 - `hybrid[...]` - Averages multiple methods for robustness
 
 ### Embedder Models
@@ -492,6 +500,49 @@ before writing any code.
   ran, but under the pretrained loading bug below: only 20% of G and none of D loaded.
 - Realtime cost is indistinguishable from `japanese-hubert-large` - same architecture.
   Measured back to back on an RTX 4090 over a 1.5 s window, fp32: 12.6 ms against 13.1 ms.
+
+### Additional Embedder: `kushinada-hubert-large-spin` (made here with SPIN)
+- kushinada-hubert-large **cut to its first 22 layers** (`num_hidden_layers: 22` in its
+  config), with layers 21 and 22 fine-tuned by SPIN (speaker-invariant clustering,
+  arXiv 2305.11072) on `temp4` - this fork's pretraining speakers, the ITA corpus and the
+  user's own voice. Layer 22 is the output layer the M5 listening comparison chose
+  (`logs/_layercmp/RESULTS.md`). The point is less of the source speaker's timbre in
+  the features and less reliance on the index.
+- **Leave the output layer at 0.** The cut model's `last_hidden_state` is
+  `encoder.layer_norm` over layer 22, which is exactly what `embedder_forward` returns
+  for the full kushinada at output layer 22 (measured on the real weights before
+  training: relative L2 3.5e-4, min frame cos 0.9999998, 7.48 per frame).
+- It is a `local` embedder like kushinada, but built rather than installed:
+  `tools/spin/train.py` trains, `tools/spin/export.py` writes the folder
+  (`config.json`, `model.safetensors`, kushinada's `preprocessor_config.json`, `SPIN.txt`
+  naming the checkpoint). A missing folder raises with that `install_hint` instead of
+  kushinada's gated-repo message. `do_normalize` and the std floor come from the copied
+  preprocessor config, exactly as for kushinada.
+- What the port changes from the official recipe (`tools/spin/model.py`, `train.py`):
+  only the top 2 of 22 layers learn and **`encoder.layer_norm` stays frozen** (the
+  official trains a pre-norm model's final norm with its last layer; RVC is sensitive to
+  feature magnitude); bf16 autocast instead of fp16; clips from 1.5 s rather than 2.5 s,
+  because RVC trains on ~3 s slices and realtime feeds 1-1.5 s windows and the target
+  voice's short lines would otherwise lose up to 84% of their audio. Perturbation
+  (Praat "Change gender" + random 10-band EQ, `praat-parselmouth` in
+  `requirements3.14.txt`), loss, schedule and batch size are the official ones.
+  `tests/test_spin.py`.
+- `tools/spin/measure.py` scores an embedder on the ITA corpus without labels: DTW
+  distance between speakers reading the same sentence over different sentences, nearest
+  neighbour speaker accuracy of utterance means, and the per-frame norm.
+  `tools/spin/measure_speaker.py` asks how recognisable the user's held-out voice still is
+  (nearest of 60 speaker centroids over 3 s windows).
+- **Three more registered from the same work** (`logs/_spin/RESULTS.md` 10-15):
+  - `kushinada-hubert-large-spin-v2` - retrained with `--sampler crop`: seconds rather
+    than files, 75% of batches cropped to 1.5-4 s, the user's voice and naru tier1 x3.
+    v1's sampler drew files, so the user's long files got 2.2% of the audio instead of
+    5.8% and only ever as 9-15 s crops.
+  - `-v2-1k` / `-v2-2k` - the same run at 1,000 / 2,000 of its 5,000 updates.
+  - Listening (user): **v2 at 5,000, converted with `hpa-rmvpe-112000-aligned-filled-150ms`,
+    was best** of L22 / v1 / v2 1k / 2k / 5k. Every SPIN version distorted breaths badly
+    under fully gap-filled F0; that was the F0 (5.8 of `docs/f0-benchmarks.md`), not SPIN
+    alone. The timbre change was smaller than hoped (user's held-out voice still picked
+    out 82-86% of the time against 100% at L22).
 
 ### Changing the embedder or the vocoder on an existing model folder
 Changing the embedder, its feature scale, its output layer or the input std floor
@@ -1764,6 +1815,15 @@ and the fine-tune after it). The tools they use:
   `--stereo louder` keeps only the louder channel of each stereo file: preprocess averages
   channels, and on binaural sources (ears up to ~0.8 ms apart) that average is a comb
   filter - measured, 35% of one speaker's files got notches deeper than -10 dB.
+- `tools/judge_dataset.py <dir> [--copy] [--csv] [--compare]` sorts WAVs into 良 / 悪 /
+  他 (clipping, near silence and a steady high-band noise floor are bad; a spectral
+  cut-off under 20 kHz is other) and with `--copy` copies them into `<dir>/良|悪|他/`,
+  originals untouched. The script that sorted `temp3` was lost; these rules were rebuilt
+  from its CSV and agree with it on 97% of `temp3` (its "band" verdicts on files whose
+  high band is merely weak are not reproduced).
+- `tools/prepare_my_voice.py <in> <out> --heldout ...` cuts long gated recordings (a
+  live chain ending in a noise gate) at the gate's digital silence into 5-15 s pieces,
+  louder channel only, and holds out the last ~30 s of the named files.
 
 ### The GPU data cache holds samples, not batches
 `cache_data_in_gpu` used to keep the padded batches the first epoch produced and only
@@ -1842,7 +1902,10 @@ fine-tuning from was usually gone.
   the archive and Fresh Training deletes it; `evaluation/` (the clip cache) survives both.
 - **Kept G/D are weights only** (`save_checkpoint(..., include_optimizer=False)`, about a
   third of the size): warm starts read `model` alone, and the identity stamps are kept,
-  so they work as Custom Pretrained G/D. They cannot be resumed from.
+  so they work as Custom Pretrained G/D. They cannot be resumed from, nor reset: copied
+  into a model folder with the reset ticked, `reset_training_run` refuses them with a
+  pointer to Custom Pretrained (it used to die on `KeyError: 'optimizer'` and leave an
+  empty run in `_training_history`). A warm start installs what the reset would anyway.
 - **Stored as `config.json["checkpoint_policy"]`**, written by `core.run_train_script`
   and read by train.py, like the learning rate; not in `TRAIN_SETTING_KEYS`, and train.py's
   positional arguments did not grow. A folder without the key trains exactly as before;

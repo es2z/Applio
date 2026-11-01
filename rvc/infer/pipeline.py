@@ -297,6 +297,7 @@ class Pipeline:
             FCNF0PP_METHODS,
             GAP_FILLED_METHODS,
             HPA_RMVPE_METHODS,
+            gap_fill_max_frames,
             gap_filled_base,
             hpa_rmvpe_variant,
         )
@@ -369,7 +370,7 @@ class Pipeline:
             del model
 
         if f0_method in GAP_FILLED_METHODS:
-            f0 = fill_unvoiced_gaps(f0)
+            f0 = fill_unvoiced_gaps(f0, gap_fill_max_frames(f0_method))
 
         # f0 adjustments
         if f0_autotune is True:

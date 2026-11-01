@@ -25,6 +25,9 @@ noisereduce
 pedalboard
 stftpitchshift
 soxr
+# Praat's "Change gender" for the SPIN speaker perturbation (tools/spin/). 0.4.7 is the
+# first release with a cp314 wheel.
+praat-parselmouth==0.4.7
 
 # Machine learning and deep learning
 numba>=0.63

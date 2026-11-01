@@ -40,6 +40,7 @@ from rvc.lib.predictors.f0_methods import (
     GAP_FILLED_METHODS,
     HPA_RMVPE_METHODS,
     PROFILE_METHODS,
+    gap_fill_max_frames,
     gap_filled_base,
     hpa_rmvpe_variant,
 )
@@ -161,7 +162,7 @@ class FeatureInput:
         elif self.f0_method == "fcpe":
             f0 = self.model.get_f0(x, p_len, filter_radius=0.006)
         if self.f0_method in GAP_FILLED_METHODS:
-            f0 = fill_unvoiced_gaps(f0)
+            f0 = fill_unvoiced_gaps(f0, gap_fill_max_frames(self.f0_method))
         return f0
 
     def coarse_f0(self, f0):

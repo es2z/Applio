@@ -57,6 +57,7 @@ class F0Extractor:
             FCNF0PP_METHODS,
             GAP_FILLED_METHODS,
             HPA_RMVPE_METHODS,
+            gap_fill_max_frames,
             gap_filled_base,
             hpa_rmvpe_variant,
         )
@@ -133,7 +134,7 @@ class F0Extractor:
         else:
             raise ValueError(f"Unknown method: {self.method}")
         if method in GAP_FILLED_METHODS:
-            f0 = fill_unvoiced_gaps(f0)
+            f0 = fill_unvoiced_gaps(f0, gap_fill_max_frames(method))
         return self.hz_to_cents(f0, librosa.midi_to_hz(0))
 
     def extract_track(self):

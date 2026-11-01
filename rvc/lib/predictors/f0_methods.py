@@ -50,17 +50,35 @@ GAP_FILLED_METHODS = {
     "rmvpe-filled": "rmvpe",
     "hpa-rmvpe-76000-aligned-filled": "hpa-rmvpe-76000-aligned",
     "hpa-rmvpe-112000-aligned-filled": "hpa-rmvpe-112000-aligned",
+    "hpa-rmvpe-112000-aligned-filled-100ms": "hpa-rmvpe-112000-aligned",
+    "hpa-rmvpe-112000-aligned-filled-150ms": "hpa-rmvpe-112000-aligned",
 }
 GAP_FILLED_UI_METHODS = [
     ("RMVPE (gaps filled)", "rmvpe-filled"),
     ("HPA-RMVPE (76000, aligned, gaps filled)", "hpa-rmvpe-76000-aligned-filled"),
     ("HPA-RMVPE (112000, aligned, gaps filled)", "hpa-rmvpe-112000-aligned-filled"),
+    ("HPA-RMVPE (112000, aligned, gaps under 100 ms filled)",
+     "hpa-rmvpe-112000-aligned-filled-100ms"),
+    ("HPA-RMVPE (112000, aligned, gaps under 150 ms filled)",
+     "hpa-rmvpe-112000-aligned-filled-150ms"),
 ]
+# Gap-filled methods that fill only gaps shorter than this many 10 ms frames: consonants
+# are filled, breaths and pauses (150 ms and up in the user's speech) keep F0 = 0, so a
+# model trained on unfilled F0 does not sing through them (docs/f0-benchmarks.md, 5.8).
+GAP_FILL_MAX_FRAMES = {
+    "hpa-rmvpe-112000-aligned-filled-100ms": 10,
+    "hpa-rmvpe-112000-aligned-filled-150ms": 15,
+}
 
 
 def gap_filled_base(method):
     """The method a gap-filled method runs before filling, else the method itself."""
     return GAP_FILLED_METHODS.get(method, method)
+
+
+def gap_fill_max_frames(method):
+    """The max_gap fill_unvoiced_gaps takes for a gap-filled method; None fills all."""
+    return GAP_FILL_MAX_FRAMES.get(method)
 
 
 def fcn_variant(method):

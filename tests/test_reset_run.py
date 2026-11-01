@@ -100,6 +100,21 @@ class ResetRunTests(unittest.TestCase):
         self.assertTrue((self.root / "eval").is_dir())
         self.assertTrue((self.root / "training_data.json").exists())
 
+    def test_weights_only_checkpoints_are_refused_with_a_hint(self):
+        # What checkpoint_policy keeps under checkpoints/every and checkpoints/best.
+        for tag in ("G", "D"):
+            path = self.root / f"{tag}_2333333.pth"
+            state = torch.load(path, weights_only=True)
+            del state["optimizer"]
+            torch.save(state, path)
+        before = (self.root / "G_2333333.pth").read_bytes()
+        with self.assertRaisesRegex(ValueError, "weights only.*Custom Pretrained"):
+            reset_training_run(self.root)
+        self.assertEqual(before, (self.root / "G_2333333.pth").read_bytes())
+        self.assertTrue((self.root / "eval").is_dir())
+        self.assertFalse((self.root / "G_0.pth").exists())
+        self.assertFalse((self.root.parent / "_training_history" / "branch").exists())
+
     def test_mismatched_epochs_start_a_new_run(self):
         path = self.root / "D_2333333.pth"
         state = torch.load(path, weights_only=True)

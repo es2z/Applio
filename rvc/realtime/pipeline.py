@@ -446,6 +446,7 @@ class Realtime_Pipeline:
             FCNF0PP_METHODS,
             GAP_FILLED_METHODS,
             HPA_RMVPE_METHODS,
+            gap_fill_max_frames,
             gap_filled_base,
         )
 
@@ -535,7 +536,7 @@ class Realtime_Pipeline:
         self._last_voiced = (voiced if voiced is not None else f0 > 0).copy()
         if self.f0_method in GAP_FILLED_METHODS:
             # The whole window is recomputed each block, so this fills the window.
-            f0 = fill_unvoiced_gaps(f0)
+            f0 = fill_unvoiced_gaps(f0, gap_fill_max_frames(self.f0_method))
 
         # f0 adjustments
         if f0_autotune is True:

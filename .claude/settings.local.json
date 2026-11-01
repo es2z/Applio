@@ -19,7 +19,8 @@
       "mcp__serena__read_memory",
       "Bash(nvidia-smi --query-gpu=name,memory.total,memory.used,utilization.gpu --format=csv)",
       "Bash(nvidia-smi --query-compute-apps=pid,used_memory --format=csv)",
-      "Bash(export PYTHONIOENCODING=utf-8)"
+      "Bash(export PYTHONIOENCODING=utf-8)",
+      "PowerShell(uv *)"
     ],
     "deny": [],
     "ask": []
