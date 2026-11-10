@@ -49,6 +49,14 @@ RING_STREAM_MODES = ("auto", "separate")
 # scaled down instead of flattened first.
 CLIP_STAGES = ("generator", "output")
 
+# Index retrieval: the FAISS index as it is stored ("faiss", an approximate IVF search
+# on the CPU, as always) or every index vector compared on the model's device ("exact",
+# rvc/realtime/index_search.py).
+INDEX_SEARCHES = ("faiss", "exact")
+
+# Neighbours blended per frame; 8 is what the realtime path has always used.
+DEFAULT_INDEX_TOP_K = 8
+
 # Synthesizer.infer's latent temperature, which "latent_noise_scale" defaults to.
 DEFAULT_LATENT_NOISE_SCALE = 0.66666
 
@@ -100,6 +108,8 @@ class RealtimeOptions:
     gate_fade_ms: float = 0.0
     gate_hold: bool = False
     ring_reserve_ms: float = 30.0
+    index_search: str = "faiss"
+    index_top_k: int = DEFAULT_INDEX_TOP_K
 
     @classmethod
     def from_dict(cls, data):
@@ -148,6 +158,12 @@ class RealtimeOptions:
             gate_hold=bool(data.get("gate_hold", default.gate_hold)),
             ring_reserve_ms=_number(
                 data.get("ring_reserve_ms"), default.ring_reserve_ms, 0.0, 300.0
+            ),
+            index_search=_choice(
+                data.get("index_search"), INDEX_SEARCHES, default.index_search
+            ),
+            index_top_k=int(
+                round(_number(data.get("index_top_k"), default.index_top_k, 1, 64))
             ),
         )
 

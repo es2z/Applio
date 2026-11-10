@@ -14,6 +14,7 @@ sys.path.append(now_dir)
 from rvc.realtime.utils.torch import circular_write
 from rvc.realtime.compile_session import CompileSession, load_settings
 from rvc.realtime.options import RealtimeOptions
+from rvc.realtime.index_search import ExactIndex
 from rvc.realtime.synthesis import (
     SynthesisPlan,
     realtime_infer,
@@ -198,6 +199,8 @@ class Realtime_Pipeline:
         self.hubert_model = hubert_model
         self.index = index
         self.big_npy = big_npy
+        # Built on first use when the "exact" index search is selected.
+        self.exact_index = None
         self.use_f0 = vc.use_f0
         self.version = vc.version
         self.f0_method = f0_method
@@ -776,8 +779,24 @@ class Realtime_Pipeline:
             )
             return feats
         skip_offset = skip_head // 2
+        if self.options.index_search == "exact":
+            # Every index vector, compared on the model's device (index_search.py).
+            if self.exact_index is None:
+                self.exact_index = ExactIndex(
+                    big_npy, self.device, self.options.index_top_k
+                )
+                print(
+                    f"Index search: exact over {len(big_npy)} vectors on "
+                    f"{self.device}, top {self.exact_index.top_k}."
+                )
+            query = feats[0][skip_offset:]
+            feats[0][skip_offset:] = (
+                self.exact_index.retrieve(query) * index_rate
+                + (1 - index_rate) * query
+            )
+            return feats
         npy = feats[0][skip_offset:].cpu().numpy()
-        score, ix = index.search(npy, k=8)
+        score, ix = index.search(npy, k=self.options.index_top_k)
         weight = np.square(1 / score)
         weight /= weight.sum(axis=1, keepdims=True)
         npy = np.sum(big_npy[ix] * np.expand_dims(weight, axis=2), axis=1)

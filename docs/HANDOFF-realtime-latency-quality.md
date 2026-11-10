@@ -119,6 +119,9 @@
 | `clip_stage` | generator | IO4。output: 生成器の出力は切らず、最終出力だけ ±1 |
 | `gate_fade_ms` | 0 | IO5。無音ゲートが閉じるとき、続くはずの音をフェードアウト |
 | `gate_hold` | False | IO5。無音中にゲートが周期的に開く既存の挙動（6 章）を止める |
+| `ring_reserve_ms` | 30 | ring の出力リングの安全余裕 |
+| `index_search` | faiss | P2。exact: Index の全ベクトルを GPU 上で比べる（従来は IVF の 1 セル約 39 本だけ） |
+| `index_top_k` | 8 | P2。1 フレームごとに混ぜる近傍数（faiss / exact 共通） |
 
 時刻固定の 3 つは **Chunk が 40 ms の倍数**のときだけ有効（960 は対象）。
 
@@ -238,7 +241,7 @@ env\python.exe -X utf8 tools\realtime_stream_eval.py --template <テンプレー
 | S7 | 位相ボコーダ式のクロスフェード（本家 `c1a3782`） | 未（S2〜S4 があるので優先度低） |
 | S8 / T7 | リアルタイムと同じ条件で作った特徴量で微調整 | 未（中〜大） |
 | P1 | z_p の温度 | 済（段階 4、`latent_noise_scale`） |
-| P2 | Index 検索の GPU 化と重み付け（今の `(1/score)²` はほぼ最近傍 1 本） | 未 |
+| P2 | Index 検索の GPU 化と重み付け（今の `(1/score)²` はほぼ最近傍 1 本） | 一部（`index_search = exact` と `index_top_k`、`tools/index_recall.py`。重みの式は従来のまま。GPU・実 Index では未計測） |
 | P3 / P4 / P6 | Protect / APEX ノイズ包絡 / ゲイン | 済（段階 1） |
 | P5 | F0 の後処理（移調後の範囲確認、短いオクターブ跳びの補正） | 未 |
 | M1 | APEX-GAN+ に CQT 判別器（RingFormer+ の `cqt_discriminator.py` を流用） | 済（APEX-GAN++ の判別器 `apex-gan-48k-cqt`、ブランチ `apex-gan-plus-plus`。判別器単体 142 → 186〜201 ms、推論・.pth 変化なし） |

@@ -22,6 +22,7 @@ from rvc.realtime.audio import list_audio_device
 from rvc.realtime.options import (
     APEX_NOISE_ENVELOPES,
     CLIP_STAGES,
+    INDEX_SEARCHES,
     FIELD_ORDER as OPTION_FIELDS,
     GAIN_MODES,
     INPUT_RESAMPLES,
@@ -1304,6 +1305,27 @@ def realtime_tab():
                             visible=default_options.transport == "ring",
                             interactive=True,
                         )
+                    with gr.Row():
+                        opt_index_search = gr.Radio(
+                            choices=list(INDEX_SEARCHES),
+                            value=default_options.index_search,
+                            label=i18n("Index search (P2)"),
+                            info=i18n(
+                                "faiss: the stored FAISS index, searched approximately on the CPU (as always). exact: every index vector is compared on the GPU, so the truly nearest ones are found and the features never leave the GPU. Needs VRAM for the index (about 0.5 GB per 100,000 vectors at 1024 dimensions)."
+                            ),
+                            interactive=True,
+                        )
+                        opt_index_top_k = gr.Slider(
+                            minimum=1,
+                            maximum=64,
+                            step=1,
+                            value=default_options.index_top_k,
+                            label=i18n("Index neighbours blended per frame"),
+                            info=i18n(
+                                "8 = as always. Each frame is replaced by the weighted mean of this many nearest index vectors (weight = 1 / squared distance, squared, so the nearest dominate). 1 uses the single nearest vector; more averages further."
+                            ),
+                            interactive=True,
+                        )
                 option_controls = [
                     opt_output_position,
                     opt_lookahead,
@@ -1324,6 +1346,8 @@ def realtime_tab():
                     opt_gate_fade,
                     opt_gate_hold,
                     opt_ring_reserve,
+                    opt_index_search,
+                    opt_index_top_k,
                 ]
                 assert len(option_controls) == len(OPTION_FIELDS)
                 opt_output_position.change(

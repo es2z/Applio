@@ -474,5 +474,9 @@
     "Keep the gate closed through silence (IO5)": "無音のあいだゲートを閉じたままにする（IO5）",
     "Off (as always): every buffer flush during silence reopens the silence gate for a few blocks, so steady room tone comes out as short faint bursts. On: the gate stays closed until the input is no longer silent.": "オフ（従来どおり）: 無音中にバッファを消去するたび無音ゲートが数ブロック開き、一定の部屋の雑音が短く小さな音のかたまりとして出ます。オン: 入力が無音でなくなるまでゲートを閉じたままにします。",
     "Ring output safety margin (ms)": "ring の出力の安全余裕（ms）",
-    "ring only. The output ring is kept this much deeper than the slowest block of the last two minutes needed. Every time a block still arrives too late the output has a gap, heard as a click; more margin makes that rarer and adds the same amount of delay.": "ring のときだけ。出力リングを、直近 2 分でいちばん遅かったブロックが必要とした量よりこの分だけ多く保ちます。それでも間に合わないブロックがあると出力が途切れ、プチッと聞こえます。増やすと起きにくくなり、同じだけ遅延が増えます。"
+    "ring only. The output ring is kept this much deeper than the slowest block of the last two minutes needed. Every time a block still arrives too late the output has a gap, heard as a click; more margin makes that rarer and adds the same amount of delay.": "ring のときだけ。出力リングを、直近 2 分でいちばん遅かったブロックが必要とした量よりこの分だけ多く保ちます。それでも間に合わないブロックがあると出力が途切れ、プチッと聞こえます。増やすと起きにくくなり、同じだけ遅延が増えます。",
+    "Index search (P2)": "Index の検索方法（P2）",
+    "faiss: the stored FAISS index, searched approximately on the CPU (as always). exact: every index vector is compared on the GPU, so the truly nearest ones are found and the features never leave the GPU. Needs VRAM for the index (about 0.5 GB per 100,000 vectors at 1024 dimensions).": "faiss: 保存されている FAISS の Index を CPU で近似検索します（従来どおり）。exact: Index の全ベクトルを GPU 上で比べるので、本当にいちばん近いものが見つかり、特徴量が GPU から出ません。Index の分の VRAM が必要です（1024 次元で 10 万ベクトルあたり約 0.5 GB）。",
+    "Index neighbours blended per frame": "1 フレームごとに混ぜる Index の近傍数",
+    "8 = as always. Each frame is replaced by the weighted mean of this many nearest index vectors (weight = 1 / squared distance, squared, so the nearest dominate). 1 uses the single nearest vector; more averages further.": "8 = 従来どおり。各フレームを、近い順にこの数の Index ベクトルの重み付き平均で置き換えます（重みは 1 / 距離の 2 乗、をさらに 2 乗。いちばん近いものが支配的）。1 は最近傍 1 本だけ、増やすとより遠くまで平均します。"
 }

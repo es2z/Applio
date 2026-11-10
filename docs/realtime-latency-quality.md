@@ -297,6 +297,37 @@ Level: generator peak -6.2 dBFS (max -3.1, 0 blocks over 0 dBFS) | output peak -
   ビルドが必要）、手元に入っている noisereduce のスペクトルゲートは、外部の
   ノイズ除去より品質が劣ります。
 
+## Index 検索: 厳密検索と近傍数（`index_search` / `index_top_k`、P2）
+
+`rvc/realtime/index_search.py`。初期値（faiss / 8）は従来の動作そのものです。
+
+- **従来（faiss）が見ている範囲はとても狭い**: Applio が書く Index は `IVF{N // 39},Flat` で
+  `nprobe = 1`（`rvc/train/process/extract_index.py`）。1 フレームの検索で比べるのは、
+  Index 全体のうち**いちばん近いセル 1 つの約 39 本だけ**です（36 分のデータ = 約 11 万本なら
+  全体の 0.035%）。本当にいちばん近いベクトルが隣のセルにあると見つかりません。
+- **exact**: Index の全ベクトルと GPU 上で比べます（行列積 1 回）。FAISS で全セルを見る
+  （`nprobe = nlist`）のと同じ結果で、特徴量が GPU から CPU へ出て戻る往復も無くなります。
+  混ぜ方（重み = (1 / 距離²)²、近傍数で正規化）は従来と同じ式です。
+  VRAM は 1024 次元で 10 万本あたり約 0.4 GB。Start 後の最初のブロック（ウォームアップ）で
+  GPU に載せ、`Index search: exact over N vectors ...` とログに出ます。
+- **index_top_k**: 混ぜる近傍数（従来は 8 固定）。faiss / exact の両方に効きます。
+  重みが距離の 4 乗に反比例するので、増やしても遠い近傍の寄与は小さく、変化は緩やかです。
+  1 は最近傍 1 本そのもの（平均によるぼやけが無い代わりに、フレーム間で飛びやすい）。
+- **自分の Index でどれだけ違うかを先に測る**（デバイスも変換モデルも不要）:
+
+  ```
+  env\python.exe -X utf8 tools\index_recall.py <モデルの .index> logs\<自分の声のモデル>\extracted
+  ```
+
+  2 つ目の引数は「変換元の声」の特徴量フォルダー（Index と同じ embedder で抽出したもの）。
+  nprobe ごとに、真の最近傍が見つかった割合、top-k の一致率、混ぜた後の特徴量が exact と
+  どれだけ違うか、CPU 時間を表示します。合成データ（11 万本、39 本/セル）では nprobe 1 で
+  真の最近傍が見つかるのは 42%、top-8 の一致は 39% でした。**実データの数字ではない**ので、
+  必ず自分の Index で測ってください。
+- 音への影響: 「より近いベクトルが選ばれる」方向で、Index Rate が高いほど差が出ます。
+  今まで聴いてきたのは nprobe 1 の音なので、良し悪しは A/B で決めてください
+  （`--preset "exact={\"index_search\": \"exact\"}"`）。
+
 ## A/B の手順
 
 ### 1. オフライン（デバイスなし、同じ録音で比較）
@@ -354,6 +385,7 @@ env\python.exe -X utf8 tools\realtime_stream_eval.py --template <テンプレー
   与えられたノイズ・位相での生成（学習時の経路は変更なし）
 - `rvc/realtime/resample.py`: stateful リサンプラ
 - `rvc/realtime/io_processing.py`: 入力のハイパス、ゲートのフェード、レベル表示
+- `rvc/realtime/index_search.py`, `tools/index_recall.py`: Index の厳密検索と、従来の検索との差の計測
 - `rvc/realtime/ring_transport.py`, `rvc/realtime/ring_buffer.py`: ring 転送
 - `rvc/realtime/stream_eval.py`, `tools/realtime_stream_eval.py`: オフライン A/B
 - `tools/apex_noise_voiced_ratio.py`: 学習データの有声率
