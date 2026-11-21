@@ -22,7 +22,8 @@ from rvc.lib import utils as embedder_utils
 from rvc.lib.utils import HubertModelWithFinalProj, _attach_input_preprocessing, embedder_forward
 from tools.spin.data import SpinBatches, build_cache
 from tools.spin.export import load_spin_checkpoint
-from tools.spin.model import SpinHead, compute_sinkhorn, load_truncated, set_trainable, warmup_decay
+from tools.spin.model import (SpinHead, compute_sinkhorn, load_truncated, set_trainable,
+                              warmup_decay, warmup_factor)
 from tools.spin.perturb import perturb_speaker
 from tools.spin.train import trained_state
 
@@ -121,6 +122,58 @@ class SpinTest(unittest.TestCase):
         self.assertAlmostEqual(warmup_decay(0), 0.01)
         self.assertAlmostEqual(warmup_decay(2500), 1.0)
         self.assertAlmostEqual(warmup_decay(4999), 0.01, places=6)
+
+    def test_constant_schedule_warms_up_and_holds(self):
+        def factor(step):
+            return warmup_factor(step, "constant", 2500, 20000, 3e-5)
+
+        self.assertAlmostEqual(factor(0) * 3e-5, 1e-6)
+        self.assertAlmostEqual(factor(2500), 1.0)
+        self.assertEqual(factor(2501), 1.0)
+        self.assertEqual(factor(19999), 1.0)
+        self.assertEqual(warmup_factor(1000, "decay", 2500, 5000, 1e-4), warmup_decay(1000))
+
+    def test_an_anneal_run_goes_from_the_learning_rate_down_to_the_floor(self):
+        def factor(step):
+            return warmup_factor(step, "decay", 1, 1000, 3e-5)
+
+        self.assertAlmostEqual(factor(1), 1.0)
+        self.assertAlmostEqual(factor(999) * 3e-5, 1e-6, places=9)
+
+    def test_a_failed_checkpoint_save_leaves_the_last_good_file(self):
+        from tools.spin.train import latest_checkpoint, write_checkpoint
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "ckpt_last.pt")
+            write_checkpoint({"step": 1}, path)
+
+            def partial_save(checkpoint, f):
+                f.write(b"\0" * 100)
+                raise OSError("cut off")
+
+            with patch("tools.spin.train.torch.save", side_effect=partial_save):
+                with self.assertRaises(OSError):
+                    write_checkpoint({"step": 2}, path)
+            self.assertEqual(latest_checkpoint(folder)["step"], 1)
+
+            write_checkpoint({"step": 3}, path)
+            self.assertEqual(latest_checkpoint(folder)["step"], 3)
+            self.assertEqual(os.listdir(folder), ["ckpt_last.pt"])
+
+    def test_init_moments_takes_the_moments_and_keeps_this_runs_rate(self):
+        from tools.spin.train import init_moments
+
+        p = torch.nn.Parameter(torch.ones(3))
+        old = torch.optim.Adam([p], lr=1e-4)
+        p.grad = torch.ones(3)
+        old.step()
+        q = torch.nn.Parameter(torch.ones(3))
+        new = torch.optim.Adam([q], lr=3e-5)
+        scheduler = torch.optim.lr_scheduler.LambdaLR(new, lambda s: 0.5)
+        init_moments(new, old.state_dict())
+        self.assertAlmostEqual(new.param_groups[0]["lr"], 1.5e-5)
+        self.assertEqual(scheduler.base_lrs, [3e-5])
+        torch.testing.assert_close(new.state[q]["exp_avg"], old.state[p]["exp_avg"])
 
     def test_batches_are_equal_length_pairs_and_reproducible(self):
         dataset = os.path.join(self.tmp, "dataset")

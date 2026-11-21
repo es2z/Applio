@@ -215,6 +215,9 @@ class Pipeline:
         self.autotune = Autotune()
         self.fcn_predictor = None
         self.fcnf0pp_predictor = None
+        # Set by pipeline() when the chosen index is a key/value one (rvc/lib/key_index.py):
+        # the embedder that makes the search keys from the same source audio.
+        self.key_embedder = None
 
     def configure_fcnf0pp(self, method, explicit_profile=None, checkpoint=None):
         """Resolve the FCNF0++ profile once and keep the network across calls."""
@@ -447,6 +450,7 @@ class Pipeline:
             feats = feats.mean(-1) if feats.dim() == 2 else feats
             assert feats.dim() == 1, feats.dim()
             feats = feats.view(1, -1).to(self.device)
+            source = feats
             # extract features
             feats = embedder_forward(model, feats)
             feats = (
@@ -457,8 +461,15 @@ class Pipeline:
             if (
                 index
             ):  # set by parent function, only true if index is available, loaded, and index rate > 0
+                # A key/value index is searched with its own embedder's features of the
+                # same audio; an ordinary one with the model's.
+                keys = (
+                    embedder_forward(self.key_embedder, source).float()
+                    if self.key_embedder is not None
+                    else None
+                )
                 feats = self._retrieve_speaker_embeddings(
-                    feats, index, big_npy, index_rate
+                    feats, index, big_npy, index_rate, keys
                 )
             # feature upsampling
             feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(
@@ -495,15 +506,24 @@ class Pipeline:
                 torch.cuda.empty_cache()
         return audio1
 
-    def _retrieve_speaker_embeddings(self, feats, index, big_npy, index_rate):
-        if index.d != feats.shape[-1]:
+    def _retrieve_speaker_embeddings(self, feats, index, big_npy, index_rate, keys=None):
+        """keys: a key/value index's search features for the same frames (its own
+        embedder); None searches with feats, as an ordinary index is."""
+        query = feats if keys is None else keys
+        if index.d != query.shape[-1] or big_npy.shape[1] != feats.shape[-1]:
             print(
                 f"Skipping the index: it holds {index.d} wide vectors but the embedder "
                 f"produced {feats.shape[-1]} wide ones. Rebuild the index with the same "
                 "embedder the model was trained on."
             )
             return feats
-        npy = feats[0].cpu().numpy()
+        if query.shape[1] != feats.shape[1]:
+            print(
+                f"Skipping the key index: {query.shape[1]} key frames against "
+                f"{feats.shape[1]} feature frames."
+            )
+            return feats
+        npy = query[0].cpu().numpy()
         score, ix = index.search(npy, k=8)
         weight = np.square(1 / score)
         weight /= weight.sum(axis=1, keepdims=True)
@@ -554,13 +574,19 @@ class Pipeline:
             hop_length: Hop length for F0 estimation methods.
             f0_autotune: Whether to apply autotune to the F0 contour.
         """
+        self.key_embedder = None
         if file_index != "" and os.path.exists(file_index) and index_rate > 0:
             try:
-                index = faiss.read_index(file_index)
-                big_npy = index.reconstruct_n(0, index.ntotal)
+                from rvc.lib.key_index import load_index, load_key_embedder
+
+                index, big_npy, key_spec = load_index(file_index)
+                if key_spec is not None:
+                    self.key_embedder = load_key_embedder(key_spec, self.device)
+                    print(f"Key index: searching with {key_spec['key_embedder']}")
             except Exception as error:
                 print(f"An error occurred reading the FAISS index: {error}")
                 index = big_npy = None
+                self.key_embedder = None
         else:
             index = big_npy = None
         audio = signal.filtfilt(bh, ah, audio)

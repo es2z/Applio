@@ -13,6 +13,13 @@ The forward pass is rvc.lib.utils.embedder_forward itself - the same input norma
 and dtype handling every extraction uses - so the model is trained on exactly the features
 RVC will read from it. Checkpoints hold the trained layers, the head and the optimiser
 (ckpt_<step>.pt); tools/spin/export.py turns one into an embedder folder.
+
+Comparing training lengths without paying for a run per length: --schedule constant holds
+--lr after the warm-up, so one run passes through every length, and a short run with
+--init-from <ckpt> --schedule decay --warmup 1 --steps 1000 brings a checkpoint of it down
+to 1e-6 the way a finished run ends. --init-from takes the weights, the head and Adam's
+moments, and starts the schedule and the step count afresh; give that run its own --seed,
+because batches are seeded per step and it would otherwise repeat the run's first ones.
 """
 
 import argparse
@@ -81,6 +88,27 @@ def latest_checkpoint(out):
     return best
 
 
+def write_checkpoint(checkpoint, path):
+    """Save so that `path` is only ever a complete file. A plain torch.save returns with
+    the data still in the OS cache: a power cut seconds later left a ckpt_20000.pt of the
+    right size with its last 141 MB zero, and --resume then stopped on it every try."""
+    temporary = path + ".tmp"
+    with open(temporary, "wb") as f:
+        torch.save(checkpoint, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temporary, path)
+
+
+def init_moments(optimizer, saved):
+    """Load an optimizer's saved state but keep this run's learning rate, which the
+    scheduler has already written into the param groups."""
+    groups = [{k: g[k] for k in ("lr", "initial_lr") if k in g} for g in optimizer.param_groups]
+    optimizer.load_state_dict(saved)
+    for group, kept in zip(optimizer.param_groups, groups):
+        group.update(kept)
+
+
 def trained_state(model, train_layers):
     from tools.spin.model import trainable_layers
 
@@ -92,7 +120,7 @@ def trained_state(model, train_layers):
 
 def main():
     from rvc.lib.utils import embedder_forward
-    from tools.spin.model import SpinHead, load_truncated, set_trainable, warmup_decay
+    from tools.spin.model import SpinHead, load_truncated, set_trainable, warmup_factor
 
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--dataset", required=True)
@@ -104,6 +132,10 @@ def main():
     parser.add_argument("--steps", type=int, default=5000)
     parser.add_argument("--warmup", type=int, default=2500)
     parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--schedule", choices=["decay", "constant"], default="decay",
+                        help="after the warm-up: linear decay to 1e-6 at --steps (the official "
+                             "recipe), or stay at --lr")
+    parser.add_argument("--init-from", help="a ckpt_*.pt to start from (see the top of this file)")
     parser.add_argument("--batch-seconds", type=float, default=256.0)
     # 1.5 s rather than the official 2.5 s: RVC slices its training audio into ~3 s
     # pieces and realtime feeds ~1-1.5 s windows, and at 2.5 s the target voice's short
@@ -171,27 +203,37 @@ def main():
 
     optimizer = torch.optim.Adam(trainable, lr=args.lr, weight_decay=1e-6)
     scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer, lambda s: warmup_decay(s, args.warmup, args.steps, args.lr))
+        optimizer, lambda s: warmup_factor(s, args.schedule, args.warmup, args.steps, args.lr))
 
     batch_seconds = args.batch_seconds
     step = 0
-    if args.resume:
-        ckpt = latest_checkpoint(args.out)
-        if ckpt is not None:
-            model.load_state_dict(ckpt["state"], strict=False)
-            head.load_state_dict(ckpt["head"])
-            optimizer.load_state_dict(ckpt["optimizer"])
-            scheduler.load_state_dict(ckpt["scheduler"])
-            step, batch_seconds = ckpt["step"], ckpt["batch_seconds"]
-            log(f"resumed from step {step}")
-        else:
-            log("resume: no checkpoint yet, starting from step 0")
+    ckpt = latest_checkpoint(args.out) if args.resume else None
+    if ckpt is not None:
+        model.load_state_dict(ckpt["state"], strict=False)
+        head.load_state_dict(ckpt["head"])
+        optimizer.load_state_dict(ckpt["optimizer"])
+        scheduler.load_state_dict(ckpt["scheduler"])
+        step, batch_seconds = ckpt["step"], ckpt["batch_seconds"]
+        log(f"resumed from step {step}")
+    elif args.init_from:
+        ckpt = torch.load(args.init_from, map_location="cpu", weights_only=True)
+        if (ckpt["layers"], ckpt["train_layers"]) != (args.layers, args.train_layers):
+            sys.exit(f"{args.init_from} is {ckpt['layers']} layers, top {ckpt['train_layers']} "
+                     f"trained; this run is {args.layers}, top {args.train_layers}")
+        model.load_state_dict(ckpt["state"], strict=False)
+        head.load_state_dict(ckpt["head"])
+        init_moments(optimizer, ckpt["optimizer"])
+        batch_seconds = ckpt["batch_seconds"]
+        log(f"started from {args.init_from} (its step {ckpt['step']})")
+    elif args.resume:
+        log("resume: no checkpoint yet, starting from step 0")
 
     def save(path):
-        torch.save({"step": step, "layers": args.layers, "train_layers": args.train_layers,
-                    "model": args.model, "state": trained_state(model, args.train_layers),
-                    "head": head.state_dict(), "optimizer": optimizer.state_dict(),
-                    "scheduler": scheduler.state_dict(), "batch_seconds": batch_seconds}, path)
+        write_checkpoint({"step": step, "layers": args.layers, "train_layers": args.train_layers,
+                          "model": args.model, "state": trained_state(model, args.train_layers),
+                          "head": head.state_dict(), "optimizer": optimizer.state_dict(),
+                          "scheduler": scheduler.state_dict(), "batch_seconds": batch_seconds},
+                         path)
 
     def loader(batch_seconds, first_step, workers):
         weights = {s: float(w) for s, w in (x.split("=") for x in args.speaker_weight)}

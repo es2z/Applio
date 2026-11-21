@@ -112,3 +112,11 @@ def warmup_decay(step, warmup=2500, max_step=5000, base_lr=1e-4, init_lr=1e-6, f
     if step <= warmup:
         return rate_i + (1.0 - rate_i) * step / warmup
     return max(rate_f, 1.0 - (1.0 - rate_f) * (step - warmup) / (max_step - warmup - 1))
+
+
+def warmup_factor(step, schedule, warmup, max_step, base_lr, init_lr=1e-6):
+    """The LambdaLR factor of a run: SPIN's schedule, or its warm-up and then --lr held."""
+    if schedule == "decay":
+        return warmup_decay(step, warmup, max_step, base_lr, init_lr)
+    rate_i = init_lr / base_lr
+    return rate_i + (1.0 - rate_i) * step / warmup if step <= warmup else 1.0

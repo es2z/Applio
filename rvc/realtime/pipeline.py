@@ -183,9 +183,13 @@ class Realtime_Pipeline:
         hybrid_blend_ratio: float = 0.5,
         fcn_profile=None,
         options: RealtimeOptions = None,
+        key_model=None,
     ):
         self.vc = vc
         self.options = options or RealtimeOptions()
+        # The embedder that makes a key/value index's search keys from the same audio
+        # (rvc/lib/key_index.py); None for an ordinary index.
+        self.key_model = key_model
         # Per-session stream layout and the time-locked state behind the opt-in options;
         # configure_stream fills these in once the window size is known.
         self.stream = None
@@ -667,6 +671,7 @@ class Realtime_Pipeline:
         )
 
         # extract features
+        source = feats
         feats = self.compile_session.embedder(feats).float()
         feats = (
             self.hubert_model.final_proj(feats[0]).unsqueeze(0)
@@ -685,8 +690,15 @@ class Realtime_Pipeline:
             # skip_head on - kept as it was. "trim" blends every frame the rendered
             # region is computed from, flow margin included.
             index_head = plan.flow_head if plan is not None and plan.skip_head is not None else skip_head
+            keys = None
+            if self.key_model is not None:
+                # A key/value index: search with its embedder's features of the same
+                # window, padded by one frame exactly as feats were above.
+                with torch.no_grad():
+                    keys = embedder_forward(self.key_model, source).float()
+                keys = torch.cat((keys, keys[:, -1:, :]), 1)
             feats = self._retrieve_speaker_embeddings(
-                index_head, feats, self.index, self.big_npy, index_rate
+                index_head, feats, self.index, self.big_npy, index_rate, keys
             )
         # feature upsampling
         feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)[
@@ -766,17 +778,26 @@ class Realtime_Pipeline:
         return out_audio
 
     def _retrieve_speaker_embeddings(
-        self, skip_head, feats, index, big_npy, index_rate
+        self, skip_head, feats, index, big_npy, index_rate, keys=None
     ):
-        if index.d != feats.shape[-1]:
+        """keys: a key/value index's search features for the same frames; None
+        searches with feats, as an ordinary index is."""
+        query = feats if keys is None else keys
+        if index.d != query.shape[-1] or big_npy.shape[1] != feats.shape[-1]:
             print(
                 f"Skipping the index: it holds {index.d} wide vectors but the embedder "
                 f"produced {feats.shape[-1]} wide ones. Rebuild the index with the same "
                 "embedder the model was trained on."
             )
             return feats
+        if query.shape[1] != feats.shape[1]:
+            print(
+                f"Skipping the key index: {query.shape[1]} key frames against "
+                f"{feats.shape[1]} feature frames."
+            )
+            return feats
         skip_offset = skip_head // 2
-        npy = feats[0][skip_offset:].cpu().numpy()
+        npy = query[0][skip_offset:].cpu().numpy()
         score, ix = index.search(npy, k=8)
         weight = np.square(1 / score)
         weight /= weight.sum(axis=1, keepdims=True)
@@ -789,17 +810,16 @@ class Realtime_Pipeline:
 
 
 def load_faiss_index(file_index):
+    """(index, big_npy, key_spec); key_spec is None for an ordinary index and describes
+    the search embedder of a key/value one (rvc/lib/key_index.py)."""
     if file_index != "" and os.path.exists(file_index):
         try:
-            index = faiss.read_index(file_index)
-            big_npy = index.reconstruct_n(0, index.ntotal)
+            from rvc.lib.key_index import load_index
+
+            return load_index(file_index)
         except Exception as error:
             print(f"An error occurred reading the FAISS index: {error}")
-            index = big_npy = None
-    else:
-        index = big_npy = None
-
-    return index, big_npy
+    return None, None, None
 
 
 EMBEDDER_PRECISIONS = {
@@ -827,7 +847,7 @@ def create_pipeline(
     """
 
     vc = RealtimeVoiceConverter(model_path)
-    index, big_npy = load_faiss_index(
+    index, big_npy, key_spec = load_faiss_index(
         index_path.strip()
         .strip('"')
         .strip("\n")
@@ -848,6 +868,17 @@ def create_pipeline(
     hubert_model.eval()
     warn_on_feature_scale_mismatch(hubert_model, vc.cpt)
 
+    key_model = None
+    if key_spec is not None:
+        from rvc.lib.key_index import load_key_embedder
+
+        # Same precision as the model's embedder. Run once here so its first real block
+        # does not pay for CUDA / cuDNN start-up.
+        key_model = load_key_embedder(key_spec, vc.config.device, dtype)
+        with torch.no_grad():
+            embedder_forward(key_model, torch.zeros(1, 16000, device=vc.config.device))
+        print(f"[Realtime] Key index: searching with {key_spec['key_embedder']}")
+
     pipeline = Realtime_Pipeline(
         vc,
         hubert_model,
@@ -858,6 +889,7 @@ def create_pipeline(
         hybrid_blend_ratio,
         fcn_profile,
         options,
+        key_model=key_model,
     )
 
     return pipeline

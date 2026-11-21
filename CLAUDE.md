@@ -543,6 +543,61 @@ before writing any code.
     under fully gap-filled F0; that was the F0 (5.8 of `docs/f0-benchmarks.md`), not SPIN
     alone. The timbre change was smaller than hoped (user's held-out voice still picked
     out 82-86% of the time against 100% at L22).
+- **After a full pretrain + fine-tune on SPIN v2 the voice sounded veiled** - low
+  contrast, low resolution (user, 2026-11-04, `naru_20261103_..._kushinadaSPv2`); the same
+  weights fed kushinada L24 features were noisier but not veiled. Measured
+  (`logs/_spin/scripts/feature_probe.py`, `logs/_spin/RESULTS.md` 16): a ridge probe from
+  features to 16 kHz log-mel recovers R^2 0.788 from L24 and 0.791 from L22, but
+  0.724-0.745 from every SPIN version (1k already), and frame-to-frame change 0.34 against
+  0.25-0.29. So SPIN, not layer 22 and not its data mix, discards spectral detail -
+  plausibly by design, since it is trained to be invariant to formant shifts and random EQ.
+  The 100-epoch comparisons hid it because their decoder had 1,000 epochs on L24.
+- **SPIN as the index's search key only: key/value indexes** (`rvc/lib/key_index.py`,
+  `logs/_spin/RESULTS.md` 18). The model stays on L24 (`naru_20261027`); keys = SPIN v2
+  features of its training slices, values = its own `extracted/*.npy`, row for row.
+  `tools/build_key_index.py <model>` writes `logs/<model>/<model>_key-spin-v2.index` (a
+  FAISS IVF over the keys, built as `extract_index.py` builds one, no KMeans) plus
+  `.index.kv.json` (key embedder, values file) and `.values.npy`. The index dropdowns list
+  it next to the ordinary index; choosing it is all it takes: offline
+  (`Pipeline.pipeline` -> `self.key_embedder`) and realtime (`create_pipeline` ->
+  `Realtime_Pipeline.key_model`, warmed once) run the key embedder on the same audio,
+  search with that, and blend the values exactly as before (k = 8, 1/d^2, index_rate). An
+  index without the `.kv.json` loads as it always did. `match_index` still picks the
+  ordinary `<model>.index` (it sorts first). Measured: at the same index_rate the user's
+  held-out voice was nearest to the user's own centroid less often (0.8: 50% -> 32%,
+  1.0: 41% -> 20%) with PER the same or lower (hogehoge2 at 1.0: 17.3 -> 12.3%); realtime
+  with the user's template (1440e, 1080 ms blocks, index 0.64) 59% -> 50%, at +10 ms a
+  block (process p50 40 -> 50 ms; the key embedder runs eagerly, all 22 layers - it could
+  share kushinada's first 20). `tests/test_key_index.py`. Listening pending
+  (`logs/_layercmp/listen/blind_kv/`). Realtime index_rate sweep 0.60-1.00
+  (`logs/_spin/scripts/rt_rate_sweep.py`, `RESULTS.md` 18.2, 4 held-out clips): with the key
+  index PER stays flat up to 0.70 (13.3-13.5%) and rises from 0.75 (to 15.2% at 1.0) while the
+  shift towards naru grows linearly; key 0.70 shifts as far as plain 0.95 at 1.6 points lower PER.
+  **A slower, longer SPIN did not make a better key** (`logs/_spin/run_v3.ps1`, `RESULTS.md` 19):
+  layers 22 and 24 at a constant 3e-5 for 5k-20k updates (`tools/spin/train.py --schedule constant`,
+  each point finished by a 1,000 update decay from `--init-from`) all landed on v2's curve. The shift
+  towards naru did not move with updates, ITA same/diff got worse with them, and L22 shifted a little
+  more than L24 although L24 measures better on ITA, so ITA does not predict a key. L22-5k's lower PER
+  on the held-out clips (-0.5 in all 5 seeds) came from two of the four and reversed on hogehoge2.
+  `tools/build_key_index.py <model> --key-embedder <name> --key-embedder-path <folder>` builds an index
+  from an unregistered export (the folder must stay); a folder's key indexes share one `.values.npy`.
+  **A more exact search moves the sound, not the speaker** (`RESULTS.md` 20). Every index is saved with
+  nprobe 1, which finds 57% of the exact 8 neighbours; 16 finds 99% for +3-4 ms a block. From nprobe 1 to 16
+  the output moves as far as index_rate 0.8 -> 1.0 (1.9-2.4 dB of log-mel; a seed is 0.5-0.7) while the shift
+  towards naru stays put, and the ordinary index's PER falls 1.6 at rate 0.70, which removes most of the key
+  index's PER lead at the same rate (at the same shift the key still leads by 1.8). The product is still at
+  nprobe 1, listening pending (`logs/_layercmp/listen/blind_np/`; `rt_rate_sweep.py convert --nprobe`).
+  **Layers 16-23 did not make a better key** (`RESULTS.md` 21). Same recipe at 5,000 updates, nprobe 1 and 16,
+  both input sets, three seeds. At nprobe 16 L16 / L18 / L20 are 1.2-5.1 PER worse than L22, shift no further and
+  save only 2-5 ms a block; more of the user's voice survives in them (user_top1 0.91-0.98 against 0.84-0.86), so
+  across this range ITA does point the right way, though not the order. L23 beat neither neighbour (held-out +0.61
+  against L22, hogehoge2 +1.09 against L24). v2, L22-5k and L24-5k stay level, and the numbers give no reason to
+  replace v2; listening decides.
+- Not tried yet, noted for later (`RESULTS.md` 18): perturbing naru's own audio
+  (formant / F0 / EQ, `tools/spin` code) for the content features at training time, with
+  the original audio as the target, so the RVC model rather than the embedder learns to
+  ignore timbre; true 100 Hz features (17: unexplained variance -7%). Input formant
+  shifting was tried by the user (Little AlterBoy) and dropped.
 
 ### Changing the embedder or the vocoder on an existing model folder
 Changing the embedder, its feature scale, its output layer or the input std floor
