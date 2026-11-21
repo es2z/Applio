@@ -266,6 +266,60 @@ def apply_generator_lr_boost_settings(
         print(f"Set {key} to {value} in {config_path}")
 
 
+def read_cqt_balance_settings(model_path: str):
+    """{"lr_scale", "loss_scale"} a run trains its CQT discriminators with: the run's
+    config.json values, else the defaults (rvc/train/cqt_balance.py)."""
+    from rvc.train.cqt_balance import (
+        CQT_LOSS_SCALE_KEY,
+        CQT_LR_SCALE_KEY,
+        DEFAULT_CQT_LOSS_SCALE,
+        DEFAULT_CQT_LR_SCALE,
+    )
+
+    train = {}
+    config_path = os.path.join(model_path, "config.json")
+    if os.path.isfile(config_path):
+        with open(config_path, "r") as f:
+            train = json.load(f).get("train", {})
+    return {
+        "lr_scale": train.get(CQT_LR_SCALE_KEY, DEFAULT_CQT_LR_SCALE),
+        "loss_scale": train.get(CQT_LOSS_SCALE_KEY, DEFAULT_CQT_LOSS_SCALE),
+    }
+
+
+def apply_cqt_balance_settings(model_path: str, lr_scale=None, loss_scale=None):
+    """Write cqt_lr_scale / cqt_loss_scale into a run's config.json.
+
+    None leaves a value as it is; only values that differ are written. Raises ValueError
+    for a value train.py would refuse (outside 0..1).
+    """
+    from rvc.train.cqt_balance import (
+        CQT_LOSS_SCALE_KEY,
+        CQT_LR_SCALE_KEY,
+        validate_cqt_scale,
+    )
+
+    wanted = {}
+    if lr_scale is not None:
+        wanted[CQT_LR_SCALE_KEY] = validate_cqt_scale(lr_scale, CQT_LR_SCALE_KEY)
+    if loss_scale is not None:
+        wanted[CQT_LOSS_SCALE_KEY] = validate_cqt_scale(loss_scale, CQT_LOSS_SCALE_KEY)
+    config_path = os.path.join(model_path, "config.json")
+    if not wanted or not os.path.isfile(config_path):
+        return
+    with open(config_path, "r") as f:
+        config = json.load(f)
+    train = config.setdefault("train", {})
+    changed = {key: value for key, value in wanted.items() if train.get(key) != value}
+    if not changed:
+        return
+    train.update(changed)
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=4)
+    for key, value in changed.items():
+        print(f"Set {key} to {value} in {config_path}")
+
+
 def generate_filelist(model_path: str, sample_rate: int, include_mutes: int = 2):
     gt_wavs_dir = os.path.join(model_path, "sliced_audios")
     feature_dir = os.path.join(model_path, f"extracted")

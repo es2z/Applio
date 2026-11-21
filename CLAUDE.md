@@ -1743,6 +1743,43 @@ section and `tests/test_apex_gan_plus_plus.py`. Keep `apex-gan-48k-cqt` for as l
 such D may be warm started from or reset, and keep reading `apex_gan_antialias` (and the
 `antialias` decoder path) for as long as any such model may be converted.
 
+### Holding back the CQT discriminators, and the NaN stop (`rvc/train/cqt_balance.py`)
+**The APEX-GAN++ pretrain collapsed.** `pretrain_20261102_48k_APEXPP_1100_rmvpe112a_kushinadaSPv2`
+(temp4, warm started from the APEX-GAN+ pretrain, LR 8e-5, batch 24, fp16): mel flat at
+14.9 from ~45k steps, while fm rose 10 -> 26 and the discriminator's gradient norm 60 ->
+2,660; from 86k fm ran away (29 -> 192), at step 87,750 (epoch 99.9) the generator broke
+(mel 15 -> 59) and every loss after it was NaN. GradScaler then skipped every step, so G
+never changed again (G_100e == G_120e), D went all-NaN by 120e, and **70 more epochs (14 h)
+of saves overwrote the last good root G/D**. Effective weight norm per sub-discriminator
+(weight_g plus plain weights): the three CQT ones went 8.5 -> 11.8 by 80e (+39%) -> 13.0 at
+100e; periods, resolutions and sub-bands moved under 10%. The APEX-GAN+ pretrain (no CQT)
+stayed flat for 333,750 steps; the stable APEX-GAN++ fine-tune `naru_20261027` (LR 6e-5,
+batch 16) grew its CQTs 8.0 -> 10.5-11.9 over 1,600 epochs. So the CQTs are what escalates;
+that they caused the collapse is the best reading, not proven.
+- **`cqt_lr_scale`** (default **0.5**): the CQT sub-discriminators learn at lr x scale,
+  done by shrinking their update after the optimizer step - exactly an AdamW group at
+  lr x scale (weight decay included; `test_update_scale_is_adamw_at_a_scaled_learning_rate`)
+  while the optimizer keeps one group, so checkpoints, resume and warm starts are
+  untouched and the value may change between runs. A loss weight would do nothing on that
+  side: Adam cancels a constant factor on terms that reach only those parameters.
+- **`cqt_loss_scale`** (default **0.5**): their adv and fm terms count this much in the
+  generator's loss. 0 = no say over G (they still train and still cost time).
+- Both in `config.json` `train`, the Training tab (sliders shown only for recipes whose
+  discriminator has CQTs: APEX-GAN++, RingFormer+), `--cqt_lr_scale` / `--cqt_loss_scale`.
+  At 1.0 the loop is bit-identical to before. Not in `TRAIN_SETTING_KEYS`.
+- Logged: `loss_avg_50/g/adv_cqt` / `fm_cqt` (before the scale), `d_norm/cqt0..2` (the
+  number that ran away), `train/nonfinite_steps` per epoch.
+- **NaN stop** (every recipe): after a 100-step grace from each (re)start, 20 consecutive
+  steps with a non-finite generator or discriminator loss end the run **before the next
+  save** (exit 3; start() ends the other ranks), so the root G/D stay the last good ones.
+  On that run it would have stopped at ~87,770, before the 100e save at 87,800. Sporadic
+  non-finite steps print a per-epoch warning.
+- Effect on the escalation is unmeasured: watch `d_norm/cqt*` in the next run.
+- Restarting from that run: `checkpoints/every/G_80e.pth` + `finetune_start/D_80e_cqt_reset.pth`
+  (D_80e with the three CQTs removed and relabelled `apex-gan-48k`, made by
+  `logs/_spin/scripts/drop_cqt_from_d.py`; a warm start into APEX-GAN++ inherits the other
+  396 tensors unchanged and starts the CQTs fresh, 99.5% of D).
+
 ### Warm starting across embedders and vocoders
 `rvc/train/warm_start.py` is the single place that decides what a pretrained G / D may
 contribute. It works from meaning, not from shape equality:

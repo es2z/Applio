@@ -9,11 +9,21 @@ import gradio as gr
 
 from assets.i18n.i18n import I18nAuto
 from rvc.train.extract.preparing_files import (
+    read_cqt_balance_settings,
     read_generator_lr_boost_settings,
     read_train_settings,
 )
+from rvc.train.cqt_balance import DEFAULT_CQT_LOSS_SCALE, DEFAULT_CQT_LR_SCALE
 from rvc.train.lr_boost import DEFAULT_G_LR_BOOST_EPOCHS, DEFAULT_G_LR_BOOST_MULTIPLIER
-from rvc.train.vocoder_recipe import generator_vocoder
+from rvc.train.vocoder_recipe import discriminator_version, generator_vocoder
+
+
+def recipe_has_cqt(recipe):
+    """Whether a training recipe's discriminator has CQT sub-discriminators."""
+    from rvc.lib.algorithm.discriminators import DISCRIMINATOR_VERSIONS
+
+    spec = DISCRIMINATOR_VERSIONS.get(discriminator_version(str(recipe)), {})
+    return bool(spec.get("cqts"))
 from rvc.train.checkpoint_policy import (
     CRITERIA,
     DEFAULT_POLICY,
@@ -368,6 +378,7 @@ def load_train_settings(model_name, sample_rate):
     settings = read_train_settings(model_path, int(sample_rate))
     settings = settings or DEFAULT_TRAIN_SETTINGS
     boost = read_generator_lr_boost_settings(model_path)
+    cqt = read_cqt_balance_settings(model_path)
     try:
         policy = read_policy(model_path)
     except ValueError:
@@ -386,6 +397,8 @@ def load_train_settings(model_name, sample_rate):
         gr.update(visible=boost["enabled"]),
         gr.update(value=boost["multiplier"]),
         gr.update(value=boost["epochs"]),
+        gr.update(value=cqt["lr_scale"]),
+        gr.update(value=cqt["loss_scale"]),
         gr.update(value=ui["gd_keep"]),
         gr.update(value=ui["gd_n"], visible=ui["gd_keep"]),
         gr.update(value=ui["best_enabled"]),
@@ -1193,6 +1206,26 @@ def train_tab():
                     step=1,
                     interactive=True,
                 )
+            # APEX-GAN++ / RingFormer+ only (rvc/train/cqt_balance.py).
+            with gr.Row(visible=recipe_has_cqt(vocoder.value)) as cqt_balance_settings:
+                cqt_lr_scale = gr.Slider(
+                    label="CQT識別器の学習率倍率",
+                    info="APEX-GAN++ / RingFormer+ のみ。CQT識別器3つだけを「学習率×この値」で学習させます（他の識別器と生成器は通常の学習率）。APEX-GAN++の事前学習では、15個の識別器のうちCQTだけが強くなり続け、99.9エポックで学習が崩れました（重みの大きさ 8.5→80eで11.8、他は10%以内）。1.0で従来どおり。途中再開でも変更できます。logs/<model_name>/config.json に保存。",
+                    minimum=0,
+                    maximum=1,
+                    step=0.05,
+                    value=DEFAULT_CQT_LR_SCALE,
+                    interactive=True,
+                )
+                cqt_loss_scale = gr.Slider(
+                    label="CQT識別器の影響度",
+                    info="APEX-GAN++ / RingFormer+ のみ。生成器の損失のうち、CQT識別器のadv・fmにこの値を掛けます（他の識別器の分はそのまま）。0でCQTは生成器に影響しなくなります（CQT自体の学習と計算は続きます）。1.0で従来どおり。TensorBoardの loss_avg_50/g/adv_cqt・fm_cqt（倍率を掛ける前）と d_norm/cqt0〜2（CQT識別器の重みの大きさ）で様子を見られます。",
+                    minimum=0,
+                    maximum=1,
+                    step=0.05,
+                    value=DEFAULT_CQT_LOSS_SCALE,
+                    interactive=True,
+                )
             index_algorithm = gr.Radio(
                 label=i18n("Index Algorithm"),
                 info=i18n(
@@ -1215,6 +1248,8 @@ def train_tab():
                     g_lr_boost_settings,
                     g_lr_boost_multiplier,
                     g_lr_boost_epochs,
+                    cqt_lr_scale,
+                    cqt_loss_scale,
                     gd_keep,
                     gd_n,
                     best_enabled,
@@ -1318,6 +1353,8 @@ def train_tab():
                     g_lr_boost_epochs,
                     reset_training,
                     mrf_harmonics_from_hifigan,
+                    cqt_lr_scale,
+                    cqt_loss_scale,
                     gd_keep,
                     gd_n,
                     best_enabled,
@@ -1537,6 +1574,11 @@ def train_tab():
                 fn=toggle_sifigan_settings,
                 inputs=[vocoder],
                 outputs=[sifigan_filter_resblock, sifigan_source_scale_init],
+            )
+            vocoder.change(
+                fn=lambda choice: {"visible": recipe_has_cqt(choice), "__type__": "update"},
+                inputs=[vocoder],
+                outputs=[cqt_balance_settings],
             )
 
             # Only an MRF run that inherits weights - from a pretrained model or through

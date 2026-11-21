@@ -565,6 +565,10 @@ def run_train_script(
     g_lr_boost_epochs: int = None,
     reset_training: bool = False,
     mrf_harmonics_from_hifigan: bool = False,
+    # How far the CQT discriminators (APEX-GAN++, RingFormer+) are held back, see
+    # rvc/train/cqt_balance.py. None leaves the folder's config.json value (default 0.5).
+    cqt_lr_scale: float = None,
+    cqt_loss_scale: float = None,
     # The checkpoint policy (rvc/train/checkpoint_policy.py). None leaves a value as the
     # folder's config.json has it.
     gd_every: int = None,
@@ -601,6 +605,7 @@ def run_train_script(
     # These live only in logs/<model>/config.json, so set them there rather than
     # threading them through train.py's positional argv. Passing None leaves them alone.
     from rvc.train.extract.preparing_files import (
+        apply_cqt_balance_settings,
         apply_generator_lr_boost_settings,
         apply_train_settings,
     )
@@ -616,6 +621,11 @@ def run_train_script(
         enabled=g_lr_boost,
         multiplier=g_lr_boost_multiplier,
         epochs=g_lr_boost_epochs,
+    )
+    apply_cqt_balance_settings(
+        os.path.join(logs_path, model_name),
+        lr_scale=cqt_lr_scale,
+        loss_scale=cqt_loss_scale,
     )
 
     from rvc.train.checkpoint_policy import apply_checkpoint_policy
@@ -2232,6 +2242,26 @@ def parse_arguments():
         default=None,
     )
     train_parser.add_argument(
+        "--cqt_lr_scale",
+        type=float,
+        help=(
+            "APEX-GAN++ / RingFormer+ only: the CQT discriminators learn at the learning "
+            "rate times this (0 to 1). Defaults to whatever is already in "
+            "logs/<model_name>/config.json (0.5)."
+        ),
+        default=None,
+    )
+    train_parser.add_argument(
+        "--cqt_loss_scale",
+        type=float,
+        help=(
+            "APEX-GAN++ / RingFormer+ only: how much the CQT discriminators' adversarial "
+            "and feature matching terms count in the generator's loss (0 to 1). Defaults "
+            "to whatever is already in logs/<model_name>/config.json (0.5)."
+        ),
+        default=None,
+    )
+    train_parser.add_argument(
         "--vocoder",
         type=str,
         help="Vocoder name",
@@ -2819,6 +2849,8 @@ def main():
                 lr_decay=args.lr_decay,
                 g_lr_boost_multiplier=args.g_lr_boost_multiplier,
                 g_lr_boost_epochs=args.g_lr_boost_epochs,
+                cqt_lr_scale=args.cqt_lr_scale,
+                cqt_loss_scale=args.cqt_loss_scale,
             )
             if message == TRAINING_FAILED.format(model_name=args.model_name):
                 raise RuntimeError(message)

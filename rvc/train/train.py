@@ -210,6 +210,32 @@ except ValueError as error:
     print(f"Invalid Initial Generator LR Boost settings in {config_save_path}: {error}")
     sys.exit(1)
 
+# How far the CQT discriminators of APEX-GAN++ / RingFormer+ are held back, and the stop
+# for a run whose losses have stopped being finite (rvc/train/cqt_balance.py). Read for
+# every recipe; a discriminator without CQT sub-discriminators ignores the scales.
+from rvc.train.cqt_balance import (
+    NAN_STOP_EXIT,
+    NAN_STOP_STEPS,
+    CQTUpdateScale,
+    NonFiniteStop,
+    cqt_indices,
+    cqt_parameters,
+    effective_weight_norms,
+    generator_adversarial_terms,
+    read_cqt_balance,
+)
+
+try:
+    cqt_lr_scale, cqt_loss_scale = read_cqt_balance(config.train)
+except ValueError as error:
+    print(f"Invalid CQT discriminator settings in {config_save_path}: {error}")
+    sys.exit(1)
+# Set in run(): which sub-discriminators are CQT ones, the update shrink for them, and the
+# non-finite loss counter.
+cqt_idx = []
+cqt_update = None
+nan_stop = None
+
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = True
 
@@ -357,8 +383,22 @@ def main():
                 pid_data["process_pids"].append(subproc.pid)
             json.dump(pid_data, pid_file, indent=4)
 
-        for i in range(n_gpus):
-            children[i].join()
+        # A rank that stopped on non-finite losses leaves the others waiting on it in
+        # their next collective, so they are ended rather than joined.
+        from multiprocessing.connection import wait as wait_for
+
+        pending = list(children)
+        while pending:
+            ready = wait_for([child.sentinel for child in pending])
+            for child in [c for c in pending if c.sentinel in ready]:
+                child.join()
+                pending.remove(child)
+                if child.exitcode == NAN_STOP_EXIT:
+                    for other in pending:
+                        other.terminate()
+        if any(child.exitcode == NAN_STOP_EXIT for child in children):
+            print("Training stopped because its losses stopped being finite; see above.")
+            sys.exit(NAN_STOP_EXIT)
         if any(child.exitcode not in TRAINING_DONE_EXITCODES for child in children):
             raise RuntimeError("Training worker failed; see the traceback above.")
 
@@ -586,6 +626,19 @@ def run(
     else:
         net_g = net_g.to(device)
         net_d = net_d.to(device)
+
+    global cqt_idx, cqt_update, nan_stop
+    cqt_idx = cqt_indices(net_d)
+    cqt_update = CQTUpdateScale(cqt_parameters(net_d, cqt_idx), cqt_lr_scale)
+    nan_stop = NonFiniteStop()
+    if cqt_idx:
+        avg_losses["adv_cqt_50"] = deque(maxlen=50)
+        avg_losses["fm_cqt_50"] = deque(maxlen=50)
+        if rank == 0:
+            print(
+                f"CQT discriminators ({len(cqt_idx)}): learning rate x{cqt_lr_scale:g}, "
+                f"weight in the generator loss x{cqt_loss_scale:g}"
+            )
 
     if bf16_adamw == True and train_dtype == torch.bfloat16:
         print("Using BFload16 AdamW optimizer")
@@ -940,6 +993,7 @@ def train_and_evaluate(
                 loss_disc, _, _ = discriminator_loss(y_d_hat_r, y_d_hat_g)
                 # Discriminator backward and update
                 optim_d.zero_grad()
+                cqt_update.before()
                 if train_dtype == torch.float16:
                     scaler.scale(loss_disc).backward()
                     scaler.unscale_(optim_d)
@@ -949,6 +1003,7 @@ def train_and_evaluate(
                     loss_disc.backward()
                     grad_norm_d = commons.grad_norm(net_d.parameters())
                     optim_d.step()
+                cqt_update.after()
 
             with torch.amp.autocast(
                 device_type="cuda", enabled=use_amp, dtype=train_dtype
@@ -981,8 +1036,11 @@ def train_and_evaluate(
                 )
                 loss_mel = fn_mel_loss(wave_mel, y_hat_mel) * config.train.c_mel
             loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * config.train.c_kl
-            loss_fm = feature_loss(fmap_r, fmap_g)
-            loss_gen, _ = generator_loss(y_d_hat_g)
+            # The CQT sub-discriminators' share is weighted by cqt_loss_scale; without
+            # any, or at 1.0, this is feature_loss + generator_loss over all of them.
+            loss_gen, loss_fm, adv_cqt, fm_cqt = generator_adversarial_terms(
+                y_d_hat_g, fmap_r, fmap_g, cqt_idx, cqt_loss_scale
+            )
             loss_gen_all = loss_gen + loss_fm + loss_mel + loss_kl
             if fn_reg_loss is not None and y_source is not None:
                 # The F0 of this segment, sliced exactly as the Synthesizer sliced it
@@ -1028,6 +1086,9 @@ def train_and_evaluate(
 
             global_step += 1
 
+            if nan_stop.update(loss_gen_all.detach(), loss_disc.detach()):
+                stop_on_nonfinite_losses(rank, epoch, writers)
+
             # queue for rolling losses over 50 steps
             avg_losses["grad_d_50"].append(grad_norm_d)
             avg_losses["grad_g_50"].append(grad_norm_g)
@@ -1039,6 +1100,9 @@ def train_and_evaluate(
             avg_losses["gen_loss_50"].append(loss_gen_all.detach())
             if loss_sd is not None:
                 avg_losses["sd_loss_50"].append(loss_sd.detach())
+            if adv_cqt is not None:
+                avg_losses["adv_cqt_50"].append(adv_cqt)
+                avg_losses["fm_cqt_50"].append(fm_cqt)
 
             if rank == 0 and global_step % 50 == 0:
                 # logging rolling averages
@@ -1070,6 +1134,18 @@ def train_and_evaluate(
                     scalar_dict["loss_avg_50/g/sd"] = torch.mean(
                         torch.stack(list(avg_losses["sd_loss_50"]))
                     )
+                if avg_losses.get("adv_cqt_50"):
+                    # The CQT sub-discriminators' share of adv / fm, before
+                    # cqt_loss_scale, and their effective weight norms: the numbers that
+                    # ran away before the APEX-GAN++ pretrain collapsed.
+                    scalar_dict["loss_avg_50/g/adv_cqt"] = torch.mean(
+                        torch.stack(list(avg_losses["adv_cqt_50"]))
+                    )
+                    scalar_dict["loss_avg_50/g/fm_cqt"] = torch.mean(
+                        torch.stack(list(avg_losses["fm_cqt_50"]))
+                    )
+                    for k, norm in enumerate(effective_weight_norms(net_d, cqt_idx)):
+                        scalar_dict[f"d_norm/cqt{k}"] = norm
                 summarize(
                     writer=writer,
                     global_step=global_step,
@@ -1132,6 +1208,18 @@ def train_and_evaluate(
         }
         if loss_sd is not None:
             scalar_dict["loss/g/sd"] = loss_sd
+        if adv_cqt is not None:
+            scalar_dict["loss/g/adv_cqt"] = adv_cqt
+            scalar_dict["loss/g/fm_cqt"] = fm_cqt
+        # Steps whose losses were not finite this epoch, after the start-up grace. A few
+        # are GradScaler finding its scale; a growing number is a run breaking.
+        nonfinite_steps = nan_stop.take_epoch_count()
+        scalar_dict["train/nonfinite_steps"] = nonfinite_steps
+        if nonfinite_steps:
+            print(
+                f"Warning: {nonfinite_steps} steps of epoch {epoch} had non-finite losses. "
+                f"The run stops by itself after {NAN_STOP_STEPS} in a row."
+            )
 
         image_dict = {
             "slice/mel_org": plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
@@ -1353,6 +1441,31 @@ def train_and_evaluate(
 
         with torch.no_grad():
             torch.cuda.empty_cache()
+
+
+def stop_on_nonfinite_losses(rank, epoch, writers):
+    """End this worker before the next save once its losses have stayed non-finite.
+
+    Exits with NAN_STOP_EXIT, which start() reports and stops the other ranks on. Nothing
+    is saved, so G_*.pth / D_*.pth on disk stay what the last save wrote.
+    """
+    last_saved = ((epoch - 1) // save_every_epoch) * save_every_epoch
+    on_disk = (
+        f"The G/D on disk are still the ones saved at epoch {last_saved}"
+        if last_saved
+        else "This run has not saved a G/D yet, so nothing on disk was touched"
+    )
+    print(
+        f"\nStopping: the losses were not finite for {NAN_STOP_STEPS} steps in a row "
+        f"(epoch {epoch}, step {global_step}). The run has broken and would not recover: "
+        f"every step would be skipped and every save would overwrite good weights with "
+        f"broken ones. {on_disk}. Resume from them with a lower learning rate, or start "
+        f"again from an earlier G/D.",
+        flush=True,
+    )
+    if rank == 0 and writers and writers[0] is not None:
+        writers[0].flush()
+    os._exit(NAN_STOP_EXIT)
 
 
 def setup_checkpoint_policy(config, device, device_id):
