@@ -597,7 +597,26 @@ before writing any code.
   (formant / F0 / EQ, `tools/spin` code) for the content features at training time, with
   the original audio as the target, so the RVC model rather than the embedder learns to
   ignore timbre; true 100 Hz features (17: unexplained variance -7%). Input formant
-  shifting was tried by the user (Little AlterBoy) and dropped.
+  shifting was tried by the user (Little AlterBoy) and dropped. The first of these is now
+  planned in a sharper form - perturbing naru's audio *towards the user* by converting it
+  with the user's own RVC model - see the next section.
+
+### Improving the male -> female conversion: plan and other ideas
+When the user asks how to improve the conversion between their voice and the target (naru),
+about next steps, about other approaches (feature mapping, F0 distribution, formant tricks,
+Seed-VC / Beatrice and other replacements), or about "srcaug", **read these two files first
+and answer from them**, then update them with whatever is decided or measured:
+- `docs/PLAN-source-matched-training.md` - the plan being implemented (as of 2026-11-25, not
+  yet implemented): `tools/srcaug/build_source_features.py` converts the target folder's
+  training slices with the user's own RVC model (pitch about -12.5), extracts features with
+  the folder's embedder into `logs/<model>/extracted_srcaug/`, and training swaps them in for
+  `extracted/` with probability `train.srcaug_prob` (default 0, bit-identical). Inference and
+  realtime do not change. It also records the GPU cache trap (`GPUSampleCache` would freeze
+  the choice) and the A/B procedure with a control run.
+- `docs/ideas/m2f-conversion-ideas.md` - every other candidate, ranked, with why: why
+  augmenting the embedder with pitch / formant shifted audio was set aside (it repeats what
+  made SPIN veiled), Praat male-ward perturbation as a cheap variant, LinearVC / SSL-GMMVC
+  feature mapping, log-F0 mean/variance mapping, and the replacements deferred by the user.
 
 ### Changing the embedder or the vocoder on an existing model folder
 Changing the embedder, its feature scale, its output layer or the input std floor
